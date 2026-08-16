@@ -121,7 +121,7 @@ backend.zip
 *.sqlite
 *.sqlite3
 *.db
-data/
+/data/
 tmp/
 temp/
 
