@@ -1,0 +1,15 @@
+{
+  "name": "@sankatai/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./chat": "./chat.js",
+    "./countries": "./countries.js",
+    "./documents": "./documents.js",
+    "./profileOptions": "./profileOptions.js",
+    "./theme": "./theme.js",
+    "./validation": "./validation.js"
+  }
+}

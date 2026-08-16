@@ -1,0 +1,26 @@
+{
+  "name": "sankatai",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/web",
+    "apps/mobile",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=@sankatai/web",
+    "build:web": "npm run build --workspace=@sankatai/web",
+    "lint:web": "npm run lint --workspace=@sankatai/web",
+    "dev:mobile": "npm run start --workspace=@sankatai/mobile",
+    "android": "npm run android --workspace=@sankatai/mobile",
+    "ios": "npm run ios --workspace=@sankatai/mobile",
+    "web:preview": "npm run preview --workspace=@sankatai/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "ollama": "^0.6.3",
+    "open-webui": "^0.1.125"
+  }
+}

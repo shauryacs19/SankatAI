@@ -1,0 +1,12 @@
+# Python 3.14-compatible (all deps ship prebuilt cp314 wheels — no Rust/build needed).
+# pydantic bumped to 2.13+ (older 2.10 has no cp314 pydantic-core wheel).
+# uvicorn WITHOUT [standard]: the standard extras (uvloop/httptools/watchfiles)
+# lack cp314 wheels; the app runs with plain uvicorn (reload=False, no websockets).
+fastapi>=0.115.6
+uvicorn>=0.34.0
+openai>=1.59.6
+python-dotenv>=1.0.1
+pydantic>=2.13.4
+boto3>=1.35.99
+# PyJWT + cryptography removed: JWT validation moved to the API Gateway Cognito
+# authorizer. The backend no longer decodes or verifies tokens.

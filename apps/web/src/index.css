@@ -1,0 +1,188 @@
+/* === GLOBAL RESET === */
+
+:root {
+  font-family: "Inter", "IBM Plex Sans", "Segoe UI", "Helvetica Neue", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light;
+  background-color: var(--bg-body);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* === Design tokens (LIGHT) ===
+     These match the fallback values used throughout the app's inline styles
+     (var(--token, #fallback)). Defining them here is what lets [data-theme=dark]
+     flip the whole UI. */
+
+  /* Accent */
+  --primary: #C4504B;
+  --primary-hover: #A93F3B;
+  --primary-glow: rgba(196, 80, 75, 0.10);
+  --accent: #C4504B;
+  --accent-soft: rgba(196, 80, 75, 0.08);
+  --danger: #C4504B;
+  --danger-hover: #A93F3B;
+
+  /* Surfaces */
+  --bg-body: #F8FAFC;
+  --bg-surface: #FFFFFF;
+  --surface-1: #FFFFFF;
+  --surface-2: #F1F5F9;
+  --surface-3: #E5E7EB;
+  --border-subtle: #E5E7EB;
+
+  /* Text */
+  --text-primary: #0F172A;
+  --text-secondary: #334155;
+  --text-muted: #64748B;
+  --muted: #64748B;
+
+  /* Status */
+  --success: #059669;
+  --success-soft: #D1FAE5;
+  --warning: #D97706;
+
+  /* Severity */
+  --sev-low: #059669;      --sev-low-soft: #ECFDF5;      --sev-low-border: #A7F3D0;
+  --sev-moderate: #CA8A04; --sev-moderate-soft: #FEFCE8; --sev-moderate-border: #FDE68A;
+  --sev-high: #EA580C;     --sev-high-soft: #FFF7ED;     --sev-high-border: #FED7AA;
+  --sev-emergency: #DC2626;--sev-emergency-soft: #FEF2F2;--sev-emergency-border: #FECACA;
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.12);
+}
+
+/* === Dark theme === */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --primary: #D9635E;
+  --primary-hover: #E0736E;
+  --primary-glow: rgba(217, 99, 94, 0.18);
+  --accent: #D9635E;
+  --accent-soft: rgba(217, 99, 94, 0.14);
+  --danger: #D9635E;
+  --danger-hover: #E0736E;
+
+  --bg-body: #0B1220;
+  --bg-surface: #141D2E;
+  --surface-1: #141D2E;
+  --surface-2: #1C2740;
+  --surface-3: #263250;
+  --border-subtle: #2A3550;
+
+  --text-primary: #E8ECF3;
+  --text-secondary: #C2CAD8;
+  --text-muted: #8B96A9;
+  --muted: #8B96A9;
+
+  --success: #34D399;
+  --success-soft: rgba(16, 185, 129, 0.16);
+  --warning: #FBBF24;
+
+  --sev-low: #34D399;      --sev-low-soft: rgba(5, 150, 105, 0.16);   --sev-low-border: rgba(52, 211, 153, 0.34);
+  --sev-moderate: #FACC15; --sev-moderate-soft: rgba(202, 138, 4, 0.16); --sev-moderate-border: rgba(250, 204, 21, 0.34);
+  --sev-high: #FB923C;     --sev-high-soft: rgba(234, 88, 12, 0.16);  --sev-high-border: rgba(251, 146, 60, 0.34);
+  --sev-emergency: #F87171;--sev-emergency-soft: rgba(220, 38, 38, 0.18); --sev-emergency-border: rgba(248, 113, 113, 0.34);
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Smooth scrolling globally */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--bg-body);
+  color: var(--text-primary);
+}
+
+/* Smooth light <-> dark transition. Only color-related properties animate, so
+   layout/hover interactions are unaffected. ~360ms feels gentle on the eyes. */
+*,
+*::before,
+*::after {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+  transition-duration: 0.36s;
+  transition-timing-function: ease;
+}
+
+/* Respect reduced-motion and keep interactive feedback (hover/focus) snappy so
+   only theme switches get the slow fade, not buttons. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms;
+  }
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+input,
+button,
+textarea,
+select {
+  font-family: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Selection color — Red Cross theme */
+::selection {
+  background: rgba(196, 80, 75, 0.15);
+  color: var(--text-primary);
+}
+
+/* Custom scrollbar — thin, themed */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, rgba(0, 0, 0, 0.12));
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(196, 80, 75, 0.25);
+}
+
+/* Form text must never inherit the browser default — on the dark theme (and on
+   tinted surfaces in light) that rendered as near-invisible text. */
+input, textarea, select {
+  color: var(--text-primary);
+  caret-color: var(--primary);
+  font: inherit;
+}
+input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
+select option { color: var(--text-primary); background: var(--bg-surface); }
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-primary);
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-surface) inset;
+}
