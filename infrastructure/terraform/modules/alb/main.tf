@@ -19,12 +19,18 @@ resource "aws_security_group" "alb" {
     cidr_blocks = [var.vpc_cidr]
   }
 
+  # Scoped to the VPC and the backend's listening port only. Not a
+  # security-group-to-security-group rule: that would make this module and
+  # `compute/ec2` depend on each other's SG id (ec2 already takes
+  # alb_security_group_id for its ingress), which Terraform rejects as a
+  # module cycle. The ALB's only possible target is inside this VPC, so the
+  # CIDR scope is equivalent in practice.
   egress {
-    description = "Forward to the backend target"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "Forward to the backend target, inside the VPC only"
+    from_port   = var.backend_port
+    to_port     = var.backend_port
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
   }
 
   tags = {

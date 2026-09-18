@@ -23,10 +23,14 @@ resource "aws_internet_gateway" "main" {
 # `public` keeps its original address/CIDR so it is not replaced in state.
 
 resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnet_cidr
-  availability_zone       = var.availability_zone
-  map_public_ip_on_launch = true
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = var.public_subnet_cidr
+  availability_zone = var.availability_zone
+
+  # Explicit per-instance instead: only the NAT instance below opts in
+  # (associate_public_ip_address = true). Nothing else should launch here
+  # and inherit a public IP by default.
+  map_public_ip_on_launch = false
 
   tags = {
     Name    = "${var.project_name}-public-subnet"
@@ -35,10 +39,13 @@ resource "aws_subnet" "public" {
 }
 
 resource "aws_subnet" "public_b" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnet_b_cidr
-  availability_zone       = var.availability_zone_b
-  map_public_ip_on_launch = true
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = var.public_subnet_b_cidr
+  availability_zone = var.availability_zone_b
+
+  # Unused today (no resource is placed here) — kept off by default for the
+  # same reason as "public" above.
+  map_public_ip_on_launch = false
 
   tags = {
     Name    = "${var.project_name}-public-subnet-b"
@@ -148,6 +155,11 @@ resource "aws_instance" "nat" {
   subnet_id              = aws_subnet.public.id
   vpc_security_group_ids = [aws_security_group.nat.id]
 
+  # The subnet no longer auto-assigns a public IP (see aws_subnet.public), so
+  # this instance opts in explicitly — it needs one to masquerade private
+  # traffic out through the IGW.
+  associate_public_ip_address = true
+
   # Mandatory for a NAT instance: it forwards packets that are neither from nor
   # to its own address, which the default check would drop.
   source_dest_check = false
@@ -169,6 +181,13 @@ resource "aws_instance" "nat" {
     iptables-save > /etc/sysconfig/iptables
     systemctl enable --now iptables
   EOF
+
+  # Force IMDSv2 on the NAT box too — same SSRF-to-credential-theft rationale
+  # as the backend instance, even though this instance carries no app role.
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
 
   root_block_device {
     volume_size = 8

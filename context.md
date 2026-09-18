@@ -281,6 +281,53 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
   needs `--build`. In dev they're plain env on the Vite dev server, so a restart suffices.
 
 ## 10. Changelog (most recent first)
+- **Trivy fixes — dependencies + Terraform, no new AWS cost (2026-09-18):**
+  - **Removed `open-webui`** (root `package.json`) — unused (no import anywhere in the
+    repo; triage is pure HTTPS calls to Ollama Cloud, see §8). This transitively removed
+    its bundled, vulnerable `@sveltejs/kit@1.30.4`, `devalue@4.3.3`, a nested
+    `undici@5.29.0` and a nested `vite@4.5.14` — none of those four were used
+    independently anywhere; they existed only as open-webui's dependencies. This is why
+    Trivy reported vulnerable `vite`/`undici` versions that did not match the ones the
+    apps actually build against.
+  - **`postcss`**: root `package.json` now carries `"overrides": { "postcss": "^8.5.18" }`
+    → resolves to `8.5.x` everywhere (was pinned to `8.4.49` by `@expo/metro-config`'s
+    `~8.4.32` range). npm only re-resolves an override on a fresh tree, so the lockfile
+    must be regenerated (`package-lock.json` deleted; run `npm install`).
+  - `vite` (`apps/web`, `^8.0.16`) and ECR `image_tag_mutability = "IMMUTABLE"` were
+    already applied locally before this pass — left as-is, both correct.
+  - **NAT instance** (`modules/network/main.tf`): added the `metadata_options` block
+    (IMDSv2 `http_tokens = "required"`) it was missing — the backend EC2 already had it.
+  - **Public subnets** (`modules/network/main.tf`): `map_public_ip_on_launch` → `false`
+    on both `public` and `public_b`. The NAT instance now sets
+    `associate_public_ip_address = true` explicitly instead — public-IP assignment is
+    per-instance and deliberate rather than automatic per-subnet. Backend EC2 is
+    unaffected (private subnet, already `false`).
+  - **ALB security group egress** (`modules/alb/main.tf`): narrowed from
+    `0.0.0.0/0`/all-ports to the VPC CIDR + `var.backend_port` only. Not a true SG-to-SG
+    rule: `compute/ec2` already depends on the ALB module's SG id for its own ingress, so
+    having `alb` depend on `compute/ec2`'s SG id for egress would be a Terraform module
+    cycle. CIDR-scoping to the VPC is equivalent in practice — the ALB is internal and can
+    only ever reach targets inside the VPC.
+  - **Accepted / documented, no change** (each verified against the actual `.tf` state):
+    - ALB listener stays HTTP:80 — TLS terminates at API Gateway and this hop never
+      leaves the VPC. HTTPS here is a final-deployment item, not a dev-environment gap.
+    - CloudFront has no WAF — planned for production, omitted on this low-budget project
+      to avoid the recurring cost.
+    - `chat_uploads`, `file_storage` and the frontend bucket stay on SSE-S3 (`AES256`)
+      rather than a customer-managed KMS key — already encrypted at rest; a CMK adds cost
+      with nothing requiring it here.
+    - Backend EC2 and NAT instance SG egress stay `0.0.0.0/0` — the backend needs
+      arbitrary outbound HTTPS (Ollama Cloud, ECR, apt, AWS APIs) and outbound internet
+      is the NAT instance's entire job. Pinning either to a fixed IP list would be
+      guesswork against third-party SaaS ranges and would risk breaking the app.
+  - ⚠️ **Not verified by a Trivy run.** Trivy could not be installed in the sandbox and
+    `npm install` cannot complete over the desktop bridge mount (npm fails `ENOTEMPTY` on
+    rename against the Windows mount), so the lockfile is currently DELETED. Next steps,
+    natively in PowerShell at `D:\Projects\SankatAI`:
+    `npm install` → `npm audit` → `npm run build:web` → `trivy fs .` →
+    `trivy config infrastructure/terraform`. Also run `terraform fmt/validate/plan`
+    before applying (§8).
+  - **Cost delta: $0.** No NAT Gateway, no WAF, no KMS key, no domain.
 - **Bedrock + OpenSearch Serverless removed entirely — Ollama Cloud is the only AI (2026-08-16):**
   Cost. The AOSS collection alone had a 2-OCU floor (~$350/mo) and dominated the bill.
   - **Deleted** `modules/ai/` (whole module: `opensearch.tf`, `knowledge_base.tf`, `data.tf`,

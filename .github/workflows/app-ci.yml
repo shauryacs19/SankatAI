@@ -123,6 +123,9 @@ jobs:
     needs:
       - backend
       - frontend
+      - sonarqube
+      - trivy-filesystem
+      - trivy-iac
     
     steps:
       - name: Checkout repository

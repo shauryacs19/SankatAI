@@ -20,7 +20,9 @@
     "concurrently": "^9.2.1"
   },
   "dependencies": {
-    "ollama": "^0.6.3",
-    "open-webui": "^0.1.125"
+    "ollama": "^0.6.3"
+  },
+  "overrides": {
+    "postcss": "^8.5.18"
   }
 }

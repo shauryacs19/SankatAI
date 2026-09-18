@@ -6,7 +6,7 @@
 
 resource "aws_ecr_repository" "backend" {
   name                 = "${var.project_name}-backend"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
     scan_on_push = true
@@ -81,9 +81,9 @@ data "aws_iam_policy_document" "github_assume" {
     # Scoped to this repository. Without this condition ANY GitHub repo on the
     # internet could assume the role.
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:*"]
+      values   = ["repo:${var.github_repository}:ref:refs/heads/main"]
     }
   }
 }
@@ -127,8 +127,8 @@ resource "aws_iam_role_policy" "github_actions" {
       # Deploy without SSH: send the pull/restart command to the private
       # instance through SSM Run Command.
       {
-        Effect   = "Allow"
-        Action   = ["ssm:SendCommand"]
+        Effect = "Allow"
+        Action = ["ssm:SendCommand"]
         Resource = [
           "arn:aws:ssm:*::document/AWS-RunShellScript",
           "arn:aws:ec2:*:${data.aws_caller_identity.current.account_id}:instance/${var.backend_instance_id}",
