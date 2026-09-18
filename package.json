@@ -20,7 +20,10 @@
     "concurrently": "^9.2.1"
   },
   "dependencies": {
-    "ollama": "^0.6.3"
+    "cookie": "^1.1.1",
+    "motion-dom": "^13.3.0",
+    "ollama": "^0.6.3",
+    "set-cookie-parser": "^3.1.2"
   },
   "overrides": {
     "postcss": "^8.5.18"
