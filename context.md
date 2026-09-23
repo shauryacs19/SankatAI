@@ -153,15 +153,12 @@ expo-secure-store` to pin the SDK-54 version; it's bundled in Expo Go so no rebu
 dev. `@react-native-async-storage/async-storage` remains installed only because `amazon-cognito-identity-js` imports its React Native storage helper; application JWT persistence never uses AsyncStorage.
 
 ## 8. Known limitations
-- ⚠️ **Not applied yet.** All of §9 is Terraform-verified structurally but has not
-  been `terraform apply`-ed. The plan REPLACES the EC2 instance (subnet change) and
-  DESTROYS `sankatai-web-sessions` + the `auth_session_secret` Secrets Manager entry.
-  Review the plan before applying.
-- `terraform fmt/validate/plan` could not be run here — no network access to the
-  HashiCorp releases CDN from this sandbox. Verified instead with a structural
-  cross-check (every module input declared, every required input passed, every
-  `module.x.y` reference resolves to a real output) plus a brace/paren balance pass.
-  **Run the three commands before applying.**
+- **Applied 2026-09-24** (fmt/validate/plan/apply all run for real). `terraform
+  output` is the only source of instance ids — both NAT and backend were replaced.
+- ⚠️ `module.backend_ec2` has `depends_on = [module.network]`, which defers its AMI/region
+  data sources to apply time whenever ANY network resource changes — so every network
+  change also REPLACES the backend. Harmless (stateless), but noisy; consider removing it
+  now that the NAT boots correctly.
 - The NAT instance is single-AZ and self-patched. If it dies, the backend loses all
   outbound AWS/ECR access. Acceptable for this project; a NAT Gateway per AZ is the
   production answer.
@@ -281,6 +278,158 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
   needs `--build`. In dev they're plain env on the Vite dev server, so a restart suffices.
 
 ## 10. Changelog (most recent first)
+- **Terraform applied; real SSM root cause was a NAT with no iptables (2026-09-24):**
+  - `terraform fmt -check`, `validate`, `plan`, `apply` run for real (TF 1.15.6, aws 6.59).
+    No syntax/schema errors. Much of the "unapplied" work (NAT SG egress, state-read IAM)
+    was in fact ALREADY live — the plan showed no diff for either.
+  - **State 403 was already fixed** before this session: the latest CI run's `Read
+    Terraform outputs` job succeeded. Bucket is in this account (945139114868), SSE-S3
+    (AES256), no bucket policy — neither cross-account nor KMS applies.
+  - **OIDC was already working** (both failed runs got past role assumption). Tightened
+    anyway: root vars `github_owner_id=278652476`, `github_repository_id=1333655014`
+    (public GitHub ids, not AWS ids) now passed to the ecr module, so the trust policy
+    uses the exact immutable subject instead of `@*` wildcards. Classic subject kept.
+  - **SSM root cause (verified on the box via SSM):** AL2023 ships neither `iptables` nor
+    `nft`. NAT user_data died at `iptables: command not found`, so no MASQUERADE rule ever
+    existed; `ip_forward=1` alone forwards nothing usable. Backend agent log showed
+    `dial tcp ...:443: i/o timeout`. The earlier SG-egress diagnosis was not the cause.
+    Fix: `dnf install -y iptables-nft` (5 retries) before the rules script — the NAT has
+    its own public IP so this needs no NAT.
+  - **Why earlier NAT fixes never took effect:** no `user_data_replace_on_change`, so each
+    user_data edit was an in-place stop/start and cloud-init never re-ran; the live NAT
+    was still running a much older script. Now `user_data_replace_on_change = true`.
+  - NAT instance profile (SSM) applied; NAT reached Online ~6 min later with no NAT
+    dependency, which is what made the on-box diagnosis possible.
+  - Result: new NAT + backend both `PingStatus: Online`; backend registered ~80s after
+    boot. SSM VPC endpoints NOT enabled — not needed, no recurring cost added.
+- **SSM connectivity: NAT made manageable, endpoint fallback behind a flag (2026-09-24):**
+  - **NAT instance is now an SSM managed node.** It had NO instance profile, so when
+    forwarding broke there was no way into the box to look at `iptables` — the one thing
+    you need when private-subnet egress is down. Added `aws_iam_role.nat` +
+    `aws_iam_instance_profile.nat` with `AmazonSSMManagedInstanceCore`, attached to
+    `aws_instance.nat`. Crucially this path does NOT depend on NAT forwarding: the NAT
+    lives in a public subnet with its own public IP and a direct IGW route, so its agent
+    reaches Systems Manager directly. AL2023 ships the agent preinstalled and enabled, so
+    the profile was the only missing piece. Adding an instance profile is an in-place
+    update, not a replacement.
+  - **Optional SSM interface endpoints**, `enable_ssm_vpc_endpoints` (default **false**).
+    Creates `ssm`, `ssmmessages` and `ec2messages` interface endpoints in both private
+    subnets with `private_dns_enabled`, plus a 443-from-VPC security group. Off by
+    default because they cost ~$7.20/mo each per AZ (~$43/mo across two AZs) against a
+    ~$4/mo NAT. Turn on with `-var="enable_ssm_vpc_endpoints=true"` if the NAT path
+    cannot be made reliable; SSM then bypasses the NAT entirely.
+  - Both changes are additive. Nothing about the existing architecture, CI/CD, SonarQube
+    or Trivy configuration changed.
+  - Verified: brace/paren/bracket balance, `=` alignment, module input cross-check
+    (the lone `depends_on` hit is a meta-argument, not a variable — false positive).
+- **Backend never registers in SSM: user_data ordering bug + verification outputs (2026-09-24):**
+  Instance running and healthy, role correct, SG allows 443, private route via NAT — yet
+  not a managed node. Two distinct faults, neither of which needs VPC endpoints.
+  - **FAULT 1 (why a RECREATED instance stays unregistered):** backend `user_data` ran
+    `apt-get update` as its FIRST command under `set -eux`. With no working egress at
+    boot that call fails, `set -e` aborts the whole script, and execution never reaches
+    the line enabling the SSM agent. The box comes up permanently unmanaged and, with no
+    SSH, unreachable. Restructured: `set -e` dropped, the SSM agent is enabled FIRST
+    (purely local — the preinstalled Ubuntu 24.04 snap needs no internet to start), and
+    every network-dependent step is non-fatal with `apt-get update` retried 5x. The agent
+    then retries registration itself, so the node SELF-HEALS once networking is fixed
+    rather than needing a rebuild. `snap start` became `snap start --enable` so it also
+    survives reboot. All output tees to `/var/log/sankatai-user-data.log`.
+  - **FAULT 2 (why egress is broken at all):** the NAT security-group egress fix from
+    earlier today is still UNCOMMITTED and therefore UNAPPLIED. Until `terraform apply`
+    runs, the NAT still drops the un-NAT'd reply leg and every connection through it
+    times out. That remains the actual cause of the `i/o timeout` in the agent log.
+  - **Ordering:** `module.backend_ec2` now has `depends_on = [module.network]`. Implicit
+    dependencies covered only the subnet, so the instance could boot before the NAT
+    instance and private route existed. Verified this introduces no cycle — nothing
+    inside `modules/network` references another module.
+  - **Verification outputs added** (root + network + ec2 modules): `backend_subnet_id`,
+    `backend_security_group_id`, `nat_instance_id`, `nat_instance_private_ip`,
+    `nat_security_group_id`, `private_route_table_id`, `public_route_table_id`. Every
+    root output cross-checked to resolve against a real module output.
+  - **VPC endpoints still NOT added** — they are not genuinely required. The NAT path is
+    sound once the SG fix is applied; three interface endpoints would add ~$22/mo
+    single-AZ (~$43/mo across both AZs) against a ~$4/mo NAT instance.
+  - Unchanged and re-confirmed: `AmazonSSMManagedInstanceCore` on the backend role,
+    `source_dest_check = false` on the NAT, private route `0.0.0.0/0` → NAT ENI, public
+    route → IGW, no custom NACLs, backend SG egress TCP 443. No CI/CD, SonarQube or
+    Trivy configuration touched.
+  - Verified: Terraform heredoc rendered as Terraform renders it and `bash -n` clean;
+    brace/paren balance; every `module.x.y` reference resolves; no dependency cycle.
+- **SSM agent i/o timeout: NAT security-group egress regression fixed (2026-09-24):**
+  `SSM Agent unable to acquire credentials ... dial tcp <ssm-ip>:443: i/o timeout` from
+  the private backend. Root cause was the NAT security group, narrowed on 2026-09-24 in
+  the Trivy pass. That change was WRONG for a NAT instance and is reverted.
+  - **Why port-restricted egress breaks a NAT.** A NAT forwards traffic it does not
+    originate, and MASQUERADE rewrites the source, so the SG sees four legs:
+    (1) private->internet arriving (ingress), (2) NAT->internet post-MASQUERADE (egress
+    443, allowed), (3) internet->NAT reply, (4) internet->private after un-NAT, which
+    LEAVES the NAT ENI toward the private subnet on the original EPHEMERAL port. A
+    443/80/123 egress list covers leg 2 but not leg 4, so replies never reached the
+    backend and every connection hung until timeout. Restricting it also bought nothing:
+    the BACKEND security group already limits what the private side may send, so the NAT
+    can only forward what was permitted upstream. Restored to `0.0.0.0/0`, all protocols,
+    matching AWS's NAT-instance guidance; AVD-AWS-0104 already suppressed for it.
+  - **NAT rule persistence made reliable** (`modules/network/main.tf` user_data). The old
+    code did `dnf install -y iptables-services` + `iptables-save`; AL2023 does not
+    reliably provide that package, and under `set -e` a failed install aborted user_data,
+    so a rebooted or recreated NAT came back forwarding NOTHING — silently removing all
+    private-subnet egress including SSM. Replaced with `/usr/local/sbin/nat-rules.sh`
+    applied by a `nat-rules.service` systemd oneshot at every boot, rules added
+    idempotently (`-C` then `-A`). No package dependency. Verified by rendering the
+    Terraform heredoc exactly as Terraform does (4-space strip, both inner terminators
+    land at column 0) and `bash -n` on both the user_data and the extracted script.
+  - **Everything else verified CORRECT, no change made:** private subnets route
+    `0.0.0.0/0` to the NAT ENI; both private subnets associated with that route table;
+    NAT sits in the public subnet whose route table targets the IGW, with
+    `source_dest_check = false` and an explicit public IP; no custom NACLs (default
+    allows all); backend SG egress already permits TCP 443 to `0.0.0.0/0`;
+    `AmazonSSMManagedInstanceCore` attached to the backend role; SSM agent started from
+    backend user_data, so recreated instances register automatically.
+  - **VPC interface endpoints deliberately NOT added.** The NAT path is sound once the SG
+    is fixed, and three interface endpoints (ssm, ssmmessages, ec2messages) cost roughly
+    $7.20/mo each per AZ — about $22/mo single-AZ, $43/mo across both — against a ~$4/mo
+    NAT instance. That remains the documented fallback if the NAT proves unreliable.
+  - **Requires `terraform apply`.** The user_data change REPLACES the NAT instance, and
+    the route table is updated to the new ENI in the same apply.
+- **Terraform state 403 from CI: full backend lifecycle IAM (2026-09-24):**
+  `terraform init` HeadObjects the state key; the role could not read it, which
+  surfaced as "Error refreshing state: Unable to access object ... S3 HeadObject
+  StatusCode: 403 Forbidden".
+  - **Most likely cause: the policy is committed but NOT APPLIED.** The state-read
+    statements were added in this session's previous task and only exist in code until
+    `terraform apply` runs from a local machine. CI cannot bootstrap its own permission
+    to read state — that grant has to be applied out-of-band first.
+  - **Gaps fixed regardless** (the previous grant was read-only and prefix-conditioned):
+    - `s3:GetObject` + **`s3:PutObject` + `s3:DeleteObject`** on the state key, so the
+      role can WRITE state (apply), not only read it.
+    - The same three on `<key>.tflock`, the S3-native lock object. `use_lockfile = false`
+      today so it is unused; granted now so turning locking on needs no IAM change.
+    - `s3:ListBucket` on the bucket with the **prefix condition REMOVED**. Terraform
+      enumerates workspaces by listing the `env:/` prefix, which a key-scoped condition
+      denies. This matches HashiCorp's documented minimum. It exposes object NAMES only;
+      object reads stay limited to the single state key.
+    - **Optional SSE-KMS grant**: new `aws_iam_role_policy.github_actions_state_kms`,
+      `count = var.terraform_state_kms_key_arn == "" ? 0 : 1`, granting `kms:Decrypt`,
+      `kms:GenerateDataKey`, `kms:DescribeKey` scoped to that one key ARN. With SSE-KMS
+      S3 evaluates the key policy on HeadObject too, so a missing `kms:Decrypt` produces
+      an identical 403 — indistinguishable from the S3 one in the error text. Left empty
+      by default (`backend.tf` sets `encrypt = true` with no `kms_key_id`, i.e. SSE-S3).
+      Written as a separate resource rather than a conditional statement so the main
+      policy document stays a plain list and `terraform fmt` is unambiguous.
+    - No `s3:*`, no `kms:*`, no bucket ACL change.
+  - **Script verified, no change needed:** `terraform-outputs.sh` uses
+    `TF_DIR=infrastructure/terraform` via `terraform -chdir`, which is the directory
+    holding `backend.tf`, and the workflow runs it from the checked-out repo root. It
+    passes `init -backend=true` explicitly, so it reads the real remote state rather
+    than silently falling back to empty local state.
+  - ⚠️ **Two causes this fix does NOT cover**, both worth ruling out if the 403 persists
+    after applying: the bucket name (`admin-terraform-state-bucket-020`) suggests it may
+    live in a DIFFERENT AWS account from 945139114868, in which case the bucket policy in
+    the owning account must also grant this role — IAM alone is never sufficient
+    cross-account; and a bucket-default SSE-KMS key, which needs
+    `terraform_state_kms_key_arn` set.
+  - Verified: brace/paren/bracket balance, `=` alignment, module input cross-check clean.
 - **Resource IDs now come from Terraform state, not GitHub variables (2026-09-24):**
   - **No new outputs were needed.** `outputs.tf` already exposed all 20 required ids and
     every one already referenced a real module (`module.frontend.*`,
