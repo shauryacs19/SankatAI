@@ -33,6 +33,17 @@ resource "aws_security_group" "alb" {
     cidr_blocks = [var.vpc_cidr]
   }
 
+  # The API Gateway VPC Link reuses THIS security group for its ENIs, so their
+  # outbound hop to the ALB listener is governed by this egress list too.
+  # Without it API Gateway gets no connection and answers 503.
+  egress {
+    description = "VPC Link ENIs to the ALB listener, inside the VPC only"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
   tags = {
     Name    = "${var.project_name}-alb-sg"
     Project = var.project_name
