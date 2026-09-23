@@ -278,6 +278,13 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
   needs `--build`. In dev they're plain env on the Vite dev server, so a restart suffices.
 
 ## 10. Changelog (most recent first)
+- **Backend rollout ran under dash, not bash (2026-09-24):** with SSM finally working,
+  the rollout reached the box and failed with `set: Illegal option -o pipefail`.
+  `AWS-RunShellScript` writes the commands into a `/bin/sh` script (dash on Ubuntu) and
+  ignores the rollout's shebang. `deploy-backend.sh` now ships `ec2-rollout.sh` base64
+  and runs it with `bash`; the preamble exports are inherited. Obsolete GitHub vars
+  deleted (5 existed; `CORS_ALLOWED_ORIGINS`, `VITE_COGNITO_DOMAIN` never did); CI's
+  frontend build no longer reads the Cognito vars. Only `VITE_API_URL` remains.
 - **Terraform applied; real SSM root cause was a NAT with no iptables (2026-09-24):**
   - `terraform fmt -check`, `validate`, `plan`, `apply` run for real (TF 1.15.6, aws 6.59).
     No syntax/schema errors. Much of the "unapplied" work (NAT SG egress, state-read IAM)
