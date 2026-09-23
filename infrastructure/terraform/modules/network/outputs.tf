@@ -23,3 +23,22 @@ output "private_subnet_ids" {
 output "nat_instance_id" {
   value = aws_instance.nat.id
 }
+
+output "nat_instance_private_ip" {
+  description = "NAT instance private IP. The private route table targets its ENI."
+  value       = aws_instance.nat.private_ip
+}
+
+output "nat_security_group_id" {
+  value = aws_security_group.nat.id
+}
+
+output "private_route_table_id" {
+  description = "Route table whose 0.0.0.0/0 target is the NAT ENI. Verify with: aws ec2 describe-route-tables --route-table-ids <this>"
+  value       = aws_route_table.private.id
+}
+
+output "public_route_table_id" {
+  description = "Route table whose 0.0.0.0/0 target is the internet gateway."
+  value       = aws_route_table.public.id
+}

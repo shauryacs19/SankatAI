@@ -44,29 +44,48 @@ resource "aws_instance" "backend" {
 
   iam_instance_profile = var.iam_instance_profile
 
+  # ORDER MATTERS. The SSM agent is enabled FIRST, before anything that needs
+  # the network.
+  #
+  # The previous version ran `apt-get update` as its first command under
+  # `set -eux`. If the NAT path was not up yet (NAT still booting, or its
+  # iptables/SG broken) that apt call failed, `set -e` aborted the whole
+  # script, and execution never reached the line that enables the SSM agent -
+  # so the instance came up permanently unregistered and, with no SSH, there
+  # was no way in to fix it. That is the "running, healthy, not in SSM" state.
+  #
+  # `set -e` is therefore dropped and every network-dependent step is made
+  # non-fatal: a transient outage degrades the box, it no longer strands it.
   user_data = <<-EOF
     #!/bin/bash
-    set -eux
+    set -ux
+    exec > >(tee -a /var/log/sankatai-user-data.log) 2>&1
 
-    apt-get update -y
-    apt-get install -y \
-      docker.io \
-      docker-compose-v2 \
-      unzip \
-      git
+    # ── 1. SSM agent - no internet required to start it ──────────────────
+    # Ubuntu 24.04 ships amazon-ssm-agent as a preinstalled snap. Starting and
+    # enabling it is purely local; the agent then retries registration on its
+    # own until the NAT path works, so the node self-heals once networking is
+    # fixed instead of needing a rebuild. --enable also makes it survive reboot.
+    snap start --enable amazon-ssm-agent \
+      || systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service \
+      || true
 
-    systemctl enable docker
-    systemctl start docker
-    usermod -aG docker ubuntu
+    # ── 2. Everything below needs egress through the NAT instance ────────
+    for i in 1 2 3 4 5; do
+      apt-get update -y && break
+      echo "apt-get update failed (attempt $i) - retrying in 15s"
+      sleep 15
+    done
 
-    # SSM agent ships with Ubuntu 24.04 as a snap; make sure it is running so
-    # Session Manager works without SSH.
-    snap start amazon-ssm-agent || systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+    apt-get install -y docker.io docker-compose-v2 unzip git || true
+    systemctl enable docker || true
+    systemctl start docker || true
+    usermod -aG docker ubuntu || true
 
-    # CloudWatch agent for application/system logs.
+    # CloudWatch agent for application/system logs. Best effort.
     curl -fsSL -o /tmp/cwagent.deb \
-      https://s3.${data.aws_region.current.region}.amazonaws.com/amazoncloudwatch-agent-${data.aws_region.current.region}/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
-    dpkg -i -E /tmp/cwagent.deb || true
+      https://s3.${data.aws_region.current.region}.amazonaws.com/amazoncloudwatch-agent-${data.aws_region.current.region}/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb \
+      && dpkg -i -E /tmp/cwagent.deb || true
     rm -f /tmp/cwagent.deb
   EOF
 

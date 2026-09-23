@@ -41,6 +41,12 @@ variable "nat_instance_type" {
   default     = "t4g.nano"
 }
 
+variable "enable_ssm_vpc_endpoints" {
+  description = "Create ssm/ssmmessages/ec2messages interface endpoints. ~$43/mo across two AZs - leave false unless the NAT path cannot be made reliable."
+  type        = bool
+  default     = false
+}
+
 variable "region" {
   type = string
 }

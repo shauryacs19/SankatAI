@@ -77,10 +77,18 @@ module "network" {
   availability_zone   = "${var.region}a"
   availability_zone_b = "${var.region}b"
   nat_instance_type   = var.nat_instance_type
+
+  enable_ssm_vpc_endpoints = var.enable_ssm_vpc_endpoints
 }
 
 module "backend_ec2" {
   source = "./modules/compute/ec2"
+
+  # The NAT instance and the private route table must exist before this box
+  # boots, or its user_data has no egress: apt/docker fail and the SSM agent
+  # spends its first minutes unable to reach the service endpoints. Implicit
+  # dependencies only cover the subnet, not the NAT or the route.
+  depends_on = [module.network]
 
   project_name  = var.project_name
   instance_type = var.instance_type
@@ -126,8 +134,11 @@ module "ecr" {
 
   project_name                = var.project_name
   github_repository           = var.github_repository
+  github_owner_id             = var.github_owner_id
+  github_repository_id        = var.github_repository_id
   terraform_state_bucket      = var.terraform_state_bucket
   terraform_state_key         = var.terraform_state_key
+  terraform_state_kms_key_arn = var.terraform_state_kms_key_arn
   frontend_bucket_arn         = module.frontend.bucket_arn
   cloudfront_distribution_id  = module.frontend.cloudfront_distribution_id
   create_github_oidc_provider = var.create_github_oidc_provider

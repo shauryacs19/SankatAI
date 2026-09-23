@@ -27,6 +27,12 @@ variable "terraform_state_key" {
   type        = string
 }
 
+variable "terraform_state_kms_key_arn" {
+  description = "KMS key ARN if the state bucket uses SSE-KMS. Empty means SSE-S3 (AES256) and no KMS grant is emitted."
+  type        = string
+  default     = ""
+}
+
 variable "github_owner_id" {
   description = "Numeric GitHub owner id, for the immutable OIDC subject. Leave empty to wildcard it. Read with: gh api repos/<owner>/<repo> --jq .owner.id"
   type        = string

@@ -41,6 +41,41 @@ output "private_subnet_ids" {
   value = module.network.private_subnet_ids
 }
 
+# ── SSM connectivity verification ────────────────────────────────────────
+# aws ssm describe-instance-information --region ap-south-1 \
+#   --filters "Key=InstanceIds,Values=$(terraform output -raw backend_instance_id)"
+output "backend_subnet_id" {
+  description = "Private subnet holding the backend. Must be associated with private_route_table_id."
+  value       = module.backend_ec2.subnet_id
+}
+
+output "backend_security_group_id" {
+  value = module.backend_ec2.security_group_id
+}
+
+output "nat_instance_id" {
+  description = "NAT instance the private route table points at."
+  value       = module.network.nat_instance_id
+}
+
+output "nat_instance_private_ip" {
+  value = module.network.nat_instance_private_ip
+}
+
+output "nat_security_group_id" {
+  value = module.network.nat_security_group_id
+}
+
+output "private_route_table_id" {
+  description = "0.0.0.0/0 here must target the NAT instance ENI."
+  value       = module.network.private_route_table_id
+}
+
+output "public_route_table_id" {
+  description = "0.0.0.0/0 here must target the internet gateway."
+  value       = module.network.public_route_table_id
+}
+
 output "backend_instance_id" {
   description = "Connect with: aws ssm start-session --target <this>"
   value       = module.backend_ec2.instance_id

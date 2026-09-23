@@ -190,29 +190,40 @@ resource "aws_iam_role_policy" "github_actions" {
         Action   = ["ec2:DescribeInstances", "ssm:DescribeInstanceInformation"]
         Resource = "*"
       },
-      # ── Terraform outputs ─────────────────────────────────────────────────
-      # READ-ONLY on the single state object. This is what lets the deploy read
-      # resource IDs from `terraform output` rather than keeping a second copy
-      # of them as GitHub variables that silently go stale.
+      # ── Terraform state (S3 backend) ──────────────────────────────────────
+      # The backend needs ListBucket on the BUCKET and object access on the KEY.
+      # `terraform init` issues HeadObject against the key: without GetObject
+      # that returns 403 and surfaces as
+      #   "Error refreshing state: Unable to access object ... S3 HeadObject
+      #    StatusCode: 403 Forbidden".
       #
-      # NOTE: state contains every attribute of every managed resource, so this
-      # grant is broader in effect than the IDs it is used for. It is read-only
-      # and scoped to this one key; `use_lockfile = false` in backend.tf means
-      # no write or lock permission is needed.
-      {
-        Effect   = "Allow"
-        Action   = ["s3:GetObject"]
-        Resource = "arn:aws:s3:::${var.terraform_state_bucket}/${var.terraform_state_key}"
-      },
+      # Put/Delete are included so the role can also WRITE state (terraform
+      # apply) rather than read it only. Terraform writes the new state with
+      # PutObject and removes the lock with DeleteObject.
+      #
+      # ListBucket is intentionally NOT prefix-conditioned. Terraform enumerates
+      # workspaces by listing the `env:/` prefix, which a key-scoped condition
+      # denies; this matches HashiCorp's documented minimum. It permits listing
+      # object NAMES in the bucket, never their contents - object reads stay
+      # limited to the single key below.
       {
         Effect   = "Allow"
         Action   = ["s3:ListBucket"]
         Resource = "arn:aws:s3:::${var.terraform_state_bucket}"
-        Condition = {
-          StringLike = {
-            "s3:prefix" = ["${var.terraform_state_key}", "${dirname(var.terraform_state_key)}/*"]
-          }
-        }
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.terraform_state_bucket}/${var.terraform_state_key}",
+          # S3-native state lock. `use_lockfile = false` today, so this is
+          # currently unused - granted so enabling it needs no IAM change.
+          "arn:aws:s3:::${var.terraform_state_bucket}/${var.terraform_state_key}.tflock",
+        ]
       },
       # ── Web deploy ────────────────────────────────────────────────────────
       # Sync the built site into the frontend bucket. Scoped to that one
@@ -245,6 +256,35 @@ resource "aws_iam_role_policy" "github_actions" {
           "cloudfront:GetInvalidation",
         ]
         Resource = "arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${var.cloudfront_distribution_id}"
+      },
+    ]
+  })
+}
+
+# ── Terraform state encryption ──────────────────────────────────────────────
+# Created ONLY when the state bucket uses SSE-KMS with a customer-managed key.
+# With SSE-KMS, S3 also evaluates the key policy on HeadObject/GetObject, so a
+# missing kms:Decrypt produces exactly the same 403 as a missing s3:GetObject.
+# GenerateDataKey is what lets Terraform WRITE the new state object.
+# A separate resource rather than a conditional statement inside the policy
+# above: it keeps that document a plain list and avoids `kms:*`.
+resource "aws_iam_role_policy" "github_actions_state_kms" {
+  count = var.terraform_state_kms_key_arn == "" ? 0 : 1
+
+  name = "${var.project_name}-github-actions-state-kms"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey",
+          "kms:DescribeKey",
+        ]
+        Resource = var.terraform_state_kms_key_arn
       },
     ]
   })

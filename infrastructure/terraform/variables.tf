@@ -37,6 +37,12 @@ variable "instance_type" {
 # `ssh_cidr` is gone: the backend has no SSH ingress at all. Shell access is
 # SSM Session Manager, which is outbound-initiated and needs no open port.
 
+variable "enable_ssm_vpc_endpoints" {
+  description = "Fallback for SSM connectivity if the NAT path fails. Adds ~$43/mo across two AZs, so it stays off by default."
+  type        = bool
+  default     = false
+}
+
 variable "nat_instance_type" {
   description = "NAT instance size. t4g.nano is ~$4/mo vs ~$32/mo for a NAT Gateway."
   type        = string
@@ -73,10 +79,28 @@ variable "terraform_state_key" {
   default     = "sankatai/terraform.tfstate"
 }
 
+variable "terraform_state_kms_key_arn" {
+  description = "KMS key ARN if the state bucket uses SSE-KMS. Leave empty for SSE-S3. Find it with: aws s3api get-bucket-encryption --bucket <state bucket>"
+  type        = string
+  default     = ""
+}
+
 variable "github_repository" {
   description = "owner/repo permitted to assume the CI deploy role via OIDC."
   type        = string
   default     = "shauryacs19/SankatAI"
+}
+
+variable "github_owner_id" {
+  description = "Numeric GitHub owner id for the immutable OIDC subject (gh api repos/<owner>/<repo> --jq .owner.id). Empty = wildcard."
+  type        = string
+  default     = "278652476"
+}
+
+variable "github_repository_id" {
+  description = "Numeric GitHub repository id for the immutable OIDC subject (gh api repos/<owner>/<repo> --jq .id). Empty = wildcard."
+  type        = string
+  default     = "1333655014"
 }
 
 variable "create_github_oidc_provider" {

@@ -22,3 +22,12 @@ output "instance_arn" {
   description = "ARN of the backend EC2 instance"
   value       = aws_instance.backend.arn
 }
+
+output "subnet_id" {
+  description = "Private subnet the backend runs in."
+  value       = aws_instance.backend.subnet_id
+}
+
+output "security_group_id" {
+  value = aws_security_group.backend.id
+}
