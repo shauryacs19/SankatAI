@@ -60,6 +60,21 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 locals {
   github_oidc_arn = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"
+
+  github_owner = split("/", var.github_repository)[0]
+  github_repo  = split("/", var.github_repository)[1]
+
+  # Exact immutable subject when both IDs are supplied, wildcard otherwise.
+  immutable_subject = (
+    var.github_owner_id != "" && var.github_repository_id != ""
+    ? "repo:${local.github_owner}@${var.github_owner_id}/${local.github_repo}@${var.github_repository_id}:ref:refs/heads/main"
+    : "repo:${local.github_owner}@*/${local.github_repo}@*:ref:refs/heads/main"
+  )
+
+  allowed_subjects = [
+    "repo:${var.github_repository}:ref:refs/heads/main", # classic
+    local.immutable_subject,                             # immutable IDs
+  ]
 }
 
 data "aws_iam_policy_document" "github_assume" {
@@ -78,12 +93,26 @@ data "aws_iam_policy_document" "github_assume" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Scoped to this repository. Without this condition ANY GitHub repo on the
-    # internet could assume the role.
+    # Scoped to this repository and branch. Without this condition ANY GitHub
+    # repo on the internet could assume the role.
+    #
+    # BOTH subject formats are accepted, because GitHub changed the default for
+    # repositories created after 2026-07-15 to an "immutable" form that embeds
+    # numeric owner and repo IDs:
+    #   classic    repo:owner/repo:ref:refs/heads/main
+    #   immutable  repo:owner@1234/repo@5678:ref:refs/heads/main
+    # This repo was created 2026-08-16, so it issues the immutable form. Pinning
+    # only the classic string can never match and fails every assume-role with
+    # "Not authorized to perform sts:AssumeRoleWithWebIdentity".
+    #
+    # StringLike is required for the wildcards, but they sit ONLY where the
+    # numeric IDs go: owner login, repo name and branch all stay pinned. To
+    # tighten further, set github_owner_id / github_repository_id and the exact
+    # immutable subject is used instead of the wildcard.
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main"]
+      values   = local.allowed_subjects
     }
   }
 }
