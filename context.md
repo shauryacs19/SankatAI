@@ -281,6 +281,113 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
   needs `--build`. In dev they're plain env on the Vite dev server, so a restart suffices.
 
 ## 10. Changelog (most recent first)
+- **Resource IDs now come from Terraform state, not GitHub variables (2026-09-24):**
+  - **No new outputs were needed.** `outputs.tf` already exposed all 20 required ids and
+    every one already referenced a real module (`module.frontend.*`,
+    `module.backend_ec2.instance_id`, ...) — verified: zero literal values in the file.
+    The gap was purely in the wiring.
+  - **New `terraform-outputs` job** (first job in `app-cd.yml`) runs
+    `.github/scripts/terraform-outputs.sh`: `terraform init -backend=true` against the
+    S3 backend (`admin-terraform-state-bucket-020`, key `sankatai/terraform.tfstate`,
+    the SAME state `apply` writes), then `terraform output -json`, and publishes 15
+    values as job outputs. `-backend=true` is explicit because a silent fall back to
+    empty local state would hand every downstream job empty strings. Each key is
+    checked and the job fails naming the missing output rather than deploying with
+    blanks. The JSON is written to a file and deleted — never echoed — so anything
+    marked sensitive stays out of the log.
+  - **Both deploy jobs consume `needs.terraform-outputs.outputs.*`** for the frontend
+    bucket, distribution id, backend instance id, ECR repo URL, Cognito pool/client/
+    domain, all three table names, both bucket names and the AI secret name. CORS
+    origin is derived as `https://<cloudfront_domain_name>` rather than stored.
+  - **`deploy-backend.sh`**: takes `INSTANCE_ID` from `terraform output
+    backend_instance_id`, then VERIFIES it is `running` via `describe-instances`; if it
+    is not (state behind reality, or replaced outside Terraform) it warns and falls back
+    to `Name` tag discovery, then still waits for `PingStatus=Online`. Two independent
+    mechanisms, so a stale id cannot survive: apply refreshes the output, and the tag
+    catches anything the output misses.
+  - **`ec2-rollout.sh`**: the five table/bucket names are no longer literals — they
+    arrive as env from the SSM preamble, sourced from outputs. `deploy-backend.sh`
+    refuses to run if any is unset (a wrong default fails at request time, not deploy
+    time, which is far worse).
+  - **`push-backend-image.sh`**: takes `REPOSITORY_URL` from the output and derives both
+    registry host and repo name from it, removing the second copy of each.
+  - **`apps/web/scripts/deploy-frontend.sh`** (manual path): Cognito pool and client ids
+    were hardcoded; now read from `terraform output` like the bucket and distribution
+    already were. Reordered so outputs are read before the build that consumes them.
+  - **IAM**: the OIDC role gets `s3:GetObject` on the single state object plus prefix-
+    scoped `s3:ListBucket`. `use_lockfile = false`, so no write or lock permission is
+    needed. New root vars `terraform_state_bucket` / `terraform_state_key` (defaults
+    matching `backend.tf`) are passed to the ecr module.
+  - ⚠️ **Trade-off worth re-reviewing:** Terraform state holds every attribute of every
+    managed resource, so read access to it is broader in effect than the handful of ids
+    it is used for. It is read-only and scoped to one key. The narrower alternative is
+    to resolve each id from the AWS API by tag (as the EC2 fallback already does) and
+    skip state access entirely.
+  - ⚠️ **Still hardcoded, deliberately not changed:** `apps/web/scripts/ec2-setup.sh`
+    pins a CloudFront origin — it is the pre-Terraform manual bootstrap, superseded by
+    ECR+SSM and dead; delete it rather than maintain it. `apps/mobile/src/config.js`
+    keeps Cognito fallbacks because the mobile app cannot read Terraform at runtime;
+    those come from `EXPO_PUBLIC_*` when set.
+  - **GitHub variables now removable:** `FRONTEND_BUCKET`, `CLOUDFRONT_DISTRIBUTION_ID`,
+    `BACKEND_INSTANCE_ID`, `CORS_ALLOWED_ORIGINS`, `VITE_COGNITO_USER_POOL_ID`,
+    `VITE_COGNITO_CLIENT_ID`, `VITE_COGNITO_DOMAIN`. Keep `AWS_DEPLOY_ROLE_ARN`
+    (needed BEFORE state can be read — chicken and egg), `SONAR_TOKEN`, and the
+    optional `VITE_API_URL` (a routing choice, not a resource id; defaults to `/`).
+  - Verified: both workflows parse with the intended graph; `bash -n` on all 7 scripts;
+    a mocked-`terraform` run of `terraform-outputs.sh` covering the happy path (15
+    values written to `$GITHUB_OUTPUT`) and empty state (fails, naming each missing
+    output); Terraform brace/bracket balance and module input cross-check clean.
+    `terraform fmt/validate` still unavailable here — run before applying.
+- **CD unblocked from slow checks; SSM + CloudFront deploy failures fixed (2026-09-24):**
+  - **`InvalidInstanceId: Instances not in a valid state for account`** — the deploy
+    targeted a PINNED instance id (`vars.BACKEND_INSTANCE_ID`), which goes stale every
+    time Terraform replaces the backend instance (subnet or user_data changes both
+    force replacement). `deploy-backend.sh` now RESOLVES the instance by
+    `tag:Name=sankatai-backend` + `instance-state-name=running`, refuses to guess if
+    zero or >1 match, then polls `ssm describe-instance-information` until
+    `PingStatus=Online` (up to 5 min) before sending — a "running" instance is not
+    necessarily SSM-registered yet, which is the other source of this same error.
+    Failure messages name the three things to check (instance profile, agent, 443
+    egress). `INSTANCE_ID` still works as an override.
+  - **IAM, same root cause:** `ssm:SendCommand` was scoped to
+    `instance/${var.backend_instance_id}`, so the POLICY also pinned a replaceable id.
+    Now scoped to `instance/*` with a `ssm:resourceTag/Name` condition, which follows
+    the replacement. Added `ec2:DescribeInstances` + `ssm:DescribeInstanceInformation`
+    (Resource `*` — neither supports resource-level scoping) for the lookup.
+    `backend_instance_id` is now unused and was removed from the ecr module and root
+    `main.tf`, which also drops the `ecr -> backend_ec2` dependency edge.
+    `AmazonSSMManagedInstanceCore` was ALREADY attached to the backend role and the
+    agent already handled in user_data — no change needed there.
+  - **`AccessDenied: cloudfront:GetInvalidation`** — `deploy-web.sh` calls
+    `aws cloudfront wait invalidation-completed`, which polls `GetInvalidation`; the
+    policy only granted `CreateInvalidation`. Both actions now granted, still scoped to
+    the single distribution ARN.
+  - **CD no longer waits on SonarQube/Trivy.** `needs:` cannot cross workflow files,
+    and `workflow_run` only fires once the ENTIRE upstream workflow finishes — so the
+    slow security jobs delayed every deploy. `app-cd.yml` is now a REUSABLE workflow
+    (`on: workflow_call`, plus `workflow_dispatch` for manual re-deploys), invoked from
+    `app-ci.yml` by a `deploy` job with `needs: [backend, frontend]` and
+    `secrets: inherit`. Deploy starts the moment those two are green; sonarqube,
+    trivy-filesystem and trivy-iac keep running in parallel and still report.
+    No job was deleted. Checkout ref and image tag moved from
+    `github.event.workflow_run.head_sha` to `github.sha` (correct in a called
+    workflow), and the per-job `if:` gates were replaced by one gate on the caller:
+    `github.event_name == 'push' && github.ref == 'refs/heads/main'`.
+  - ⚠️ **This reverses the 2026-09-18 decision that Trivy findings block deploys.**
+    The `docker` job still needs both Trivy jobs, so a finding still blocks THAT image
+    build — but CD builds and pushes its own image independently, so a CRITICAL/HIGH
+    finding no longer prevents shipping. That is the explicit trade requested for
+    deploy speed; it is a real reduction in enforcement, not a neutral refactor.
+  - ⚠️ `vars.BACKEND_INSTANCE_ID` is now unused by the pipeline. Harmless to leave, but
+    delete it to avoid implying it still controls the target.
+  - Verified: both workflows parse and the job graph is as intended; `bash -n` on the
+    changed script; mocked-`aws` runs of `deploy-backend.sh` covering tag discovery +
+    Online agent (deploys), zero matches (errors), and two matches (refuses). Terraform
+    checked by brace/paren/bracket balance and the module input cross-check (clean).
+    `terraform fmt/validate/plan` still unavailable — no binary obtainable here.
+  - **`terraform apply` is required before the next deploy** — the SSM tag-scoped
+    statement, the two lookup actions and `cloudfront:GetInvalidation` do not exist in
+    AWS yet.
 - **Vite 8 / Rolldown chunking config fixed and build verified (2026-09-24):**
   The first cut of the vendor split used Rollup's object form of `manualChunks`, which
   Vite 8 (Rolldown 1.2.9) rejects: `manualChunks is not a function - Expected Function

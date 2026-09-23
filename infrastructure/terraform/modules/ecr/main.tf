@@ -159,17 +159,60 @@ resource "aws_iam_role_policy" "github_actions" {
       # Deploy without SSH: send the pull/restart command to the private
       # instance through SSM Run Command.
       {
-        Effect = "Allow"
-        Action = ["ssm:SendCommand"]
-        Resource = [
-          "arn:aws:ssm:*::document/AWS-RunShellScript",
-          "arn:aws:ec2:*:${data.aws_caller_identity.current.account_id}:instance/${var.backend_instance_id}",
-        ]
+        Effect   = "Allow"
+        Action   = ["ssm:SendCommand"]
+        Resource = "arn:aws:ssm:*::document/AWS-RunShellScript"
+      },
+      # Scoped by TAG rather than a pinned instance id. Terraform replaces the
+      # backend instance on several changes (subnet, user_data), and a pinned
+      # id then points at a terminated instance - which surfaces as
+      # "InvalidInstanceId: Instances not in a valid state for account".
+      # The tag follows the replacement, so the deploy keeps working.
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:SendCommand"]
+        Resource = "arn:aws:ec2:*:${data.aws_caller_identity.current.account_id}:instance/*"
+        Condition = {
+          StringEquals = {
+            "ssm:resourceTag/Name" = "${var.project_name}-backend"
+          }
+        }
       },
       {
         Effect   = "Allow"
         Action   = ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]
         Resource = "*"
+      },
+      # Resolve the current instance by tag and confirm its SSM agent is Online
+      # before sending. Neither API supports resource-level scoping.
+      {
+        Effect   = "Allow"
+        Action   = ["ec2:DescribeInstances", "ssm:DescribeInstanceInformation"]
+        Resource = "*"
+      },
+      # ── Terraform outputs ─────────────────────────────────────────────────
+      # READ-ONLY on the single state object. This is what lets the deploy read
+      # resource IDs from `terraform output` rather than keeping a second copy
+      # of them as GitHub variables that silently go stale.
+      #
+      # NOTE: state contains every attribute of every managed resource, so this
+      # grant is broader in effect than the IDs it is used for. It is read-only
+      # and scoped to this one key; `use_lockfile = false` in backend.tf means
+      # no write or lock permission is needed.
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "arn:aws:s3:::${var.terraform_state_bucket}/${var.terraform_state_key}"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${var.terraform_state_bucket}"
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["${var.terraform_state_key}", "${dirname(var.terraform_state_key)}/*"]
+          }
+        }
       },
       # ── Web deploy ────────────────────────────────────────────────────────
       # Sync the built site into the frontend bucket. Scoped to that one
@@ -191,9 +234,16 @@ resource "aws_iam_role_policy" "github_actions" {
       },
       # Drop the edge cache so a deploy is visible immediately. Invalidation
       # only — the role cannot reconfigure or delete the distribution.
+      # CreateInvalidation issues it; GetInvalidation is what
+      # `aws cloudfront wait invalidation-completed` polls - without it the
+      # deploy fails with "AccessDenied: cloudfront:GetInvalidation".
+      # Both scoped to this one distribution.
       {
-        Effect   = "Allow"
-        Action   = ["cloudfront:CreateInvalidation"]
+        Effect = "Allow"
+        Action = [
+          "cloudfront:CreateInvalidation",
+          "cloudfront:GetInvalidation",
+        ]
         Resource = "arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${var.cloudfront_distribution_id}"
       },
     ]

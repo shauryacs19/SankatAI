@@ -3,8 +3,9 @@
 # Not executed on the CI runner. deploy-backend.sh exports the env below and
 # sends this file's contents as the command body.
 #
-# Required env (exported by the SSM preamble):
+# Required env (exported by the SSM preamble, all sourced from terraform output):
 #   REGION CORS_ORIGINS IMAGE SECRET_ID APP_PORT CONTAINER_PORT
+#   USERS_TABLE CHAT_HISTORY_TABLE ATTACHMENTS_TABLE CHAT_BUCKET DOCUMENTS_BUCKET
 set -euxo pipefail
 
 # Ubuntu 24.04 does not ship the AWS CLI and user_data installs only
@@ -39,9 +40,9 @@ docker rm -f sankatai-backend 2>/dev/null || true
 # CONTAINER_PORT (5174, backend/Dockerfile) while the ALB target group and the
 # instance security group use APP_PORT (8000, var.backend_origin_port).
 #
-# Table and bucket names are passed explicitly - USERS_TABLE in particular
-# CANNOT be defaulted, because config.py derives "<project>-users" while the
-# real table is sankatai-user-profile-table.
+# Table and bucket names arrive from `terraform output` - they are NOT defaulted
+# here. USERS_TABLE in particular cannot be defaulted at all, because config.py
+# derives "<project>-users" while the real table is sankatai-user-profile-table.
 docker run -d \
   --name sankatai-backend \
   --restart unless-stopped \
@@ -50,11 +51,11 @@ docker run -d \
   -e OPENAI_API_KEY_FILE=/run/secrets/openai_api_key \
   -e AWS_REGION="$REGION" \
   -e PROJECT_NAME=sankatai \
-  -e USERS_TABLE=sankatai-user-profile-table \
-  -e CHAT_HISTORY_TABLE=sankatai-chat-history \
-  -e ATTACHMENTS_TABLE=sankatai-attachments \
-  -e CHAT_BUCKET=sankatai-chat-uploads \
-  -e DOCUMENTS_BUCKET=sankatai-file-storage \
+  -e USERS_TABLE="$USERS_TABLE" \
+  -e CHAT_HISTORY_TABLE="$CHAT_HISTORY_TABLE" \
+  -e ATTACHMENTS_TABLE="$ATTACHMENTS_TABLE" \
+  -e CHAT_BUCKET="$CHAT_BUCKET" \
+  -e DOCUMENTS_BUCKET="$DOCUMENTS_BUCKET" \
   -e CORS_ALLOWED_ORIGINS="$CORS_ORIGINS" \
   -e AUTH_ENABLED=true \
   "$IMAGE"

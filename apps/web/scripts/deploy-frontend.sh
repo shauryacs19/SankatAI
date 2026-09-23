@@ -12,18 +12,24 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$REPO_ROOT"
 
+echo "==> Reading infrastructure outputs"
+# Every id comes from Terraform state - the same source the CD pipeline reads.
+# Nothing is hardcoded here, so a replaced pool or bucket needs no edit.
+BUCKET=$(terraform -chdir=infrastructure/terraform output -raw frontend_bucket_name)
+DIST_ID=$(terraform -chdir=infrastructure/terraform output -raw cloudfront_distribution_id)
+POOL_ID=$(terraform -chdir=infrastructure/terraform output -raw cognito_user_pool_id)
+CLIENT_ID=$(terraform -chdir=infrastructure/terraform output -raw cognito_user_pool_client_id)
+COGNITO_DOMAIN=$(terraform -chdir=infrastructure/terraform output -raw cognito_hosted_ui_domain)
+
 echo "==> Building frontend"
 (
   npm install --workspace=@sankatai/web
   VITE_API_URL=/ \
-  VITE_COGNITO_USER_POOL_ID=ap-south-1_gxKpxpsyl \
-  VITE_COGNITO_CLIENT_ID=tm62pjk48amoj3c3l6i9m135e \
+  VITE_COGNITO_USER_POOL_ID="$POOL_ID" \
+  VITE_COGNITO_CLIENT_ID="$CLIENT_ID" \
+  VITE_COGNITO_DOMAIN="$COGNITO_DOMAIN" \
   npm run build
 )
-
-echo "==> Reading infrastructure outputs"
-BUCKET=$(terraform -chdir=infrastructure/terraform output -raw frontend_bucket_name)
-DIST_ID=$(terraform -chdir=infrastructure/terraform output -raw cloudfront_distribution_id)
 echo "    bucket:       $BUCKET"
 echo "    distribution: $DIST_ID"
 

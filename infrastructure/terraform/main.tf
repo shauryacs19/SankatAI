@@ -126,7 +126,8 @@ module "ecr" {
 
   project_name                = var.project_name
   github_repository           = var.github_repository
-  backend_instance_id         = module.backend_ec2.instance_id
+  terraform_state_bucket      = var.terraform_state_bucket
+  terraform_state_key         = var.terraform_state_key
   frontend_bucket_arn         = module.frontend.bucket_arn
   cloudfront_distribution_id  = module.frontend.cloudfront_distribution_id
   create_github_oidc_provider = var.create_github_oidc_provider

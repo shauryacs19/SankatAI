@@ -154,3 +154,24 @@ jobs:
 
       - name: CI completed successfully
         run: echo "All CI checks passed."
+
+  # ── Deploy ───────────────────────────────────────────────────────────────
+  # Starts as soon as the two REQUIRED CI jobs are green. SonarQube and the
+  # Trivy scans are deliberately NOT in `needs`: they keep running in parallel
+  # and report independently, but they no longer hold the deploy behind them.
+  #
+  # `uses:` runs .github/workflows/app-cd.yml as a reusable workflow, which is
+  # what lets `needs:` gate CD at all - it cannot reach across workflow files,
+  # and the previous `workflow_run` trigger only fired after EVERY job in this
+  # workflow had finished.
+  deploy:
+    name: Deploy
+    needs:
+      - backend
+      - frontend
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/app-cd.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write

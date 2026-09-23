@@ -6,18 +6,20 @@
 # so an existing tag is reused rather than treated as an error.
 #
 # Required env:
-#   REGISTRY        - ECR registry host (output of aws-actions/amazon-ecr-login)
-#   ECR_REPOSITORY  - repository name, e.g. sankatai-backend
+#   REPOSITORY_URL  - full ECR repo URL, from `terraform output ecr_repository_url`
+#                     (registry host and repo name are both derived from it, so
+#                     there is no second copy of either to drift)
 #   TAG             - image tag; the CI commit SHA
 #
 # Writes IMAGE=<full ref> to $GITHUB_ENV for the rollout step.
 set -euo pipefail
 
-: "${REGISTRY:?missing ECR registry}"
-: "${ECR_REPOSITORY:?missing ECR repository name}"
+: "${REPOSITORY_URL:?missing - expected from terraform output ecr_repository_url}"
 : "${TAG:?missing image tag}"
 
-IMAGE="$REGISTRY/$ECR_REPOSITORY:$TAG"
+# e.g. 1234.dkr.ecr.ap-south-1.amazonaws.com/sankatai-backend
+ECR_REPOSITORY="${REPOSITORY_URL##*/}"   # sankatai-backend
+IMAGE="$REPOSITORY_URL:$TAG"
 
 if aws ecr describe-images \
      --repository-name "$ECR_REPOSITORY" \

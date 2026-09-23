@@ -1,16 +1,18 @@
 name: SankatAI CD
 
-# Runs only after "SankatAI CI" finishes. CI gates its image build on both Trivy
-# jobs, and this workflow refuses to run unless the whole CI run concluded
-# successfully - so a CRITICAL/HIGH finding stops the deploy outright.
+# Called by "SankatAI CI" as a reusable workflow, gated on the REQUIRED CI jobs
+# (backend + frontend) only. `needs:` cannot reach across workflow files, and a
+# `workflow_run` trigger fires only once the WHOLE upstream workflow finishes -
+# which meant SonarQube and Trivy delayed every deploy. Being called instead
+# lets CI start this the moment the required jobs go green, while the slower
+# security and quality jobs keep running alongside.
 #
 # Step bodies live in .github/scripts/ so they can be read, linted (shellcheck)
 # and run by hand; this file only wires inputs to them.
 on:
-  workflow_run:
-    workflows: ["SankatAI CI"]
-    types:
-      - completed
+  workflow_call:
+  # Manual re-deploy of whatever is currently on the selected branch.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,22 +26,66 @@ concurrency:
 
 env:
   AWS_REGION: ap-south-1
-  ECR_REPOSITORY: sankatai-backend
 
 jobs:
+  # ── Resource IDs, straight from Terraform state ──────────────────────────
+  # Single source of truth. Bucket names, distribution id, instance id, ECR URL
+  # and Cognito ids are all READ from the state that `terraform apply` wrote -
+  # never duplicated into GitHub variables, which go stale silently when a
+  # resource is replaced.
+  terraform-outputs:
+    name: Read Terraform outputs
+    runs-on: ubuntu-24.04
+
+    outputs:
+      frontend_bucket: ${{ steps.tf.outputs.frontend_bucket }}
+      cloudfront_distribution_id: ${{ steps.tf.outputs.cloudfront_distribution_id }}
+      cloudfront_domain_name: ${{ steps.tf.outputs.cloudfront_domain_name }}
+      backend_instance_id: ${{ steps.tf.outputs.backend_instance_id }}
+      ecr_repository_url: ${{ steps.tf.outputs.ecr_repository_url }}
+      api_gateway_endpoint: ${{ steps.tf.outputs.api_gateway_endpoint }}
+      cognito_user_pool_id: ${{ steps.tf.outputs.cognito_user_pool_id }}
+      cognito_user_pool_client_id: ${{ steps.tf.outputs.cognito_user_pool_client_id }}
+      cognito_hosted_ui_domain: ${{ steps.tf.outputs.cognito_hosted_ui_domain }}
+      users_table_name: ${{ steps.tf.outputs.users_table_name }}
+      chat_history_table_name: ${{ steps.tf.outputs.chat_history_table_name }}
+      attachments_table_name: ${{ steps.tf.outputs.attachments_table_name }}
+      chat_bucket_name: ${{ steps.tf.outputs.chat_bucket_name }}
+      documents_bucket_name: ${{ steps.tf.outputs.documents_bucket_name }}
+      ai_api_key_secret_name: ${{ steps.tf.outputs.ai_api_key_secret_name }}
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false # keep stdout clean for `output -json`
+
+      - name: Read outputs
+        id: tf
+        run: bash .github/scripts/terraform-outputs.sh
+
   # ── Web: build, sync to S3, invalidate CloudFront ────────────────────────
   deploy-web:
     name: Deploy web (S3 + CloudFront)
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
+    needs: terraform-outputs
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -50,10 +96,12 @@ jobs:
 
       - name: Build web app
         env:
-          VITE_API_URL: ${{ vars.VITE_API_URL }}
-          VITE_COGNITO_USER_POOL_ID: ${{ vars.VITE_COGNITO_USER_POOL_ID }}
-          VITE_COGNITO_CLIENT_ID: ${{ vars.VITE_COGNITO_CLIENT_ID }}
-          VITE_COGNITO_DOMAIN: ${{ vars.VITE_COGNITO_DOMAIN }}
+          # Not a resource id - a routing choice. CloudFront proxies /api/* to
+          # API Gateway, so the app calls a relative path.
+          VITE_API_URL: ${{ vars.VITE_API_URL || '/' }}
+          VITE_COGNITO_USER_POOL_ID: ${{ needs.terraform-outputs.outputs.cognito_user_pool_id }}
+          VITE_COGNITO_CLIENT_ID: ${{ needs.terraform-outputs.outputs.cognito_user_pool_client_id }}
+          VITE_COGNITO_DOMAIN: ${{ needs.terraform-outputs.outputs.cognito_hosted_ui_domain }}
         run: bash .github/scripts/build-web.sh
 
       - name: Configure AWS credentials
@@ -64,23 +112,21 @@ jobs:
 
       - name: Publish to S3 and invalidate CloudFront
         env:
-          BUCKET: ${{ vars.FRONTEND_BUCKET }}
-          DIST_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+          BUCKET: ${{ needs.terraform-outputs.outputs.frontend_bucket }}
+          DIST_ID: ${{ needs.terraform-outputs.outputs.cloudfront_distribution_id }}
         run: bash .github/scripts/deploy-web.sh
 
   # ── Backend: build image, push to ECR, roll out on EC2 via SSM ───────────
   deploy-backend:
     name: Deploy backend (ECR + SSM)
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
+    needs: terraform-outputs
     runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -94,15 +140,23 @@ jobs:
 
       - name: Build and push image
         env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
-          TAG: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY_URL: ${{ needs.terraform-outputs.outputs.ecr_repository_url }}
+          TAG: ${{ github.sha }}
         run: bash .github/scripts/push-backend-image.sh
 
       - name: Roll out on EC2 via SSM
         env:
           # IMAGE is exported to $GITHUB_ENV by the previous step.
-          INSTANCE_ID: ${{ vars.BACKEND_INSTANCE_ID }}
-          CORS_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
-          TAG: ${{ github.event.workflow_run.head_sha }}
+          # Instance id comes from Terraform state; the script verifies it is
+          # running and falls back to Name-tag discovery if it is not.
+          INSTANCE_ID: ${{ needs.terraform-outputs.outputs.backend_instance_id }}
+          INSTANCE_NAME_TAG: sankatai-backend
+          CORS_ORIGINS: https://${{ needs.terraform-outputs.outputs.cloudfront_domain_name }}
+          USERS_TABLE: ${{ needs.terraform-outputs.outputs.users_table_name }}
+          CHAT_HISTORY_TABLE: ${{ needs.terraform-outputs.outputs.chat_history_table_name }}
+          ATTACHMENTS_TABLE: ${{ needs.terraform-outputs.outputs.attachments_table_name }}
+          CHAT_BUCKET: ${{ needs.terraform-outputs.outputs.chat_bucket_name }}
+          DOCUMENTS_BUCKET: ${{ needs.terraform-outputs.outputs.documents_bucket_name }}
+          SECRET_ID: ${{ needs.terraform-outputs.outputs.ai_api_key_secret_name }}
+          TAG: ${{ github.sha }}
         run: bash .github/scripts/deploy-backend.sh

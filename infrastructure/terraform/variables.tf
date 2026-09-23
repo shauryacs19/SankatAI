@@ -61,6 +61,18 @@ variable "cognito_logout_urls" {
   ]
 }
 
+variable "terraform_state_bucket" {
+  description = "S3 bucket holding this configuration's state. Must match backend.tf."
+  type        = string
+  default     = "admin-terraform-state-bucket-020"
+}
+
+variable "terraform_state_key" {
+  description = "State object key. Must match backend.tf."
+  type        = string
+  default     = "sankatai/terraform.tfstate"
+}
+
 variable "github_repository" {
   description = "owner/repo permitted to assume the CI deploy role via OIDC."
   type        = string

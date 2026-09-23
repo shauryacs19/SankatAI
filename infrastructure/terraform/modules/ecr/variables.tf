@@ -7,11 +7,6 @@ variable "github_repository" {
   type        = string
 }
 
-variable "backend_instance_id" {
-  description = "EC2 instance the deploy job targets via SSM Run Command"
-  type        = string
-}
-
 variable "frontend_bucket_arn" {
   description = "S3 bucket holding the built web app. The deploy job syncs into it."
   type        = string
@@ -19,6 +14,16 @@ variable "frontend_bucket_arn" {
 
 variable "cloudfront_distribution_id" {
   description = "CloudFront distribution the deploy job invalidates after a web sync."
+  type        = string
+}
+
+variable "terraform_state_bucket" {
+  description = "S3 bucket holding the Terraform state the CD workflow reads outputs from."
+  type        = string
+}
+
+variable "terraform_state_key" {
+  description = "Key of the state object inside terraform_state_bucket."
   type        = string
 }
 
