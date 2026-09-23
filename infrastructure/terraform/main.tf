@@ -12,8 +12,11 @@ module "cognito" {
 
   project_name = var.project_name
 
-  callback_urls = var.cognito_callback_urls
-  logout_urls   = var.cognito_logout_urls
+  # The deployed web origin is derived from the distribution, never hardcoded.
+  # No cycle: the graph is per-output, and the distribution depends only on the
+  # API's domain, not on the authorizer that consumes this client id.
+  callback_urls = concat(var.cognito_callback_urls, ["https://${module.frontend.cloudfront_domain_name}/auth/callback"])
+  logout_urls   = concat(var.cognito_logout_urls, ["https://${module.frontend.cloudfront_domain_name}/"])
 }
 
 module "frontend" {
