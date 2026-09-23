@@ -278,6 +278,13 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
   needs `--build`. In dev they're plain env on the Vite dev server, so a restart suffices.
 
 ## 10. Changelog (most recent first)
+- **Web sign-in: CloudFront origin missing from Cognito callbacks (2026-09-24):** the app
+  client allowed only `localhost:5173` and `sankatai://`, so the deployed site's Hosted UI
+  redirect would fail with `redirect_mismatch`. Root `main.tf` now appends
+  `https://<cloudfront_domain_name>/auth/callback` and `.../` (derived from
+  `module.frontend`, no cycle — verified by plan). Verified: loading the site bounces to
+  the Hosted UI `/login` with the CloudFront `redirect_uri`. A real credentialed sign-in
+  was NOT performed (needs a user password).
 - **API Gateway 503: VPC Link had no egress to the ALB (2026-09-24):** backend container
   healthy, ALB target healthy, yet `/api/*` returned `{"message":"Service Unavailable"}`.
   The VPC Link reuses `sankatai-alb-sg` for its ENIs, and that SG's egress allowed only
