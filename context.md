@@ -278,6 +278,12 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
   needs `--build`. In dev they're plain env on the Vite dev server, so a restart suffices.
 
 ## 10. Changelog (most recent first)
+- **API Gateway 503: VPC Link had no egress to the ALB (2026-09-24):** backend container
+  healthy, ALB target healthy, yet `/api/*` returned `{"message":"Service Unavailable"}`.
+  The VPC Link reuses `sankatai-alb-sg` for its ENIs, and that SG's egress allowed only
+  TCP 8000 (ALB->backend) — the ENIs could not open TCP 80 to the ALB listener. Added
+  egress TCP 80 to `var.vpc_cidr` (in-place, VPC-scoped, Trivy-safe). Verified: `/api/health`
+  200 via both API Gateway and CloudFront; authed routes 401 without a token.
 - **Backend rollout ran under dash, not bash (2026-09-24):** with SSM finally working,
   the rollout reached the box and failed with `set: Illegal option -o pipefail`.
   `AWS-RunShellScript` writes the commands into a `/bin/sh` script (dash on Ubuntu) and
