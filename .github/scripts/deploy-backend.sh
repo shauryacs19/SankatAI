@@ -107,9 +107,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROLLOUT="$SCRIPT_DIR/ec2-rollout.sh"
 test -f "$ROLLOUT" || { echo "::error::missing $ROLLOUT"; exit 1; }
 
-# Two command entries: an export preamble, then the rollout script verbatim.
-# SSM runs them in one shell, so the exports are in scope for the script. jq
-# builds the JSON, so no quoting of the script body is needed here.
+# Two command entries: an export preamble, then a line that runs the rollout.
+# AWS-RunShellScript executes with /bin/sh (dash on Ubuntu), which rejects
+# `set -o pipefail` and ignores the shebang, so the script is shipped base64 and
+# run explicitly with bash. The exports are inherited by that child process.
 PREAMBLE=$(cat <<PRE
 export REGION='${AWS_REGION}'
 export IMAGE='${IMAGE}'
@@ -127,7 +128,7 @@ PRE
 
 jq -n \
   --arg preamble "$PREAMBLE" \
-  --arg body "$(cat "$ROLLOUT")" \
+  --arg body "echo '$(base64 -w0 "$ROLLOUT")' | base64 -d > /tmp/sankatai-rollout.sh && bash /tmp/sankatai-rollout.sh" \
   '{commands: [$preamble, $body]}' > /tmp/ssm-params.json
 
 echo "==> Sending rollout to $INSTANCE_ID"
