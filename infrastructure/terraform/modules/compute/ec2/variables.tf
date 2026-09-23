@@ -7,6 +7,11 @@ variable "instance_type" {
   default = "t3.micro"
 }
 
+variable "vpc_cidr" {
+  description = "VPC CIDR. Scopes DNS egress to the in-VPC Route 53 resolver."
+  type        = string
+}
+
 variable "vpc_id" {
   type = string
 }

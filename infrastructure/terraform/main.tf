@@ -85,6 +85,7 @@ module "backend_ec2" {
   project_name  = var.project_name
   instance_type = var.instance_type
   vpc_id        = module.network.vpc_id
+  vpc_cidr      = module.network.vpc_cidr
   # PRIVATE subnet — no public IP, no route to the internet gateway.
   subnet_id             = module.network.private_subnet_ids[0]
   iam_instance_profile  = module.iam.instance_profile_name
@@ -126,6 +127,8 @@ module "ecr" {
   project_name                = var.project_name
   github_repository           = var.github_repository
   backend_instance_id         = module.backend_ec2.instance_id
+  frontend_bucket_arn         = module.frontend.bucket_arn
+  cloudfront_distribution_id  = module.frontend.cloudfront_distribution_id
   create_github_oidc_provider = var.create_github_oidc_provider
 }
 

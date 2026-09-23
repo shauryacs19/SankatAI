@@ -121,6 +121,9 @@ resource "aws_iam_role_policy" "github_actions" {
           "ecr:UploadLayerPart",
           "ecr:BatchGetImage",
           "ecr:GetDownloadUrlForLayer",
+          # Tags are IMMUTABLE, so re-running a deploy for a commit that was
+          # already pushed would fail. The job checks first and skips the push.
+          "ecr:DescribeImages",
         ]
         Resource = aws_ecr_repository.backend.arn
       },
@@ -138,6 +141,31 @@ resource "aws_iam_role_policy" "github_actions" {
         Effect   = "Allow"
         Action   = ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]
         Resource = "*"
+      },
+      # ── Web deploy ────────────────────────────────────────────────────────
+      # Sync the built site into the frontend bucket. Scoped to that one
+      # bucket: no other S3 data (chat uploads, the documents vault) is
+      # reachable with this role.
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = var.frontend_bucket_arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject",
+        ]
+        Resource = "${var.frontend_bucket_arn}/*"
+      },
+      # Drop the edge cache so a deploy is visible immediately. Invalidation
+      # only — the role cannot reconfigure or delete the distribution.
+      {
+        Effect   = "Allow"
+        Action   = ["cloudfront:CreateInvalidation"]
+        Resource = "arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${var.cloudfront_distribution_id}"
       },
     ]
   })

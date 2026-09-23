@@ -135,12 +135,33 @@ resource "aws_security_group" "nat" {
     cidr_blocks = [var.vpc_cidr]
   }
 
+  # Forwarded traffic only ever leaves as HTTP/HTTPS, because that is all the
+  # backend security group now permits inbound to this instance. Anything
+  # wider would be unused. Kept at 0.0.0.0/0 by necessity: this instance's
+  # entire function is reaching arbitrary internet hosts for the private
+  # subnets, and those destinations are not knowable in advance.
   egress {
-    description = "Outbound to the internet on behalf of private instances"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "HTTPS forwarded from the private subnets, plus local dnf/SSM traffic"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "HTTP forwarded from the private subnets (apt archives)"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "NTP to the Amazon Time Sync Service"
+    from_port   = 123
+    to_port     = 123
+    protocol    = "udp"
+    cidr_blocks = ["169.254.169.123/32"]
   }
 
   tags = {

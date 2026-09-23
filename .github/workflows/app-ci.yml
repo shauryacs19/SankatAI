@@ -115,6 +115,10 @@ jobs:
           scan-ref: infrastructure/terraform
           severity: CRITICAL,HIGH
           exit-code: "1"
+          # Accepted risks live in .trivyignore.yaml, each with a written
+          # justification. Passed explicitly rather than relying on Trivy's
+          # working-directory auto-discovery.
+          trivyignores: .trivyignore.yaml
   
   docker:
     name: Docker - Build and Scan
@@ -124,6 +128,9 @@ jobs:
       - backend
       - frontend
       - sonarqube
+      # Security gates block the image build, and therefore the deploy. A
+      # CRITICAL/HIGH finding in the source tree or in the Terraform must not
+      # produce a shippable artifact.
       - trivy-filesystem
       - trivy-iac
     

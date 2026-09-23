@@ -1,0 +1,52 @@
+# Trivy suppressions — accepted risks, each with the reason it is accepted.
+#
+# Every entry here is a DELIBERATE cost or architecture decision on a
+# low-budget project, not an unreviewed finding. Anything fixable at zero cost
+# has been fixed in the Terraform instead. Re-review before this project is
+# treated as production.
+
+misconfigurations:
+  # ── Accepted: would add recurring AWS cost ──────────────────────────────
+  - id: AVD-AWS-0011
+    statement: >-
+      CloudFront distribution has no AWS WAF. WAF is billed per web ACL plus
+      per request and is planned for production hardening; it is omitted from
+      this low-cost demo environment. The distribution serves a static built
+      frontend only — no origin credentials and no write paths.
+
+  - id: AVD-AWS-0132
+    statement: >-
+      The frontend, chat-uploads and file-storage buckets use SSE-S3 (AES256)
+      rather than a customer-managed KMS key. All three are already encrypted
+      at rest; a CMK adds per-key and per-request charges with no compliance
+      requirement driving it here. Revisit if medical documents ever need
+      customer-managed key control or per-key audit.
+
+  # ── Accepted: architectural, TLS terminates earlier in the path ─────────
+  - id: AVD-AWS-0054
+    statement: >-
+      The internal ALB listener is HTTP on port 80. TLS terminates at API
+      Gateway, which is the only public entry point; the request path is
+      client -> API Gateway (HTTPS) -> VPC Link -> internal ALB -> private
+      EC2. The ALB has internal = true, so it holds private IPs only and has
+      no public DNS record resolvable outside the VPC. This hop is traffic
+      between the VPC Link ENIs and the ALB, both inside the VPC, and never
+      traverses the internet. Closing this properly needs a certificate:
+      a public ACM cert requires an owned domain, ACM Private CA is ~$400/mo,
+      and a self-signed cert imported to ACM is unverified against API
+      Gateway's private-integration chain validation and would risk the only
+      ingress path. Deferred to the final deployment architecture, when the
+      project has a real domain.
+
+  # ── Accepted: cannot be expressed as a fixed CIDR ───────────────────────
+  - id: AVD-AWS-0104
+    statement: >-
+      Residual 0.0.0.0/0 egress on the backend and NAT security groups. This
+      check fires on the destination CIDR, not the port range, so it cannot be
+      cleared while the workload needs the public internet at all. Both groups
+      HAVE been narrowed from all-protocols/all-ports to TCP 443, TCP 80 and
+      NTP only, with DNS scoped to the in-VPC resolver. The remaining
+      destinations are genuinely unknowable: Ollama Cloud publishes no stable
+      IP ranges, and a NAT instance exists precisely to reach arbitrary hosts.
+      The ALB security group is NOT covered by this — its egress is scoped to
+      the VPC CIDR and the backend port.

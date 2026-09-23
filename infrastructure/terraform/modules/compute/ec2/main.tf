@@ -108,12 +108,53 @@ resource "aws_security_group" "backend" {
     security_groups = [var.alb_security_group_id]
   }
 
+  # Egress is enumerated rather than "all protocols, all ports". The
+  # destinations genuinely cannot be pinned to fixed CIDRs — Ollama Cloud
+  # publishes no stable ranges, and the AWS APIs reached here (ECR, SSM,
+  # Secrets Manager, CloudWatch) are regional service endpoints. S3 and
+  # DynamoDB leave through the gateway VPC endpoints and are covered by the
+  # 443 rule. What this does remove is every non-HTTP protocol and every
+  # other port, which is where the real exposure was.
   egress {
-    description = "Outbound via the NAT instance (ECR, apt, AWS APIs)"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "HTTPS: Ollama Cloud, ECR, SSM, Secrets Manager, CloudWatch, S3/DynamoDB endpoints"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "HTTP: Ubuntu apt archives during instance bootstrap and deploys"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # DNS stays inside the VPC: the Route 53 resolver sits at VPC base + 2.
+  egress {
+    description = "DNS to the in-VPC resolver (UDP)"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  egress {
+    description = "DNS to the in-VPC resolver (TCP, large responses)"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  # Amazon Time Sync, link-local. Clock skew breaks SigV4 signing.
+  egress {
+    description = "NTP to the Amazon Time Sync Service"
+    from_port   = 123
+    to_port     = 123
+    protocol    = "udp"
+    cidr_blocks = ["169.254.169.123/32"]
   }
 
   tags = {

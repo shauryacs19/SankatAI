@@ -281,6 +281,207 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
   needs `--build`. In dev they're plain env on the Vite dev server, so a restart suffices.
 
 ## 10. Changelog (most recent first)
+- **Vite 8 / Rolldown chunking config fixed and build verified (2026-09-24):**
+  The first cut of the vendor split used Rollup's object form of `manualChunks`, which
+  Vite 8 (Rolldown 1.2.9) rejects: `manualChunks is not a function - Expected Function
+  but received Object`. Rewritten as `output.codeSplitting.groups` — see the entry below
+  for the API detail and why that name rather than `manualChunks`/`advancedChunks`.
+  - **Build VERIFIED, not assumed.** The repo's `node_modules` holds only
+    `@rolldown/binding-win32-x64-msvc`, so no build can run from the desktop bridge's
+    Linux VM. Verified instead by staging `apps/web` + `packages/shared` into the cloud
+    sandbox, installing fresh Linux bindings, and running the real `vite build`:
+    succeeded in 453ms, 2038 modules, with all four groups materialising —
+    `react` 258.34 kB, app `index` 243.51 kB, `motion` 112.37 kB, `cognito` 81.76 kB,
+    `icons` 17.20 kB, plus a 1.29 kB rolldown runtime chunk.
+  - **The 500 kB chunk-size warning is now gone** as a side effect: the largest chunk is
+    258 kB, under Vite's threshold. Nothing was silenced — the limit was left at its
+    default and the bundle genuinely dropped below it.
+  - Sandbox ran rolldown 1.2.10 against the repo's 1.2.9 (same minor, identical option
+    schema), and used a trimmed root `package.json` covering only the `apps/web` and
+    `packages/shared` workspaces — enough to exercise the Vite config, not the Expo tree.
+    Re-run `npm run build:web` locally to confirm on the exact installed tree.
+- **npm audit: uuid fixed by override, image-size blocked by metro (2026-09-24):**
+  All 16 reported vulnerabilities trace to just TWO leaf advisories. Every other entry
+  (`@expo/cli`, `@expo/config`, `metro`, `metro-config`, `metro-transform-worker`,
+  `expo`, `expo-asset`, `expo-constants`, `xcode`, `@expo/prebuild-config`, ...) is the
+  dependency chain reporting upward, not a separate defect.
+  - **`uuid` (moderate) — FIXED.** Root `package.json` overrides now carry
+    `"uuid": "^11.1.1"` alongside the existing postcss pin. Consumers are
+    `@expo/ngrok` (wants `^3.3.2`) and `xcode` (wants `^7.0.3`), and BOTH use only
+    `require('uuid')` + `.v4()` — a namespace call whose shape is identical in v3, v7
+    and v11, so the major bump is API-safe here. Verified empirically in a scratch
+    install of `xcode@3.0.1` + `@expo/ngrok@4.1.3` with the override applied:
+    both resolve `uuid@11.1.1`, both `require()` cleanly, the line-22/line-90 call
+    pattern in `pbxProject.js` works, and `npm audit` reports 0 vulnerabilities.
+    The advisory itself is in `v3/v5/v6` when a `buf` argument is passed — neither
+    package does that, so it was never exploitable here regardless.
+  - **`image-size` (high) — CANNOT be fixed without a breaking Expo upgrade.**
+    Installed `1.2.1` via `metro@0.83.3` (`^1.0.2`). The advisory covers `<=2.0.2`, so
+    the ONLY fixed release is `2.0.3+`; there is no patched 1.x (`1.2.1` is the last
+    1.x and npm tags it `legacy`). An override to `^2.0.3` breaks metro:
+    `metro/src/Assets.js:173` calls `imageSize(assetInfo.files[0])` with a FILE PATH
+    STRING, and v2 moved path handling to a separate `image-size/fromFile` entry so
+    the main export takes only a Buffer. Confirmed by running `2.0.4` against a path
+    string: `TypeError: The "list" argument must be an instance of SharedArrayBuffer,
+    ArrayBuffer or ArrayBufferView`. Every image asset in the mobile app would fail to
+    bundle. Clearing it needs metro >= the release that adopts image-size v2, which
+    means Expo 57 — explicitly out of scope.
+    Residual risk is low: metro is a BUILD-TIME bundler that never ships to production,
+    and the advisory is DoS-by-infinite-loop while parsing a malformed ICNS/JXL/HEIF
+    file. Triggering it means committing a malicious image to your own repo.
+  - **Deprecation warnings left alone.** `rimraf@3`, `glob@7`, `inflight`, `uuid@3/@7`
+    are all transitive under the Expo/metro toolchain with no override that does not
+    risk the bundler. No safe, necessary change available short of Expo 57.
+  - **Vite chunking** (`apps/web/vite.config.js`): vendor split out of the ~685 kB app
+    chunk. Chunking only: same modules, same execution order, no functional change.
+    ⚠️ **Vite 8 runs on Rolldown, not Rollup**, so the Rollup object form of
+    `manualChunks` is rejected outright (`manualChunks is not a function / Expected
+    Function but received Object`). In rolldown 1.2.9 `manualChunks` takes a FUNCTION
+    only, and BOTH `manualChunks` and `advancedChunks` are marked `@deprecated` in
+    favour of `output.codeSplitting`, which takes the declarative group form. The config
+    therefore uses `build.rollupOptions.output.codeSplitting.groups` with
+    `{ name, test }` entries, regexes written `[\\/]` so they match on Windows and
+    POSIX paths alike. `react`/`react-dom`/`react-router`/`react-router-dom`/`scheduler`
+    are kept in ONE group deliberately — splitting React from the router breaks context
+    identity across chunks. `framer-motion` also carries `motion-dom`/`motion-utils`.
+  - ⚠️ **`npm install` and `npm run build:web` were NOT run by Claude.** `node_modules`
+    in the repo was installed by Windows npm, so its native rollup/esbuild bindings
+    cannot load under the desktop bridge's Linux VM (this is also the real cause of the
+    earlier `ENOTEMPTY` failures). Running npm from that VM would corrupt the tree with
+    Linux binaries. Verified instead: JSON validity of `package.json`, `node --check` on
+    `vite.config.js`, and the scratch-install proof above. **Run `npm install` and
+    `npm run build:web` natively in PowerShell**, then confirm with `npm ls uuid`
+    (expect 11.1.1 everywhere) and `npm audit` (expect 8 remaining, all image-size).
+- **Terraform Trivy pass 2: egress narrowed, remainder suppressed with reasons (2026-09-24):**
+  - **Backend EC2 SG egress** (`modules/compute/ec2/`) — was all-protocols/all-ports
+    to `0.0.0.0/0`. Now an enumerated set: TCP 443 (Ollama Cloud, ECR, SSM, Secrets
+    Manager, CloudWatch, and the S3/DynamoDB gateway endpoints), TCP 80 (apt), UDP+TCP
+    53 scoped to `var.vpc_cidr` (the in-VPC Route 53 resolver), UDP 123 to
+    `169.254.169.123/32` (Amazon Time Sync — clock skew breaks SigV4). New module input
+    `vpc_cidr`, wired from `module.network.vpc_cidr` in root `main.tf`.
+  - **NAT SG egress** (`modules/network/`) — same treatment: TCP 443, TCP 80, UDP 123.
+    Forwarded traffic can only ever be HTTP/HTTPS now, because that is all the backend
+    SG permits outbound in the first place.
+  - **ALB SG egress** was already scoped to the VPC CIDR + backend port (2026-09-18) and
+    is not among the suppressions below.
+  - ⚠️ **AVD-AWS-0104 still fires and is suppressed.** The check tests the destination
+    CIDR, not the port range, so it cannot be cleared while the workload needs the public
+    internet at all. Ollama Cloud publishes no stable IP ranges and a NAT instance exists
+    precisely to reach arbitrary hosts. The narrowing above is a real reduction in
+    exposure (every non-HTTP protocol and every other port is gone) but does not and
+    cannot satisfy this check. Worth being clear-eyed about: CI going green here is a
+    documented acceptance, not a fix.
+  - **ALB HTTPS (AVD-AWS-0054): decided to keep HTTP and suppress.** An HTTPS listener
+    needs a certificate and there is no zero-cost path to one: public ACM needs an owned
+    domain, ACM Private CA is ~$400/mo, and a self-signed cert imported to ACM is not
+    confirmed to pass API Gateway's private-integration validation — AWS documents only
+    that `ServerNameToVerify` checks the hostname, not whether the chain must be trusted.
+    Risking the only ingress path was not worth it. TLS terminates at API Gateway and the
+    ALB is `internal = true` with no publicly resolvable DNS, so the unencrypted hop is
+    VPC-internal between the VPC Link ENIs and the ALB. Revisit with a real domain.
+  - **`.trivyignore.yaml`** (new, repo root): 4 suppressions, each carrying a written
+    `statement` explaining the acceptance — `AVD-AWS-0011` (CloudFront WAF),
+    `AVD-AWS-0132` (SSE-S3 rather than CMK on all three buckets), `AVD-AWS-0054` (ALB
+    HTTP listener), `AVD-AWS-0104` (residual public egress). `app-ci.yml`'s `trivy-iac`
+    job now passes `trivyignores: .trivyignore.yaml` explicitly rather than relying on
+    Trivy's working-directory auto-discovery.
+  - **Cost delta: $0.** No WAF, no KMS key, no ACM Private CA, no domain, no NAT Gateway.
+  - ⚠️ `terraform fmt`/`validate`/`plan` still could not be run — `releases.hashicorp.com`
+    is blocked from both the cloud sandbox and the desktop VM, so there is no terraform
+    binary available. Verified instead with: an `=`-alignment check across every edited
+    file (the rule `terraform fmt` applies), brace/paren balance, a tab check, and a
+    structural cross-check that every module input is declared and every required input
+    passed (all 11 modules clean, including the new `vpc_cidr`). **Run the three commands
+    locally before applying.**
+  - ⚠️ Egress narrowing is the kind of change that fails at runtime, not at plan time.
+    After applying, confirm the backend can still reach Ollama Cloud and pull from ECR.
+- **CD step bodies extracted to `.github/scripts/` (2026-09-24):**
+  `app-cd.yml` had a multi-line rollout script embedded as a quoted heredoc inside
+  a YAML block scalar — two layers of escaping, unreadable, and impossible to lint
+  or run by hand. The workflow is now wiring only (108 lines); every step body is a
+  file:
+  - `build-web.sh` — root `npm ci` + `npm run build:web`, asserts `dist/index.html` exists.
+  - `deploy-web.sh` — S3 sync (immutable assets / `no-cache` index) + CloudFront
+    invalidation, waited to completion.
+  - `push-backend-image.sh` — build/push to ECR, reusing an existing tag instead of
+    failing against the IMMUTABLE repo. Exports `IMAGE` via `$GITHUB_ENV`.
+  - `deploy-backend.sh` — runs ON THE RUNNER. Builds the SSM payload with `jq -n`
+    (an export preamble + `ec2-rollout.sh` verbatim as a second command entry), waits,
+    prints instance stdout/stderr, fails on any status but `Success`.
+  - `ec2-rollout.sh` — runs ON THE INSTANCE, delivered by SSM. Never executed on the
+    runner. Ports and names come in as env from the preamble.
+  The `jq -n --arg` payload construction replaced the old preamble+heredoc trick, so
+  the rollout script is no longer quoted or escaped anywhere — it is shipped as-is.
+  Every script starts `set -euo pipefail` and fail-fasts required inputs with
+  `: "${VAR:?...}"` naming the exact repo setting to fill in. Workflow steps invoke
+  them as `bash .github/scripts/<name>.sh` rather than relying on the executable bit,
+  which does not survive a Windows checkout reliably.
+  Verified: `bash -n` on all five, plus a mocked-`aws` run of `deploy-backend.sh`
+  exercising both the success path and a `Failed` SSM status (correctly exits 1), and
+  a JSON-validity check on the generated payload. `shellcheck` is not installed
+  locally — worth adding as a CI job now that the shell is in real files.
+- **CD pipeline: web + backend deploy on green CI (2026-09-24):**
+  - **`app-ci.yml`**: the `docker` job now also `needs` `trivy-filesystem` and
+    `trivy-iac`. Previously those two ran in parallel with the image build, so a
+    scan finding never stopped the artifact being built (it did still fail the
+    overall run, which blocked CD — but the gate now sits where it belongs).
+  - **`app-cd.yml`** rewritten from a credentials smoke-test into a real deploy.
+    Two independent jobs, both gated on
+    `workflow_run.conclusion == 'success' && head_branch == 'main'`:
+    - **`deploy-web`** — `npm ci` at the ROOT (workspaces monorepo; the web app
+      pulls `@sankatai/shared` through a `file:` link, so an `apps/web`-only
+      install is wrong) → `npm run build:web` → `aws s3 sync` with immutable
+      caching on hashed assets and `no-cache` on `index.html` → CloudFront
+      invalidation, waited to completion. Mirrors `apps/web/scripts/deploy-frontend.sh`.
+    - **`deploy-backend`** — OIDC → ECR login → build/push `backend/` tagged with
+      the CI commit SHA → SSM Run Command rollout on the private instance →
+      in-box `curl localhost:8000/api/health` smoke test (the backend has no
+      public address, so this is the only place it can be reached) → prune old
+      images. Prints the instance-side stdout/stderr into the job log and fails
+      the job on a non-`Success` SSM status.
+    - `concurrency: sankatai-cd` with `cancel-in-progress: false` — a cancelled
+      rollout can leave the box with no running container.
+  - **Two real mismatches found and handled, not worked around:**
+    - The container listens on **5174** (`backend/Dockerfile`) but the ALB target
+      group and instance SG use **8000** (`var.backend_origin_port`). The rollout
+      runs `-p 8000:5174`. Worth reconciling properly at some point — right now
+      the port only lines up because the deploy maps it.
+    - `USERS_TABLE` cannot be left to default: `config.py` derives
+      `{PROJECT_NAME}-users`, but the real table is `sankatai-user-profile-table`.
+      All five table/bucket names are passed explicitly in the rollout.
+  - **IAM** (`modules/ecr/`): the GitHub Actions role could only push to ECR and
+    call SSM — the web deploy would have failed `AccessDenied`. Added, scoped:
+    `s3:ListBucket` on the frontend bucket + `s3:PutObject/GetObject/DeleteObject`
+    on its contents (that one bucket only — chat uploads and the documents vault
+    stay unreachable), `cloudfront:CreateInvalidation` on the one distribution
+    (invalidation only; the role cannot reconfigure or delete it), and
+    `ecr:DescribeImages` so a re-deploy of an already-pushed commit skips the push
+    instead of failing against the now-IMMUTABLE tags. New module inputs
+    `frontend_bucket_arn` + `cloudfront_distribution_id`, wired from
+    `module.frontend` in root `main.tf` (no cycle — `frontend` does not depend on `ecr`).
+  - **AWS CLI is installed by the rollout script**, idempotently. The instance is
+    Ubuntu 24.04 and `user_data` installs only docker/git/unzip. Deliberately NOT
+    added to `user_data`, because changing `user_data` forces instance replacement.
+  - The AI key is fetched from Secrets Manager to a root-only file and mounted
+    read-only as `OPENAI_API_KEY_FILE` — it never enters the container env or
+    `docker inspect`, matching §9a.
+  - **Required GitHub config** (repo Settings → Variables/Secrets), all read with
+    an explicit fail-fast check in the job:
+    - secrets: `AWS_DEPLOY_ROLE_ARN`
+    - vars: `FRONTEND_BUCKET`, `CLOUDFRONT_DISTRIBUTION_ID`, `BACKEND_INSTANCE_ID`,
+      `CORS_ALLOWED_ORIGINS`, `VITE_API_URL`, `VITE_COGNITO_USER_POOL_ID`,
+      `VITE_COGNITO_CLIENT_ID`, `VITE_COGNITO_DOMAIN`
+    - values come from `terraform output` (`frontend_bucket_name`,
+      `cloudfront_distribution_id`, `backend_instance_id`, `github_actions_role_arn`).
+  - ⚠️ **`terraform apply` required before the first deploy** — the new IAM
+    statements do not exist in AWS yet. Until then `deploy-web` fails AccessDenied.
+  - ⚠️ Untested against live AWS: validated by YAML parse, `bash -n` on the
+    rendered step, and a dry-run of the generated remote script + its `jq` params
+    payload. Not executed against the real account.
+  - ⚠️ Pre-existing, not fixed here: `app-ci.yml`'s `frontend` job still does
+    `npm ci` inside `apps/web` against a stale `apps/web/package-lock.json`
+    (2026-08-13), which is inconsistent with the root workspace lockfile the CD
+    job uses. Worth deleting that lockfile and moving the CI job to the root too.
 - **Trivy fixes — dependencies + Terraform, no new AWS cost (2026-09-18):**
   - **Removed `open-webui`** (root `package.json`) — unused (no import anywhere in the
     repo; triage is pure HTTPS calls to Ollama Cloud, see §8). This transitively removed
