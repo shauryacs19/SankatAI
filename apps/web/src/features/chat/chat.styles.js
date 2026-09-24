@@ -104,7 +104,8 @@ export const CHAT_CSS = `
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-card);
   transition: border-color var(--dur-fast) var(--ease-standard);
 }
-.composer:focus-within { border-color: var(--focus-ring); }
+.composer:focus-within { border-color: var(--focus-ring); box-shadow: 0 0 0 1px var(--focus-ring); }
+/* Buttons inside the composer keep their own ring; the input's ring is the container's. */
 .composer-input {
   flex: 1; min-width: 0; min-height: var(--touch); padding: 0 var(--space-2); border: 0; background: transparent;
   font-size: var(--fs-md); line-height: var(--lh-md); color: var(--text-primary);

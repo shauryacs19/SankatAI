@@ -21,7 +21,7 @@ import { App } from '../app/App.jsx'
 import { AuthContext, AUTH_STATUS } from '../context/AuthContext.jsx'
 import { installStyles } from '../styles/install'
 import { initTheme } from '../services/theme'
-import { installQa } from './qa'
+import { installQa, installContrast } from './qa'
 
 const q = new URLSearchParams(location.search)
 const route = q.get('route') || (q.get('auth') === '0' ? '/' : '/dashboard/chat')
@@ -144,6 +144,7 @@ if (q.get('static') === '1') MotionGlobalConfig.skipAnimations = true
 installStyles()
 initTheme()
 installQa()
+installContrast()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

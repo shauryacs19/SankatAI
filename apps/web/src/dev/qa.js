@@ -24,3 +24,45 @@ export const installQa = () => {
     return { vw, overflow, wide, unnamed, small, headings, fonts, colorCount: colors.length }
   }
 }
+
+// Rendered-colour contrast: every visible text node vs. its effective painted
+// background (walking up through transparent ancestors). WCAG thresholds:
+// 4.5:1 normal text, 3:1 large (≥24px, or ≥18.66px bold).
+const parse = (c) => { const m = c.match(/[\d.]+/g); return m ? m.map(Number) : null }
+const lum = ([r, g, b]) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b) }
+const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05) }
+const blend = (fg, bg) => { const a = fg[3] ?? 1; return [0, 1, 2].map((i) => fg[i] * a + bg[i] * (1 - a)) }
+const bgOf = (el) => {
+  const layers = []
+  for (let e = el; e; e = e.parentElement) {
+    const c = parse(getComputedStyle(e).backgroundColor)
+    if (c && (c[3] ?? 1) > 0) { layers.push(c); if ((c[3] ?? 1) >= 1) break }
+  }
+  let base = parse(getComputedStyle(document.body).backgroundColor).slice(0, 3)
+  for (const l of layers.reverse()) base = blend(l, base)
+  return base
+}
+export const installContrast = () => {
+  window.__contrast = () => {
+    const fails = []
+    let checked = 0
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    const seen = new Set()
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const el = n.parentElement
+      if (!n.textContent.trim() || !el || seen.has(el)) continue
+      seen.add(el)
+      if (!el.getClientRects().length || el.closest('.sr-only, [aria-hidden="true"], .ui-tip, .ui-skel') ) continue
+      const s = getComputedStyle(el)
+      if (s.visibility === 'hidden' || Number(s.opacity) === 0) continue
+      if (el.closest('button:disabled, [aria-disabled="true"], input:disabled')) continue // WCAG exempts disabled controls
+      const fg = parse(s.color); const bg = bgOf(el)
+      const r = ratio(blend(fg, bg), bg)
+      const size = parseFloat(s.fontSize); const bold = Number(s.fontWeight) >= 700
+      const need = size >= 24 || (bold && size >= 18.66) ? 3 : 4.5
+      checked++
+      if (r < need) fails.push(`${r.toFixed(2)} < ${need}  "${n.textContent.trim().slice(0, 40)}"  ${s.color} on rgb(${bg.map(Math.round)})`)
+    }
+    return { theme: document.documentElement.dataset.theme, checked, fails }
+  }
+}

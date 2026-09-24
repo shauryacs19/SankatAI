@@ -187,7 +187,8 @@ export const UI_CSS = `
 }
 @media (pointer: coarse) { .ui-menu-item { min-height: var(--touch); } }
 .ui-menu-item svg { color: var(--text-muted); }
-.ui-menu-item:hover, .ui-menu-item:focus-visible { background: var(--surface-hover); outline: none; }
+.ui-menu-item:hover, .ui-menu-item:focus-visible { background: var(--surface-hover); }
+.ui-menu-item:focus-visible { outline-offset: -2px; }
 .ui-menu-item--danger, .ui-menu-item--danger svg { color: var(--danger); }
 
 /* ---------- Toasts ---------- */
