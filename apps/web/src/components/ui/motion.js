@@ -27,6 +27,7 @@ export const listItem = {
     hidden: { opacity: 0, y: 4 },
     show: { opacity: 1, y: 0, transition: { duration: s(D.base), ease: E.enter } },
   },
+  exit: { opacity: 0, transition: { duration: s(D.fast), ease: E.exit } },
 }
 
 export const fade = {
@@ -62,4 +63,5 @@ export const toastMotion = {
 export const messageEnter = {
   initial: { opacity: 0, y: 8 },
   animate: { opacity: 1, y: 0, transition: { duration: s(D.base), ease: E.enter } },
+  exit: { opacity: 0, transition: { duration: s(D.fast), ease: E.exit } },
 }

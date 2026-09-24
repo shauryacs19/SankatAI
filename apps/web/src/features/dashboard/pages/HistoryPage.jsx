@@ -5,7 +5,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 // eslint-disable-next-line no-unused-vars -- `motion` is used via motion.* JSX
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { Search, X, History as HistoryIcon, Pencil, Trash2, Plus, MessageSquare } from 'lucide-react'
 import { relTime, groupConsults } from '../../chat/utils/format.jsx'
 import {
@@ -96,6 +96,7 @@ export default function HistoryPage() {
             <section key={label} className="hist-group" aria-labelledby={`hg-${label}`}>
               <h2 id={`hg-${label}`} className="ui-overline">{label}</h2>
               <motion.ul role="list" className="hist-list" {...listContainer}>
+                <AnimatePresence initial={false}>
                 {items.map((c) => {
                   const sev = severityUi(c.lastSeverity)
                   return (
@@ -114,6 +115,7 @@ export default function HistoryPage() {
                     </motion.li>
                   )
                 })}
+                </AnimatePresence>
               </motion.ul>
             </section>
           ))}

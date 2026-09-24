@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { AnimatePresence } from 'framer-motion'
 import { ArrowRight, ClipboardList, MapPin } from 'lucide-react'
 import { sevMeta, CHAT_SUGGESTIONS } from '@sankatai/shared'
 import { Chip, severityUi, useReducedMotion } from '../../../components/ui'
@@ -101,11 +102,13 @@ export default function ChatPage() {
               </div>
             </div>
           ) : (
-            messages.map((m) => {
+            <AnimatePresence initial={false} key={d.activeId || 'new'}>
+            {messages.map((m) => {
               if (m.sender === 'user') return <UserMessage key={m.id} m={m} attachments={msgAttachments(m)} onOpenAtt={openAtt} onUnsend={d.unsendMessageById} />
               if (m.sender === 'error') return <ErrorMessage key={m.id} m={m} retrying={retryingId === m.id} onRetry={() => retry(m.id)} onDismiss={() => d.dismissError(m.id)} />
               return <AssistantMessage key={m.id} m={m} onFeedback={d.submitFeedback} onShare={shareMessage} />
-            })
+            })}
+            </AnimatePresence>
           )}
           {isLoading && <ThinkingRow />}
         </section>
