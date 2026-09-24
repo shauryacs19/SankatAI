@@ -3,7 +3,7 @@
 > **Purpose:** single source of truth so Claude can get up to speed without
 > re-reading the whole codebase. **Claude updates this file after every completed
 > task** (append to the Changelog + adjust the relevant sections).
-> Last updated: 2026-09-24.
+> Last updated: 2026-09-24 (voice input).
 
 ---
 
@@ -76,7 +76,7 @@ Names (Terraform `project_name=sankatai`; also in `backend/.env.aws.example`):
 ## 5. Backend — API + config
 
 Routers in `backend/main.py`: health, triage, profile, consultations, security,
-uploads. CORS middleware uses explicit `CORS_ALLOWED_ORIGINS` and credentials for the web session cookie. Auth: `user_id` from verified
+uploads, voice. CORS middleware uses explicit `CORS_ALLOWED_ORIGINS` and credentials for the web session cookie. Auth: `user_id` from verified
 Cognito token.
 
 Endpoints: `GET /api/health`; `GET/PUT /api/profile`;
@@ -84,7 +84,7 @@ Endpoints: `GET /api/health`; `GET/PUT /api/profile`;
 `GET/POST …/{id}/messages`, `POST …/{id}/messages/{msgId}/feedback`;
 `GET/POST/DELETE /api/security/pins`;
 `/api/uploads` (`presign`, `{id}/complete`, list `?scope=vault|chat`,
-`{id}/download`, PATCH, DELETE).
+`{id}/download`, PATCH, DELETE); `POST /api/voice/session` (see §9b).
 
 **Config comes from Docker, not `.env`** — see §9a. `backend/.env` is no longer read at
 runtime by either compose file and can be deleted once its AWS keys are rotated.
@@ -137,7 +137,7 @@ Non-secret settings are inline in the compose files; `AUTH_SESSION_SECRET` and
   AI-consent, view/delete — **protected files need the PIN to view AND to delete**, verified
   server-side; previews open in-app via `lib/preview.js` + `components/FilePreview.js`); emergency (numbers, share location, hospitals);
   **Shake-for-SOS** (`components/ShakeSOS.js`) — shake → emergency-contacts popup →
-  tap shares live location on WhatsApp + calls.
+  tap shares live location on WhatsApp + calls. **Voice input** (§9b) — needs a dev build.
 
 ## 7. How to run
 
@@ -277,7 +277,75 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
 - ⚠️ `VITE_*` are **build-time** in prod (`args:` → Dockerfile `ARG`), so a pool change
   needs `--build`. In dev they're plain env on the Vite dev server, so a restart suffices.
 
+## 9b. Voice Input (Amazon Transcribe Streaming, 2026-09-24)
+
+**Flow:** mic → client → `POST /api/voice/session {languageCode}` (Cognito-authed, via API
+Gateway) → backend returns `{url, expiresIn:60, languageCode, sampleRate:16000, maxSeconds}` →
+client opens the `wss://transcribestreaming.<region>.amazonaws.com:8443` URL **directly** (audio
+never touches API GW/ALB/backend) → sends 16 kHz mono Int16 PCM as AWS event-stream
+`AudioEvent`s (100 ms) → partials fill the input box live → stop (tap / 3 s silence / 60 s cap)
+sends an empty AudioEvent → final text goes through the **existing** send path (web
+`handleSend(e, spoken)`, mobile `send(spoken)`). Empty transcript → nothing sent. After an
+error the partial text stays in the box, unsent.
+
+- **Backend:** `routes/voice.py` (401 via `get_current_user`, 400 language, 429 rate limit,
+  503 no creds, `Cache-Control: no-store`), `services/voice_service.py` (allowlist, per-user
+  sliding-window limit, logs lang only — never user id, URL or transcript),
+  `integrations/aws/transcribe_presign.py` (botocore `SigV4QueryAuth`, service `transcribe`,
+  host-only signed, empty-payload hash; creds from the default chain = instance role).
+  Presigning is local — no network call, so **no VPC endpoint needed**.
+- **Shared:** `packages/shared/voice.js` (`./voice` export): languages, `createDownsampler`,
+  `encodeAudioEvent`/`decodeTranscribeMessage` (`@smithy/eventstream-codec` pinned **~4.2.14**:
+  `@aws-sdk/eventstream-codec` is deprecated and ≥4.3 pulls `@smithy/core`), `createTranscript`,
+  `voiceResult`, `createVoiceSession` (buffers audio while connecting, re-requests the URL once
+  if the handshake is refused, silence = RMS≥400 or transcript change, `onFinal` exactly once).
+- **Web:** `features/chat/voice/{useVoiceInput.js, pcm-worklet.js, voiceFinal.js, voice.test.js}`.
+  The worklet is imported `?url&no-inline` (Safari rejects `data:` worklets). The Composer has
+  an EN/हिं select (saved in localStorage) and a mic button: idle → recording (pulsing ring) →
+  processing. Replaced the old Web Speech API `handleVoice`.
+- **Mobile:** `src/lib/useVoiceInput.js` with `@siteed/audio-studio` (`pcm_16bit`, 16 kHz, no
+  output file) and an EN/हिं toggle in `ChatScreen`. The module is `require`d in a try/catch,
+  so Expo Go shows "needs the full app build" instead of crashing. `app.json` sets the plugin
+  (all extra permissions off) plus `NSMicrophoneUsageDescription`; `RECORD_AUDIO` was already set.
+- **Env:** backend `AWS_REGION`, `VOICE_ALLOWED_LANGS` (default `en-IN,hi-IN,en-US`),
+  `VOICE_MAX_SECONDS` (60), `VOICE_SESSIONS_PER_MINUTE` (10). URL expiry is fixed at 60 s. Clients:
+  `VITE_VOICE_AUTO_SEND` / `EXPO_PUBLIC_VOICE_AUTO_SEND` (default true; `false` = edit before
+  sending). Reference: `backend/.env.example`. The rollout passes none of the VOICE_* vars, so
+  the defaults apply.
+- **IAM:** backend role `transcribe:StartStreamTranscriptionWebSocket` on `*` (the action has
+  no resource type). `terraform plan` shows 1 in-place change. **NOT applied yet**; until it is,
+  the handshake is refused and clients show "Could not connect to the speech service."
+- **Tests/CI:** `backend/tests/test_voice.py` (7; the signature is re-derived independently),
+  `backend/requirements-dev.txt` and `pytest.ini`; web vitest (17). CI installs the dev
+  requirements and runs `npm test` before the build.
+- **Known limits:**
+  - The rate limit is in-process and per instance.
+  - The 60 s cap is enforced by the client. A presigned URL can open several streams within its
+    60 s, each up to Transcribe's 4 h limit, so an abusive authenticated user could burn the
+    account's concurrent-stream quota and money. Consider a billing alarm.
+  - The URL embeds the role's session token but not its secret. That is the same model as the
+    S3 presigned URLs. Never log it.
+  - There is no CSP today. If one is added, `connect-src` needs the `wss://…:8443` origin.
+  - In noisy rooms, silence detection may only trigger at the 60 s cap.
+  - Hermes lacks `TextDecoder`; `voice.js` has a UTF-8 fallback.
+- **Verified:**
+  - Live presign against Transcribe ap-south-1 (en-IN and hi-IN) with STS session-token creds.
+  - Node run of the shared session with Polly audio: English and Hindi partials and finals.
+  - Chromium browser pane: synthetic mic → worklet → Transcribe → 3 s auto-stop → one send.
+  - `expo export --platform android` bundles.
+  - `terraform fmt`, `validate` and `plan`.
+- **NOT verified:** Trivy (no local binary or Docker), a native Android/iOS build on a device,
+  Safari, and the deployed stack.
+- **Manual checklist:**
+  - Chrome, Safari (macOS/iOS) and Android Chrome: permission prompt, deny → toast, EN and हिं
+    partials, 3 s silence stop, 60 s stop, stop button, one message sent, send disabled while
+    recording.
+  - Android/iOS dev build: the same, plus Expo Go shows the "full app build" message.
+
 ## 10. Changelog (most recent first)
+- **Voice input via Amazon Transcribe Streaming (2026-09-24):** see §9b. New endpoint, shared
+  session module, web and mobile mic UIs, one IAM statement (plan clean, not applied), and
+  backend and web tests added to CI. No README was created (project rule: docs live here).
 - **Web UI/UX redesign: design system, primitives, every page rebuilt (2026-09-24, branch
   `redesign/ui-system`):** Frontend only. No API, auth-flow, route or business-rule changes;
   `features/admin/**` untouched. The audit, plan and approved decisions D1–D7 are in

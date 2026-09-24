@@ -4,7 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Location from 'expo-location'
 import * as DocumentPicker from 'expo-document-picker'
 import * as ImagePicker from 'expo-image-picker'
-import { ArrowRight, Ambulance, MapPin, HeartPulse, ClipboardList, Gauge, AlertTriangle, X, Phone, Activity, ThumbsUp, ThumbsDown, Menu, Paperclip, FileText, Image as ImageIcon, Trash2, BadgeCheck, Bell, ShieldCheck, Share2, Mic, CheckCheck, Siren, Lock } from 'lucide-react-native'
+import { ArrowRight, Ambulance, MapPin, HeartPulse, ClipboardList, Gauge, AlertTriangle, X, Phone, Activity, ThumbsUp, ThumbsDown, Menu, Paperclip, FileText, Image as ImageIcon, Trash2, BadgeCheck, Bell, ShieldCheck, Share2, Mic, Square, CheckCheck, Siren, Lock } from 'lucide-react-native'
 import { radius, sevColor } from '../../theme'
 import { useTheme } from '../../context/ThemeContext'
 import { useProfile } from '../../context/ProfileContext'
@@ -15,6 +15,8 @@ import { API_BASE_URL } from '../../config'
 import { fmtTime, MSG_SENT, MSG_RECEIVED, sevMeta, AI_DISCLAIMER, EMERGENCY_CALLOUT, CHAT_SUGGESTIONS } from '../../lib/chat'
 import { isImageFile, openInAppBrowser } from '../../lib/preview'
 import FilePreview from '../../components/FilePreview'
+import { useVoiceInput } from '../../lib/useVoiceInput'
+import { VOICE_LANGUAGES } from '../../../../../packages/shared/voice'
 
 const SCREEN_W = Dimensions.get('window').width
 
@@ -58,6 +60,26 @@ function SendingDots({ color }) {
         </Animated.Text>
       ))}
     </View>
+  )
+}
+
+// Voice recording: a ring pulses out from the stop button.
+function RecordingPulse({ color }) {
+  const a = useRef(new Animated.Value(0)).current
+  useEffect(() => {
+    const loop = Animated.loop(Animated.timing(a, { toValue: 1, duration: 1200, useNativeDriver: true }))
+    loop.start()
+    return () => loop.stop()
+  }, [a])
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 18, borderWidth: 2, borderColor: color,
+        opacity: a.interpolate({ inputRange: [0, 1], outputRange: [0.9, 0] }),
+        transform: [{ scale: a.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] }) }],
+      }}
+    />
   )
 }
 
@@ -108,6 +130,10 @@ export default function ChatScreen({ navigation }) {
   const [attachments, setAttachments] = useState([]) // [{ attachmentId, filename, kind }]
   const [attaching, setAttaching] = useState(false)
   const [keyboardUp, setKeyboardUp] = useState(false)
+  // Amazon Transcribe voice input; the final transcript goes through send().
+  const voice = useVoiceInput({ input, setInput, onSend: (text) => send(text), onError: (msg) => Alert.alert('Voice input', msg) })
+  const recording = voice.state === 'recording'
+  const voiceBusy = voice.state !== 'idle'
   const insets = useSafeAreaInsets()
   const scrollRef = useRef(null)
 
@@ -314,8 +340,9 @@ export default function ChatScreen({ navigation }) {
     }),
   ).current
 
-  const send = async () => {
-    const text = input.trim()
+  // `spoken`: text from voice input (onPress passes an event, so check the type).
+  const send = async (spoken) => {
+    const text = (typeof spoken === 'string' ? spoken : input).trim()
     const pending = attachments
     if ((!text && pending.length === 0) || loading) return
     setInput(''); setAttachments([]); setLoading(true)
@@ -597,16 +624,38 @@ export default function ChatScreen({ navigation }) {
           <TouchableOpacity style={styles.attachBtn} onPress={pickAttachment} disabled={attaching || loading} hitSlop={8}>
             {attaching ? <ActivityIndicator color={colors.primary} size="small" /> : <Paperclip size={20} color={colors.muted} />}
           </TouchableOpacity>
-          <TextInput style={styles.input} value={input} onChangeText={setInput} placeholder="Describe your symptoms…" placeholderTextColor={colors.muted} />
+          <TextInput
+            style={styles.input}
+            value={input}
+            onChangeText={setInput}
+            editable={!voiceBusy}
+            placeholder={recording ? 'Listening…' : voiceBusy ? 'Finishing transcription…' : 'Describe your symptoms…'}
+            placeholderTextColor={colors.muted}
+          />
           <TouchableOpacity
-            style={styles.micBtn}
+            style={styles.langBtn}
             hitSlop={6}
-            onPress={() => Alert.alert('Voice input', 'Dictation is coming soon — please type your symptoms for now.')}
-            accessibilityLabel="Voice input"
+            disabled={voiceBusy}
+            onPress={() => voice.setLanguage(voice.language === VOICE_LANGUAGES[0].code ? VOICE_LANGUAGES[1].code : VOICE_LANGUAGES[0].code)}
+            accessibilityRole="button"
+            accessibilityLabel={`Voice language: ${VOICE_LANGUAGES.find((l) => l.code === voice.language)?.label}. Tap to switch.`}
           >
-            <Mic size={17} color={colors.textSecondary} />
+            <Text style={styles.langText}>{VOICE_LANGUAGES.find((l) => l.code === voice.language)?.short}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.sendBtn} onPress={send} disabled={loading || attaching} accessibilityLabel="Send">
+          <TouchableOpacity
+            style={[styles.micBtn, recording && { backgroundColor: colors.primary }]}
+            hitSlop={6}
+            onPress={voice.toggle}
+            disabled={voice.state === 'processing'}
+            accessibilityLabel={recording ? 'Stop recording' : voiceBusy ? 'Transcribing' : 'Voice input'}
+            accessibilityState={{ selected: recording, busy: voiceBusy && !recording }}
+          >
+            {recording && <RecordingPulse color={colors.primary} />}
+            {recording ? <Square size={15} color="#fff" fill="#fff" />
+              : voiceBusy ? <ActivityIndicator color={colors.primary} size="small" />
+                : <Mic size={17} color={colors.textSecondary} />}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.sendBtn} onPress={send} disabled={loading || attaching || voiceBusy} accessibilityLabel="Send">
             <ArrowRight size={20} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -757,6 +806,8 @@ const makeStyles = (colors) => StyleSheet.create({
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 32, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: 999, paddingHorizontal: 12 },
   chipText: { fontSize: 12.5, color: colors.textSecondary, fontWeight: '600', lineHeight: 16 },
   micBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface2 },
+  langBtn: { minWidth: 30, height: 36, alignItems: 'center', justifyContent: 'center' },
+  langText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
   // New-chat only: centred overlay pinned 35% of the screen above the bottom.
   secureAnchor: { position: 'absolute', left: 0, right: 0, bottom: '35%', alignItems: 'center' },
   // Light grey pill, slim red border, slow fade in/out (see SecureNote).

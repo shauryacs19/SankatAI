@@ -95,3 +95,18 @@ if OPENAI_API_KEY:
 AI_BASE_URL = os.getenv("AI_BASE_URL", "https://ollama.com/v1")
 AI_MODEL = os.getenv("AI_MODEL", "gpt-oss:120b")
 AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "30"))  # cloud models are slower than gpt-4o-mini
+
+
+# --- Voice input (Amazon Transcribe Streaming) ---
+# The backend only PRESIGNS a WebSocket URL — a local SigV4 computation with the
+# instance-role credentials, no network call. Clients stream audio straight to
+# Transcribe, so no audio or transcript ever passes through this service.
+VOICE_ALLOWED_LANGS = [
+    lang.strip()
+    for lang in os.getenv("VOICE_ALLOWED_LANGS", "en-IN,hi-IN,en-US").split(",")
+    if lang.strip()
+]
+VOICE_MAX_SECONDS = int(os.getenv("VOICE_MAX_SECONDS", "60"))  # client auto-stops recording
+VOICE_SESSIONS_PER_MINUTE = int(os.getenv("VOICE_SESSIONS_PER_MINUTE", "10"))  # per user
+VOICE_URL_EXPIRY = 60  # seconds; only has to outlive the WebSocket handshake
+VOICE_SAMPLE_RATE = 16000  # 16 kHz mono signed 16-bit little-endian PCM

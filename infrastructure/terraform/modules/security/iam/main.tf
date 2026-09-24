@@ -90,6 +90,16 @@ resource "aws_iam_role_policy" "backend" {
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = var.ai_api_key_secret_arn
       },
+      # Voice input. The backend PRESIGNS Transcribe streaming WebSocket URLs
+      # with this role (a local SigV4 computation, no network call); the
+      # client's connection is then authorised as this role. The action has no
+      # resource type in IAM, so "*" is the only valid Resource. It can only
+      # open a live stream: no batch jobs, no vocabularies, no stored media.
+      {
+        Effect   = "Allow"
+        Action   = ["transcribe:StartStreamTranscriptionWebSocket"]
+        Resource = "*"
+      },
       # Application + system logs. Write-only: the instance can ship logs but
       # cannot read back what it or anything else has written.
       {

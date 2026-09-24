@@ -129,8 +129,7 @@ export default function ChatPage() {
         setInput={d.setInput}
         onSubmit={d.handleSend}
         isLoading={isLoading}
-        isListening={d.isListening}
-        onVoice={d.handleVoice}
+        voice={d.voice}
         attachments={d.attachments}
         onRemoveAttachment={d.removeAttachment}
         docInputRef={d.docInputRef}

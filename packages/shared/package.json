@@ -10,6 +10,10 @@
     "./documents": "./documents.js",
     "./profileOptions": "./profileOptions.js",
     "./theme": "./theme.js",
-    "./validation": "./validation.js"
+    "./validation": "./validation.js",
+    "./voice": "./voice.js"
+  },
+  "dependencies": {
+    "@smithy/eventstream-codec": "~4.2.14"
   }
 }

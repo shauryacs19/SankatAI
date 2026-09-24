@@ -14,7 +14,8 @@
         "NSLocationWhenInUseUsageDescription": "Sankat.AI uses your location to include it in an emergency message that you choose to send.",
         "LSApplicationQueriesSchemes": [
           "whatsapp"
-        ]
+        ],
+        "NSMicrophoneUsageDescription": "Sankat.AI uses the microphone only when you tap the mic button, to turn your spoken symptoms into text. Audio is not stored."
       }
     },
     "android": {
@@ -34,7 +35,19 @@
       "expo-image-picker",
       "expo-location",
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "@siteed/audio-studio",
+        {
+          "enablePhoneStateHandling": false,
+          "enableNotifications": false,
+          "enableBackgroundAudio": false,
+          "enableDeviceDetection": false,
+          "iosConfig": {
+            "microphoneUsageDescription": "Sankat.AI uses the microphone only when you tap the mic button, to turn your spoken symptoms into text. Audio is not stored."
+          }
+        }
+      ]
     ]
   }
 }

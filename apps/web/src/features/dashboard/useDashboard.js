@@ -18,6 +18,7 @@ import { ageFromDob, toBubble } from '../chat/utils/format.jsx'
 import { uploadFile, listUploads } from '../../services/uploads'
 import { useToast } from '../../components/ui'
 import { errText } from '../../utils/errText'
+import { useVoiceInput } from '../chat/voice/useVoiceInput'
 
 const HOSPITALS_NEAR_ME = 'https://www.google.com/maps/search/hospitals+near+me'
 
@@ -41,7 +42,6 @@ export function useDashboard() {
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [attachments, setAttachments] = useState([])
   const [chatAttachmentMap, setChatAttachmentMap] = useState({}) // id -> {kind, filename, downloadUrl}
-  const [isListening, setIsListening] = useState(false)
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState(null) // null = not searching
   const [searching, setSearching] = useState(false)
@@ -50,7 +50,6 @@ export function useDashboard() {
 
   const docInputRef = useRef(null)
   const photoInputRef = useRef(null)
-  const recognitionRef = useRef(null)
 
   const fullName = [profile?.firstName, profile?.middleName, profile?.lastName].filter(Boolean).join(' ') || 'Your profile'
   const firstName = profile?.firstName || 'there'
@@ -186,9 +185,10 @@ export function useDashboard() {
     } finally { setIsLoading(false) }
   }
 
-  const handleSend = async (e) => {
+  // `spoken`: text from voice input, sent through this same path.
+  const handleSend = async (e, spoken) => {
     e?.preventDefault()
-    const text = input.trim()
+    const text = (spoken ?? input).trim()
     // Only fully-uploaded attachments can be sent with the message.
     const ready = attachments.filter((a) => a.status === 'uploaded' && a.attachmentId)
     if ((!text && ready.length === 0) || isLoading) return
@@ -267,15 +267,8 @@ export function useDashboard() {
   }
   const removeAttachment = (localId) => setAttachments((prev) => prev.filter((a) => a.localId !== localId))
 
-  const handleVoice = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) { toast.info('Voice input is not supported in this browser.'); return }
-    if (isListening) { recognitionRef.current?.stop(); return }
-    const rec = new SR(); rec.lang = 'en-US'; rec.interimResults = false; rec.maxAlternatives = 1
-    rec.onresult = (ev) => { const t = ev.results?.[0]?.[0]?.transcript; if (t) setInput((prev) => (prev ? `${prev} ${t}` : t)) }
-    rec.onend = () => setIsListening(false); rec.onerror = () => setIsListening(false)
-    recognitionRef.current = rec; setIsListening(true); rec.start()
-  }
+  // Amazon Transcribe voice input; the final transcript goes through handleSend.
+  const voice = useVoiceInput({ input, setInput, onSend: (text) => handleSend(undefined, text), onError: (msg) => toast.error(msg) })
 
   // Opens in a NEW tab so the app (and its emergency actions) stays open. The
   // tab is opened synchronously inside the click so popup blockers allow it,
@@ -315,10 +308,10 @@ export function useDashboard() {
     refs, lastReply, loading, initialLoading, profileError, reloadProfile, reloadChats, profile, fullName, firstName, age, profileCompletion, contacts, primaryContact,
     consultations, consultationsError, loadConsultations, activeId, messages, input, setInput, isLoading,
     isOffline, isEmergency, setIsEmergency, emergencyFromAssessment, lastRiskScore, analysisOpen, setAnalysisOpen,
-    attachments, removeAttachment, isListening, chatAttachmentMap,
+    attachments, removeAttachment, voice, chatAttachmentMap,
     search, setSearch, searching, visibleConsultations, onFilesSelected,
     selectConsultation, startNewConsultation, deleteChat, openRename, closeRename, renameTarget, renameChat,
-    handleSend, retrySend, dismissError, handleVoice, handleFindHospitals, handleSendLocationAlert, submitFeedback,
+    handleSend, retrySend, dismissError, handleFindHospitals, handleSendLocationAlert, submitFeedback,
     handleSignOut, goEditProfile, goChat, unsendMessageById, triggerSos,
   }
 }

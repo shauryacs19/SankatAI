@@ -1,0 +1,5 @@
+# Test-only dependencies. Not installed in the Docker image (it installs
+# requirements.txt only). httpx is required by fastapi.testclient.
+-r requirements.txt
+pytest>=8.3.0
+httpx>=0.28.0
