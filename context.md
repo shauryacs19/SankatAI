@@ -298,6 +298,14 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
     unreachable|http_NNN`, cached 5 min via `/api/me`) and `aiMode`. Storage alone still
     decides 200/503 — the fallback keeps the service usable.
   - ⚠️ `openai>=3` no longer depends on `httpx`; the probe uses stdlib `urllib`.
+  - **Readiness always reported DynamoDB down** (pre-existing): the backend role had no
+    `dynamodb:DescribeTable`. Added (metadata only, same table ARNs); applied.
+  - **Verified on the live box** (stateless `/api/analyze` via localhost, nothing written):
+    PLACEHOLDER -> `[missing_key]`, `isOfflineFallback=true`, readiness `missing_key`; a
+    deliberately bogus key + redeploy -> `[auth_rejected] ... 401`, readiness
+    `auth_rejected`, all 5 storage checks true, secret file mode 600. Secret then
+    restored to PLACEHOLDER. NOT verified: a real model answer (no key) and the web
+    banner in a signed-in session (needs a user password).
   - **Still required, out of band:** put the real Ollama key in Secrets Manager, then
     redeploy (the rollout re-reads it; the provider client is cached per process).
 - **Web sign-in: CloudFront origin missing from Cognito callbacks (2026-09-24):** the app
