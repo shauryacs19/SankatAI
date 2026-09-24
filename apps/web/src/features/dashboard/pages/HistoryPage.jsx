@@ -1,84 +1,135 @@
-// Chat history, moved out of the chat column into its own tab.
-// Lists past consultations grouped by day; opening one switches to the Chat tab.
-// Rename/delete reuse the handlers already provided by DashboardLayout.
+// Chat history: past consultations grouped by day. Opening one switches to
+// Chat. Row actions (rename, delete) are real buttons beside the row — not
+// nested inside it — and delete asks for confirmation.
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
+// eslint-disable-next-line no-unused-vars -- `motion` is used via motion.* JSX
 import { motion } from 'framer-motion'
-import { Search, X, History as HistoryIcon, Pencil, Trash2, MessageSquare, Plus } from 'lucide-react'
-import { relTime, groupConsults, SEV } from '../../chat/utils/format.jsx'
+import { Search, X, History as HistoryIcon, Pencil, Trash2, Plus, MessageSquare } from 'lucide-react'
+import { relTime, groupConsults } from '../../chat/utils/format.jsx'
+import {
+  Button, ConfirmDialog, EmptyState, ErrorState, IconButton, IconInput, PageHeader, SeverityDot, Spinner,
+  severityUi, useDelayedFlag, listContainer, listItem,
+} from '../../../components/ui'
+
+const CSS = `
+.hist-search { max-width: 100%; }
+.hist-groups { display: flex; flex-direction: column; gap: var(--space-6); }
+.hist-group { display: flex; flex-direction: column; gap: var(--space-2); }
+.hist-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-card); overflow: hidden; }
+.hist-row { display: flex; align-items: center; gap: var(--space-1); padding-right: var(--space-2); }
+.hist-row + .hist-row { border-top: 1px solid var(--border-subtle); }
+.hist-row[aria-current="true"] { background: var(--surface-hover); }
+.hist-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--space-3); min-height: 3.5rem; padding: var(--space-3) var(--space-4);
+  border: 0; background: transparent; text-align: left; color: var(--text-primary);
+}
+.hist-open:hover { background: var(--surface-hover); }
+.hist-open:focus-visible { outline-offset: -2px; }
+.hist-ic { display: grid; place-items: center; width: 1.25rem; color: var(--text-muted); flex-shrink: 0; }
+.hist-main { display: flex; flex-direction: column; min-width: 0; }
+.hist-title { font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hist-meta { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-muted); }
+.hist-actions { display: flex; gap: var(--space-1); flex-shrink: 0; }
+@media (hover: hover) and (pointer: fine) {
+  .hist-actions { opacity: 0; transition: opacity var(--dur-fast) var(--ease-standard); }
+  .hist-row:hover .hist-actions, .hist-row:focus-within .hist-actions { opacity: 1; }
+}
+`
 
 export default function HistoryPage() {
   const navigate = useNavigate()
-  const {
-    consultations, visibleConsultations, searching, activeId, search, setSearch,
-    selectConsultation, startNewConsultation, handleDelete, openRename,
-  } = useOutletContext()
-
-  // `visibleConsultations` is already server-filtered (title OR message text).
-  const list = visibleConsultations ?? consultations
+  const d = useOutletContext()
+  const { visibleConsultations: list, search, setSearch, searching, activeId, consultationsError } = d
   const grouped = useMemo(() => groupConsults(list), [list])
+  const showSearching = useDelayedFlag(searching)
+  const [toDelete, setToDelete] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+  const [retrying, setRetrying] = useState(false)
 
-  const open = (id) => { selectConsultation(id); navigate('/dashboard/chat') }
-  const startNew = async () => { await startNewConsultation(); navigate('/dashboard/chat') }
+  const open = (id) => { d.selectConsultation(id); navigate('/dashboard/chat') }
+  const startNew = async () => { const c = await d.startNewConsultation(); if (c) navigate('/dashboard/chat') }
+  const confirmDelete = async () => {
+    setDeleting(true)
+    const ok = await d.deleteChat(toDelete.consultationId)
+    setDeleting(false)
+    if (ok) setToDelete(null)
+  }
+  const retry = async () => { setRetrying(true); await d.loadConsultations(); setRetrying(false) }
+  const q = search.trim()
 
   return (
-    <div className="db-view scroll-view">
-      <div className="dh-wrap">
-        <div className="dh-head">
-          <div>
-            <h3>Chat history</h3>
-            <p>Open a past consultation to continue where you left off.</p>
-          </div>
-          <button type="button" className="dx-action" onClick={startNew}><Plus size={15} /> New chat</button>
-        </div>
+    <div className="pg">
+      <style>{CSS}</style>
+      <PageHeader
+        description="Open a past consultation to continue where you left off. Search looks inside messages too."
+        actions={<Button variant="primary" icon={Plus} onClick={startNew}>New chat</Button>}
+      />
 
-        <div className="dh-search">
-          <Search size={15} />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search chats" />
-          {!!search && <button type="button" className="db-icon-ghost" onClick={() => setSearch('')} aria-label="Clear search"><X size={14} /></button>}
-        </div>
-
-        {searching && <div className="dh-empty"><Search size={28} /><p>Searching…</p></div>}
-        {!searching && list.length === 0 && (
-          <div className="dh-empty">
-            {search.trim() ? <Search size={28} /> : <HistoryIcon size={28} />}
-            <p>{search.trim() ? 'No chats found.' : 'No consultations yet.'}</p>
-          </div>
-        )}
-
-        {grouped.map(([label, items]) => (
-          <div key={label} className="dh-group">
-            <div className="dh-group-title">{label}</div>
-            {items.map((c) => (
-              <motion.div
-                key={c.consultationId}
-                className={`dh-item ${activeId === c.consultationId ? 'active' : ''}`}
-                onClick={() => open(c.consultationId)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter') open(c.consultationId) }}
-                whileHover={{ x: 2 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              >
-                <span className="dh-item-ic">
-                  {c.lastSeverity && SEV[c.lastSeverity]
-                    ? <span className={`dh-dot sev-${SEV[c.lastSeverity].cls}`} />
-                    : <MessageSquare size={15} />}
-                </span>
-                <span className="dh-item-main">
-                  <span className="dh-item-title">{c.title || 'New consultation'}</span>
-                  <span className="dh-item-time">{relTime(c.updatedAt)}</span>
-                </span>
-                <span className="dh-item-actions">
-                  <span className="dx-history-act" role="button" title="Rename chat" onClick={(e) => openRename(c, e)}><Pencil size={14} /></span>
-                  <span className="dx-history-act danger" role="button" title="Delete chat" onClick={(e) => handleDelete(c.consultationId, e)}><Trash2 size={14} /></span>
-                </span>
-              </motion.div>
-            ))}
-          </div>
-        ))}
+      <div className="hist-search" role="search">
+        <label htmlFor="hist-q" className="sr-only">Search chats</label>
+        <IconInput
+          id="hist-q"
+          icon={Search}
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search chats"
+          end={showSearching ? <span className="ui-iconbtn" aria-hidden="true"><Spinner /></span>
+            : search ? <IconButton label="Clear search" icon={X} size={16} tooltip={false} onClick={() => setSearch('')} /> : null}
+        />
+        <p className="sr-only" role="status">{showSearching ? 'Searching…' : q ? `${list.length} result${list.length === 1 ? '' : 's'}` : ''}</p>
       </div>
+
+      {consultationsError && !q ? (
+        <ErrorState title="Couldn't load your chats" description={`${consultationsError} Your conversations are safe — try again.`} onRetry={retry} retrying={retrying} />
+      ) : list.length === 0 && !searching ? (
+        q ? (
+          <EmptyState icon={Search} title={`No chats match “${q}”`} description="Try a different word, such as a symptom or body part." action={<Button variant="secondary" onClick={() => setSearch('')}>Clear search</Button>} />
+        ) : (
+          <EmptyState icon={HistoryIcon} title="No consultations yet" description="When you describe symptoms to SankatAI, the conversation is saved here so you can come back to it." action={<Button variant="primary" icon={Plus} onClick={startNew}>Start a chat</Button>} />
+        )
+      ) : (
+        <div className="hist-groups">
+          {grouped.map(([label, items]) => (
+            <section key={label} className="hist-group" aria-labelledby={`hg-${label}`}>
+              <h2 id={`hg-${label}`} className="ui-overline">{label}</h2>
+              <motion.ul role="list" className="hist-list" {...listContainer}>
+                {items.map((c) => {
+                  const sev = severityUi(c.lastSeverity)
+                  return (
+                    <motion.li key={c.consultationId} className="hist-row" aria-current={activeId === c.consultationId ? 'true' : undefined} {...listItem}>
+                      <button type="button" className="hist-open" onClick={() => open(c.consultationId)}>
+                        <span className="hist-ic">{sev ? <SeverityDot severity={c.lastSeverity} /> : <MessageSquare size={16} aria-hidden="true" />}</span>
+                        <span className="hist-main">
+                          <span className="hist-title">{c.title || 'New consultation'}</span>
+                          <span className="hist-meta">{relTime(c.updatedAt)}{sev ? ` · ${sev.label}` : ''}</span>
+                        </span>
+                      </button>
+                      <span className="hist-actions">
+                        <IconButton label={`Rename “${c.title || 'New consultation'}”`} icon={Pencil} size={16} tooltip={false} onClick={() => d.openRename(c)} />
+                        <IconButton label={`Delete “${c.title || 'New consultation'}”`} icon={Trash2} size={16} variant="danger" tooltip={false} onClick={() => setToDelete(c)} />
+                      </span>
+                    </motion.li>
+                  )
+                })}
+              </motion.ul>
+            </section>
+          ))}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={Boolean(toDelete)}
+        onClose={() => !deleting && setToDelete(null)}
+        onConfirm={confirmDelete}
+        busy={deleting}
+        icon={Trash2}
+        title="Delete this chat?"
+        description={toDelete ? `“${toDelete.title || 'New consultation'}” and its messages will be removed from your history. This can't be undone.` : ''}
+        confirmLabel="Delete chat"
+      />
     </div>
   )
 }

@@ -104,6 +104,19 @@ export const UI_CSS = `
 .ui-inputgroup > .ui-inputgroup-end { position: absolute; right: var(--space-1); display: flex; align-items: center; }
 .ui-inputgroup > .ui-input.has-end { padding-right: var(--space-12); }
 
+/* ---------- Form layout ---------- */
+.ui-form { display: flex; flex-direction: column; gap: var(--space-5); }
+.ui-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5) var(--space-4); }
+.ui-form-grid > .is-full { grid-column: 1 / -1; }
+.ui-form-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.ui-form-actions-start { margin-right: auto; }
+@media (max-width: 639px) { .ui-form-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 479px) {
+  .ui-form-actions { flex-direction: column-reverse; align-items: stretch; }
+  .ui-form-actions > .ui-btn, .ui-form-actions > .ui-tipwrap, .ui-form-actions > .ui-tipwrap > .ui-btn { width: 100%; }
+  .ui-form-actions-start { margin-right: 0; }
+}
+
 /* ---------- Card ---------- */
 .ui-card { background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-card); padding: var(--space-5); min-width: 0; }
 .ui-card--flush { padding: 0; }
@@ -273,7 +286,7 @@ a.ui-badge:hover { border-color: currentColor; }
   background: transparent; color: var(--text-secondary); font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-medium);
   transition: background-color var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
 }
-@media (pointer: coarse) { .ui-seg-item { min-height: 2.5rem; } }
+@media (pointer: coarse) { .ui-seg-item { min-height: var(--touch); min-width: var(--touch); } }
 .ui-seg-item:hover { color: var(--text-primary); }
 .ui-seg-item[aria-checked="true"], .ui-seg-item[aria-selected="true"] { background: var(--surface); color: var(--text-primary); border-color: var(--border-default); }
 
@@ -306,6 +319,9 @@ a.ui-badge:hover { border-color: currentColor; }
 .ui-pagehead-title { font-size: var(--fs-2xl); line-height: var(--lh-2xl); font-weight: var(--fw-semibold); letter-spacing: -0.01em; }
 .ui-pagehead-desc { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-secondary); max-width: 40rem; }
 .ui-pagehead-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+
+/* ---------- Bulleted list ---------- */
+.ui-list { margin: 0; padding-left: var(--space-5); display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--fs-md); line-height: var(--lh-md); color: var(--text-secondary); }
 
 /* ---------- Overline (section group label) ---------- */
 .ui-overline { font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--fw-semibold); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }

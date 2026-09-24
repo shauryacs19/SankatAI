@@ -8,6 +8,7 @@ import {
 
 // Exported only so the dev-only preview harness (src/dev/) can supply a
 // signed-in session without touching the real auth flow.
+// eslint-disable-next-line react-refresh/only-export-components -- dev harness needs the context object
 export const AuthContext = createContext(null)
 
 export const AUTH_STATUS = {

@@ -11,15 +11,17 @@
 //   slow=2000                delay every API call by N ms
 //   offline=1                AI replies are offline fallbacks; /api/health 503
 //   noprofile=1              profile loads as null (onboarding)
+//   static=1                 skip framer animations (stable screenshots for QA)
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
-import { MotionConfig } from 'framer-motion'
+import { MotionConfig, MotionGlobalConfig } from 'framer-motion'
 import { App } from '../app/App.jsx'
 import { AuthContext, AUTH_STATUS } from '../context/AuthContext.jsx'
 import { installStyles } from '../styles/install'
 import { initTheme } from '../services/theme'
+import { installQa } from './qa'
 
 const q = new URLSearchParams(location.search)
 const route = q.get('route') || (q.get('auth') === '0' ? '/' : '/dashboard/chat')
@@ -137,8 +139,11 @@ const auth = {
   restore: async () => {},
 }
 
+if (q.get('static') === '1') MotionGlobalConfig.skipAnimations = true
+
 installStyles()
 initTheme()
+installQa()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

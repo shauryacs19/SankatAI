@@ -1,26 +1,29 @@
-// Security PINs — account-level PINs used to password-protect files. Users can
-// keep one default PIN or create several. Values are never shown; the backend
-// stores only PBKDF2 hashes. Rendered inside the Profile tab.
+// Security PINs — account-level PINs used to protect documents. Values are
+// never shown; the backend stores only PBKDF2 hashes. Deleting a PIN requires
+// entering it (verified server-side).
 
 import { useCallback, useEffect, useState } from 'react'
-import { ShieldCheck, Lock, Trash2, Plus, AlertTriangle, X } from 'lucide-react'
+import { ShieldCheck, Lock, Trash2, Plus } from 'lucide-react'
+import { fmtDate } from '@sankatai/shared'
 import { listPins, deletePin } from '../../../services/securityApi'
 import CreatePinModal from './CreatePinModal'
+import { Button, Card, EmptyState, ErrorState, Field, IconButton, Modal, PinInput, Skeleton, useToast } from '../../../components/ui'
 
-const fmtDate = (iso) => {
-  if (!iso) return ''
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
+const CSS = `
+.pin-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; }
+.pin-ic { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: var(--radius-control); background: var(--surface-sunken); color: var(--text-secondary); flex-shrink: 0; }
+.pin-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pin-label { font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-medium); }
+.pin-date { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-muted); }
+`
 
 export default function SecurityPins() {
+  const toast = useToast()
   const [pins, setPins] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-
   const [addOpen, setAddOpen] = useState(false)
 
-  // deleting a PIN requires entering that PIN
   const [delTarget, setDelTarget] = useState(null)
   const [delPin, setDelPin] = useState('')
   const [delErr, setDelErr] = useState('')
@@ -28,80 +31,79 @@ export default function SecurityPins() {
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
-    try { const l = await listPins(); setPins(Array.isArray(l) ? l : []) } catch (e) { setError(e.message || 'Could not load PINs.') } finally { setLoading(false) }
+    try { const l = await listPins(); setPins(Array.isArray(l) ? l : []) } catch (e) { setError(e.message || 'Could not load your PINs.') } finally { setLoading(false) }
   }, [])
   useEffect(() => { load() }, [load])
 
-  const openAdd = () => setAddOpen(true)
-
   const openRemove = (p) => { setDelTarget(p); setDelPin(''); setDelErr('') }
-  const submitRemove = async (e) => {
-    e.preventDefault()
+  const submitRemove = async () => {
     if (delPin.length !== 6 || delBusy) return
     setDelBusy(true); setDelErr('')
     try {
       await deletePin(delTarget.id, delPin)
       setPins((prev) => prev.filter((x) => x.id !== delTarget.id))
       setDelTarget(null)
+      toast.success('PIN deleted.')
     } catch (err) {
-      setDelErr(/403|incorrect/i.test(err.message || '') ? 'Incorrect PIN.' : (err.message || 'Could not delete the PIN.'))
+      setDelErr(/403|incorrect/i.test(err.message || '') ? 'That PIN is incorrect.' : (err.message || 'Could not delete the PIN.'))
     } finally { setDelBusy(false) }
   }
 
   return (
-    <section className="dx-card">
-      <div className="dx-card-title"><ShieldCheck size={15} /> Security PINs</div>
-      <p className="sp-sub">Create PINs to password-protect files. When uploading, choose which PIN to use.</p>
-
-      {error && <p className="sp-err"><AlertTriangle size={13} /> {error}</p>}
-
+    <Card
+      title="Security PINs"
+      icon={ShieldCheck}
+      description="Use a PIN to protect documents. You'll choose which PIN when you upload."
+      actions={!loading && !error && pins.length > 0 ? <Button size="sm" variant="secondary" icon={Plus} onClick={() => setAddOpen(true)}>Add PIN</Button> : null}
+    >
+      <style>{CSS}</style>
       {loading ? (
-        <p className="dx-empty">Loading…</p>
+        <div aria-busy="true"><span className="sr-only" role="status">Loading your PINs…</span><div className="pin-row"><Skeleton width="2.5rem" height="2.5rem" /><span className="pin-text"><Skeleton variant="text" width="40%" /></span></div></div>
+      ) : error ? (
+        <ErrorState compact headingLevel={3} title="Couldn't load your PINs" description={error} onRetry={load} />
       ) : pins.length === 0 ? (
-        <p className="dx-empty">No PINs yet. Add one to start protecting files.</p>
+        <EmptyState compact headingLevel={3} title="No PINs yet" description="Create a 6-digit PIN to start protecting sensitive documents." action={<Button variant="secondary" icon={Plus} onClick={() => setAddOpen(true)}>Create a PIN</Button>} />
       ) : (
-        <div className="sp-list">
+        <ul role="list" className="ui-rows">
           {pins.map((p) => (
-            <div key={p.id} className="sp-row">
-              <span className="sp-ic"><Lock size={15} /></span>
-              <div className="sp-info">
-                <span className="sp-label">{p.label}</span>
-                {p.createdAt && <span className="sp-date">Created {fmtDate(p.createdAt)}</span>}
-              </div>
-              <button type="button" className="sp-del" aria-label={`Delete ${p.label}`} onClick={() => openRemove(p)}><Trash2 size={14} /></button>
-            </div>
+            <li key={p.id} className="pin-row">
+              <span className="pin-ic"><Lock size={16} aria-hidden="true" /></span>
+              <span className="pin-text">
+                <span className="pin-label">{p.label}</span>
+                {p.createdAt && <span className="pin-date">Created {fmtDate(p.createdAt)}</span>}
+              </span>
+              <IconButton label={`Delete PIN ${p.label}`} icon={Trash2} variant="danger" onClick={() => openRemove(p)} tooltipAlign="end" />
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
-      <button type="button" className="dx-setting-btn" onClick={openAdd}><Plus size={15} /> Add PIN</button>
-
-      {delTarget && (
-        <div className="dx-modal-scrim" onClick={() => !delBusy && setDelTarget(null)}>
-          <form className="dx-modal" onClick={(e) => e.stopPropagation()} onSubmit={submitRemove}>
-            <div className="dx-modal-head"><span><Trash2 size={15} /> Delete “{delTarget.label}”</span><button type="button" className="db-icon-ghost" onClick={() => setDelTarget(null)}><X size={16} /></button></div>
-            <p className="dx-modal-desc">Enter this PIN to delete it. Files protected with it must be moved first.</p>
-            <input
-              className={`dx-modal-input ${delErr ? 'invalid' : ''}`}
-              type="password" inputMode="numeric" autoComplete="off" placeholder="••••••"
-              value={delPin} maxLength={6} autoFocus
-              onChange={(e) => { setDelPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setDelErr('') }}
-              style={{ letterSpacing: '0.3em' }}
-            />
-            {delErr && <span className="dx-modal-err">{delErr}</span>}
-            <div className="dx-modal-actions">
-              <button type="button" className="dx-mbtn ghost" onClick={() => setDelTarget(null)} disabled={delBusy}>Cancel</button>
-              <button type="submit" className="dx-mbtn primary" disabled={delPin.length !== 6 || delBusy}>{delBusy ? 'Deleting…' : <><Trash2 size={15} /> Delete PIN</>}</button>
-            </div>
-          </form>
-        </div>
-      )}
+      <Modal
+        open={Boolean(delTarget)}
+        onClose={() => setDelTarget(null)}
+        busy={delBusy}
+        icon={Trash2}
+        iconTone="danger"
+        title={delTarget ? `Delete “${delTarget.label}”?` : ''}
+        description="Enter this PIN to delete it. Documents protected with it must be moved to another PIN first."
+        onSubmit={submitRemove}
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setDelTarget(null)} disabled={delBusy}>Cancel</Button>
+            <Button type="submit" variant="destructive" loading={delBusy} loadingText="Deleting…" disabled={delPin.length !== 6} hint={delPin.length !== 6 ? 'Enter all 6 digits.' : undefined}>Delete PIN</Button>
+          </>
+        )}
+      >
+        <Field label="PIN" error={delErr}>
+          <PinInput value={delPin} autoFocus onChange={(v) => { setDelPin(v); setDelErr('') }} />
+        </Field>
+      </Modal>
 
       <CreatePinModal
         open={addOpen}
         onClose={() => setAddOpen(false)}
-        onCreated={(created) => { setPins((prev) => [...prev, created]); setAddOpen(false) }}
+        onCreated={(created) => { setPins((prev) => [...prev, created]); setAddOpen(false); toast.success('PIN created.') }}
       />
-    </section>
+    </Card>
   )
 }

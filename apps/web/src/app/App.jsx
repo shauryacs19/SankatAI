@@ -17,7 +17,6 @@ import AdminDashboard from '../features/admin/AdminDashboard.jsx'
 import { AUTH_STATUS, AuthProvider, useAuth } from '../context/AuthContext.jsx'
 import { ProfileProvider, useProfile, isProfileComplete } from '../features/profile/context/ProfileContext.jsx'
 import { Brand, Spinner, ToastProvider } from '../components/ui'
-import '../App.css'
 
 // Shown while the session is restored (which can bounce through Cognito).
 // Emergency calling is never gated behind it.

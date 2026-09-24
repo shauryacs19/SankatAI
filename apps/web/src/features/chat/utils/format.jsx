@@ -1,26 +1,16 @@
-// Pure formatting helpers, severity/emergency constants, and tiny presentational
-// helpers shared across the dashboard tabs. Extracted verbatim from the
-// original Dashboard component (no behavior change).
+// Pure formatting helpers and emergency constants shared across the dashboard
+// pages. (Navigation config moved to DashboardLayout; severity presentation to
+// components/ui/severity.js.)
 
-import {
-  User, Siren, Shield, Flame, Ambulance, Settings, MessageSquare, FolderOpen, Clock,
-} from 'lucide-react'
+import { Siren, Shield, Flame, Ambulance } from 'lucide-react'
 
 export const formatBold = (text) => {
   if (!text) return null
   return text.split('**').map((part, i) => (i % 2 === 1 ? <strong key={i}>{part}</strong> : part))
 }
 
-export const ageFromDob = (dob) => {
-  if (!dob) return null
-  const born = new Date(dob)
-  if (Number.isNaN(born.getTime())) return null
-  const now = new Date()
-  let age = now.getFullYear() - born.getFullYear()
-  const m = now.getMonth() - born.getMonth()
-  if (m < 0 || (m === 0 && now.getDate() < born.getDate())) age--
-  return age >= 0 ? age : null
-}
+// Age from date of birth — the shared helper, so web and mobile agree.
+export { ageFromDob } from '@sankatai/shared'
 
 export const parseAnalysis = (raw) => { try { return JSON.parse(raw) } catch { return null } }
 
@@ -51,44 +41,11 @@ export const relTime = (iso) => {
 // Re-exported from @sankatai/shared so both clients format timestamps identically.
 export { fmtTime } from '@sankatai/shared'
 
-// Relative "Created X ago" label for a consultation's creation timestamp.
-export const createdAgo = (iso) => {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const diff = (Date.now() - d.getTime()) / 1000
-  if (diff < 45) return 'just now'
-  if (diff < 90) return 'a minute ago'
-  if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`
-  if (diff < 7200) return 'an hour ago'
-  if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`
-  if (diff < 172800) return 'yesterday'
-  if (diff < 604800) return `${Math.floor(diff / 86400)} days ago`
-  return d.toLocaleDateString()
-}
-
-export const SEV = {
-  LOW: { label: 'Low', cls: 'low' }, MODERATE: { label: 'Moderate', cls: 'moderate' },
-  HIGH: { label: 'High', cls: 'high' }, EMERGENCY: { label: 'Emergency', cls: 'emergency' },
-}
-
 export const EMERGENCY_NUMBERS = [
   { label: 'Ambulance', number: '108', Icon: Ambulance },
   { label: 'Emergency (All)', number: '112', Icon: Siren },
   { label: 'Police', number: '100', Icon: Shield },
   { label: 'Fire', number: '101', Icon: Flame },
-]
-
-// Sidebar order (Offline Mode is reachable from the header's offline badge, so it
-// stays out of the rail to keep the nav short and readable for patients).
-export const PAGE_LABELS = { '/dashboard/profile': 'Health Profile' }
-
-export const TABS = [
-  { key: 'chat', label: 'Chat', Icon: MessageSquare, path: '/dashboard/chat' },
-  { key: 'history', label: 'History', Icon: Clock, path: '/dashboard/history' },
-  { key: 'documents', label: 'File Storage', Icon: FolderOpen, path: '/dashboard/files' },
-  { key: 'emergency', label: 'Emergency', Icon: Siren, path: '/dashboard/emergency' },
-  { key: 'settings', label: 'Settings', Icon: Settings, path: '/dashboard/settings' },
 ]
 
 export const groupConsults = (list) => {

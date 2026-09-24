@@ -1,11 +1,11 @@
-// Authentication section — account details, password change and sign out.
-// Rendered inside the Settings tab (not a tab of its own). Password changes go
-// straight to Cognito from the client.
+// Account details, password change and sign out (inside Settings). Password
+// changes go straight to Cognito from the client.
 
 import { useState } from 'react'
-import { KeyRound, Mail, ShieldCheck, LogOut, Check, AlertTriangle, Lock } from 'lucide-react'
+import { KeyRound, Mail, ShieldCheck, LogOut, Lock } from 'lucide-react'
 import { changePassword } from '../../../services/auth/cognito'
 import { useAuth } from '../../../context/AuthContext.jsx'
+import { Alert, Button, Card, Field, InfoRow, Input } from '../../../components/ui'
 
 const MIN_LEN = 8
 
@@ -16,21 +16,27 @@ export default function AuthSection({ profile, onSignOut }) {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [touched, setTouched] = useState({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
 
   const tooShort = next.length > 0 && next.length < MIN_LEN
   const mismatch = confirm.length > 0 && next !== confirm
   const canSave = Boolean(email) && current && next.length >= MIN_LEN && next === confirm && !busy
+  const why = !email ? 'Your account email is still loading.' : !current ? 'Enter your current password.' : next.length < MIN_LEN ? `Choose a new password of at least ${MIN_LEN} characters.` : next !== confirm ? 'Confirm the new password.' : undefined
+  const touch = (k) => () => setTouched((t) => ({ ...t, [k]: true }))
+  const edit = (setter) => (e) => { setter(e.target.value); setError(''); setDone(false) }
 
   const submit = async (e) => {
     e.preventDefault()
+    setTouched({ current: true, next: true, confirm: true })
     if (!canSave) return
     setBusy(true); setError(''); setDone(false)
     try {
       await changePassword(email, current, next)
-      setCurrent(''); setNext(''); setConfirm(''); setDone(true)
+      setCurrent(''); setNext(''); setConfirm(''); setTouched({}); setDone(true)
     } catch (err) {
       setError(err.message || 'Could not change your password.')
     } finally { setBusy(false) }
@@ -38,45 +44,46 @@ export default function AuthSection({ profile, onSignOut }) {
 
   return (
     <>
-        <section className="dx-card">
-          <div className="dx-card-title"><ShieldCheck size={15} /> Account</div>
-          <div className="info-row"><span className="info-row-label"><Mail size={13} /> Email</span><span className="info-row-value">{email || '—'}</span></div>
-          <div className="info-row"><span className="info-row-label"><Lock size={13} /> Sign-in method</span><span className="info-row-value">Email &amp; password</span></div>
-          <p className="da-note">Your password is managed by AWS Cognito. SankatAI never stores it.</p>
-        </section>
+      <Card title="Account" icon={ShieldCheck}>
+        <div className="ui-rows">
+          <InfoRow icon={Mail} label="Email" value={email} />
+          <InfoRow icon={Lock} label="Sign-in method" value="Email and password" />
+        </div>
+        <p className="ui-hint">Your password is managed by Amazon Cognito. SankatAI never stores it.</p>
+      </Card>
 
-        <section className="dx-card">
-          <div className="dx-card-title"><KeyRound size={15} /> Change password</div>
-          <form className="da-form" onSubmit={submit}>
-            <label className="da-field">
-              <span className="da-label">Current password</span>
-              <input className="da-input" type="password" autoComplete="current-password" value={current} onChange={(e) => { setCurrent(e.target.value); setError(''); setDone(false) }} placeholder="Enter your current password" />
-            </label>
-            <label className="da-field">
-              <span className="da-label">New password</span>
-              <input className={`da-input ${tooShort ? 'invalid' : ''}`} type="password" autoComplete="new-password" value={next} onChange={(e) => { setNext(e.target.value); setError(''); setDone(false) }} placeholder={`At least ${MIN_LEN} characters`} />
-              {tooShort && <span className="da-err">Use at least {MIN_LEN} characters.</span>}
-            </label>
-            <label className="da-field">
-              <span className="da-label">Confirm new password</span>
-              <input className={`da-input ${mismatch ? 'invalid' : ''}`} type="password" autoComplete="new-password" value={confirm} onChange={(e) => { setConfirm(e.target.value); setError(''); setDone(false) }} placeholder="Re-enter the new password" />
-              {mismatch && <span className="da-err">Passwords do not match.</span>}
-            </label>
+      <Card title="Change password" icon={KeyRound}>
+        <form className="ui-form" onSubmit={submit} noValidate>
+          <Field label="Current password" required error={touched.current && !current ? 'Enter your current password.' : undefined}>
+            <Input type="password" autoComplete="current-password" value={current} onChange={edit(setCurrent)} onBlur={touch('current')} />
+          </Field>
+          <Field label="New password" required hint={`At least ${MIN_LEN} characters.`} error={(touched.next || next.length >= MIN_LEN) && tooShort ? `Use at least ${MIN_LEN} characters.` : undefined}>
+            <Input type="password" autoComplete="new-password" value={next} onChange={edit(setNext)} onBlur={touch('next')} />
+          </Field>
+          <Field label="Confirm new password" required error={(touched.confirm || confirm.length >= next.length) && mismatch ? 'The passwords don’t match.' : undefined}>
+            <Input type="password" autoComplete="new-password" value={confirm} onChange={edit(setConfirm)} onBlur={touch('confirm')} />
+          </Field>
 
-            {error && <p className="da-alert error"><AlertTriangle size={14} /> {error}</p>}
-            {done && <p className="da-alert ok"><Check size={14} /> Password updated.</p>}
+          {error && <Alert tone="danger">{error}</Alert>}
+          {done && <Alert tone="success">Password updated.</Alert>}
 
-            <div className="da-actions">
-              <button type="submit" className="dx-action danger" disabled={!canSave}>{busy ? 'Updating…' : 'Update password'}</button>
-            </div>
-          </form>
-        </section>
+          <div className="ui-form-actions">
+            <Button type="submit" variant="primary" loading={busy} loadingText="Updating password…" disabled={!canSave} hint={busy ? undefined : why}>Update password</Button>
+          </div>
+        </form>
+      </Card>
 
-        <section className="dx-card">
-          <div className="dx-card-title"><LogOut size={15} /> Session</div>
-          <p className="da-note">Signing out clears this device's session. Your data stays in your account.</p>
-          <button type="button" className="dx-setting-btn danger" onClick={onSignOut}><LogOut size={16} /> Sign out</button>
-        </section>
+      <Card title="Session" icon={LogOut} description="Signing out ends the session on this device. Your data stays in your account.">
+        <Button
+          variant="secondary"
+          icon={LogOut}
+          loading={signingOut}
+          loadingText="Signing out…"
+          onClick={async () => { setSigningOut(true); await onSignOut() }}
+        >
+          Sign out
+        </Button>
+      </Card>
     </>
   )
 }

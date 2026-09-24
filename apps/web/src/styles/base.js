@@ -55,18 +55,9 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 }
 `
 
-// TEMPORARY aliases so pages not yet migrated onto the primitives keep
-// rendering (and get working dark mode) during the phased rollout. Removed once
-// every page reads the semantic names directly.
-export const LEGACY_ALIASES_CSS = `
-:root, :root[data-theme="dark"] {
-  --bg-body: var(--bg); --bg-surface: var(--surface); --surface-1: var(--surface);
-  --surface-2: var(--surface-sunken); --surface-3: var(--border-subtle); --muted: var(--text-muted);
-  --accent: var(--primary); --accent-soft: var(--primary-soft);
-  --primary-glow: var(--primary-soft); --border-card: var(--border-subtle);
-  --shadow-xs: none; --shadow-sm: none; --shadow-md: var(--shadow-1); --shadow-lg: var(--shadow-2); --shadow-xl: var(--shadow-3);
-  --radius-xs: var(--radius-control); --radius-sm: var(--radius-control); --radius-md: var(--radius-card);
-  --radius-lg: var(--radius-card); --radius-xl: var(--radius-modal); --radius-2xl: var(--radius-modal);
-  --transition-base: var(--dur-fast) var(--ease-standard);
-}
+// Older token names still read by features/admin/** (out of scope for the
+// redesign and deliberately untouched). Mapped onto the semantic tokens so the
+// admin area keeps working in both themes. Nothing else may use these names.
+export const ADMIN_COMPAT_CSS = `
+:root, :root[data-theme="dark"] { --bg-body: var(--bg); --bg-surface: var(--surface); --surface-2: var(--surface-sunken); }
 `

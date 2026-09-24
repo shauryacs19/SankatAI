@@ -1,39 +1,39 @@
 import { useState } from 'react'
-import { useLocation } from 'react-router-dom'
-import Header from '../../../components/layout/Header'
+import { Link, useLocation } from 'react-router-dom'
+import { ShieldCheck, Phone, ArrowRight } from 'lucide-react'
+import { isEmail } from '@sankatai/shared'
 import { signUp, confirmSignUp, resendConfirmationCode, isCognitoConfigured } from '../../../services/auth/cognito'
 import { useAuth } from '../../../context/AuthContext.jsx'
+import { Alert, Brand, Button, Field, Input, SkipLink, Tabs } from '../../../components/ui'
+import { AUTH_CSS } from './auth.styles'
 
 const emptyForm = { email: '', password: '', confirmPassword: '', code: '' }
+const PASSWORD_RULE = 'At least 8 characters, with upper- and lowercase letters and a number.'
 
 function Login() {
-  // No useNavigate/useProfile here any more: sign-in is a full-page redirect to
-  // the Hosted UI, so routing and profile preload happen on the /auth/callback
-  // return trip instead of in this component.
+  // Sign-in is a full-page redirect to the Cognito Hosted UI, so routing and
+  // profile preload happen on the /auth/callback return trip.
   const location = useLocation()
   const { signIn } = useAuth()
   // Landing's "Get started" passes { mode: 'signup' } to open create-account.
   const [mode, setMode] = useState(location.state?.mode === 'signup' ? 'signup' : 'signin') // 'signin' | 'signup' | 'confirm'
   const [form, setForm] = useState(emptyForm)
+  const [touched, setTouched] = useState({})
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [resending, setResending] = useState(false)
 
   const handleChange = (field) => (e) => {
     setForm((prev) => ({ ...prev, [field]: e.target.value }))
     if (error) setError('')
   }
+  const touch = (field) => () => setTouched((t) => ({ ...t, [field]: true }))
 
-  const switchMode = (nextMode) => {
-    setMode(nextMode)
-    setError('')
-    setNotice('')
-  }
+  const switchMode = (nextMode) => { setMode(nextMode); setError(''); setNotice(''); setTouched({}) }
 
-  // Sign-in is a full-page redirect to the Cognito Hosted UI (OAuth code flow
-  // with PKCE). Credentials are never typed into this app, so there is no
-  // password field to submit and nothing to await — the browser navigates away.
-  // The return trip lands on /auth/callback, which AuthContext handles.
+  // Credentials are never typed into this app for sign-in: the browser goes to
+  // the Hosted UI and comes back to /auth/callback (AuthContext handles it).
   const handleSignIn = async (e) => {
     e.preventDefault()
     setSubmitting(true)
@@ -46,22 +46,22 @@ function Login() {
     }
   }
 
+  const emailErr = !form.email.trim() ? 'Enter your email address.' : !isEmail(form.email) ? 'Enter a valid email address, like name@example.com.' : ''
+  const pwErr = form.password.length < 8 ? 'Use at least 8 characters.' : ''
+  const confirmErr = form.confirmPassword !== form.password ? 'The passwords don’t match.' : ''
+
   const handleSignUp = async (e) => {
     e.preventDefault()
+    setTouched({ email: true, password: true, confirmPassword: true })
     setError('')
-
-    if (form.password !== form.confirmPassword) {
-      setError('Passwords do not match.')
-      return
-    }
-
+    if (emailErr || pwErr || confirmErr) return
     setSubmitting(true)
     try {
       await signUp(form.email.trim(), form.password)
-      setNotice(`We sent a verification code to ${form.email.trim()}.`)
+      setNotice(`We sent a 6-digit verification code to ${form.email.trim()}.`)
       setMode('confirm')
     } catch (err) {
-      setError(err.message || 'Unable to create account.')
+      setError(err.message || 'Unable to create your account.')
     } finally {
       setSubmitting(false)
     }
@@ -69,15 +69,17 @@ function Login() {
 
   const handleConfirm = async (e) => {
     e.preventDefault()
+    setTouched({ code: true })
+    if (!form.code.trim()) return
     setSubmitting(true)
     setError('')
     try {
       await confirmSignUp(form.email.trim(), form.code.trim())
-      setNotice('Account verified. You can now sign in.')
+      setNotice('Your account is verified. Continue to sign in.')
       setForm((prev) => ({ ...emptyForm, email: prev.email }))
       setMode('signin')
     } catch (err) {
-      setError(err.message || 'Invalid or expired code.')
+      setError(err.message || 'That code is invalid or has expired.')
     } finally {
       setSubmitting(false)
     }
@@ -85,163 +87,101 @@ function Login() {
 
   const handleResendCode = async () => {
     setError('')
+    setResending(true)
     try {
       await resendConfirmationCode(form.email.trim())
-      setNotice(`Verification code resent to ${form.email.trim()}.`)
+      setNotice(`A new code is on its way to ${form.email.trim()}.`)
     } catch (err) {
-      setError(err.message || 'Unable to resend code.')
+      setError(err.message || 'Unable to resend the code.')
+    } finally {
+      setResending(false)
     }
   }
 
+  const title = mode === 'confirm' ? 'Verify your email' : mode === 'signup' ? 'Create your account' : 'Sign in to SankatAI'
+  const lead = mode === 'confirm'
+    ? `Enter the 6-digit code we emailed to ${form.email.trim() || 'you'}.`
+    : 'Your health profile, chats and documents, synced to your account.'
+
   return (
-    <div className="app auth-page">
-      <Header isOffline={false} />
+    <div className="auth">
+      <style>{AUTH_CSS}</style>
+      <SkipLink />
+      <header className="auth-bar">
+        <Link to="/" className="auth-home" aria-label="SankatAI home"><Brand size="sm" /></Link>
+        <Button variant="emergency" size="sm" icon={Phone} href="tel:108" aria-label="Emergency — call 108">108</Button>
+      </header>
 
-      <main>
-        <div className="onboarding-hero">
-          <div className="onboarding-hero-icon">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M11.25 4.53l-6.72 3.36a2 2 0 00-1.03 1.57v4.61c0 4.15 2.62 7.89 6.46 9.2a2 2 0 001.28 0c3.84-1.31 6.46-5.05 6.46-9.2v-4.6a2 2 0 00-1.03-1.58l-6.72-3.36a2 2 0 00-1.78 0z" />
-              <path fillRule="evenodd" d="M12 7.5a.75.75 0 01.75.75v3h3a.75.75 0 010 1.5h-3v3a.75.75 0 01-1.5 0v-3h-3a.75.75 0 010-1.5h3v-3A.75.75 0 0112 7.5z" clipRule="evenodd" />
-            </svg>
+      <main id="main" tabIndex={-1} className="auth-main">
+        <div className="auth-card">
+          <div className="auth-head">
+            <h1 className="auth-title">{title}</h1>
+            <p className="auth-lead">{lead}</p>
           </div>
-          <h2>{mode === 'confirm' ? 'Verify Your Email' : 'Welcome to Sankat.Ai'}</h2>
-          <p>
-            {mode === 'confirm'
-              ? 'Enter the 6-digit code we emailed you to activate your account.'
-              : 'Sign in to sync your emergency profile, or create an account to get started.'}
-          </p>
-          <div className="privacy-badge">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
-            </svg>
-            Secured by Amazon Cognito
-          </div>
-        </div>
 
-        <section className="onboarding-section auth-card">
           {!isCognitoConfigured() && (
-            <div className="auth-alert error">
-              Cognito is not configured. Set <code>VITE_COGNITO_USER_POOL_ID</code> and{' '}
-              <code>VITE_COGNITO_CLIENT_ID</code> in <code>frontend/.env</code> (see{' '}
-              <code>.env.example</code>).
-            </div>
+            <Alert tone="danger" title="Sign-in isn't configured.">
+              Set <code>VITE_COGNITO_DOMAIN</code>, <code>VITE_COGNITO_CLIENT_ID</code> and <code>VITE_COGNITO_USER_POOL_ID</code> for <code>apps/web</code>.
+            </Alert>
           )}
 
           {mode !== 'confirm' && (
-            <div className="auth-tabs">
-              <button
-                type="button"
-                className={`auth-tab ${mode === 'signin' ? 'active' : ''}`}
-                onClick={() => switchMode('signin')}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                className={`auth-tab ${mode === 'signup' ? 'active' : ''}`}
-                onClick={() => switchMode('signup')}
-              >
-                Create Account
-              </button>
-            </div>
+            <Tabs
+              label="Sign in or create an account"
+              idBase="auth"
+              value={mode}
+              onChange={switchMode}
+              tabs={[{ value: 'signin', label: 'Sign in' }, { value: 'signup', label: 'Create account' }]}
+            />
           )}
 
-          {error && <div className="auth-alert error">{error}</div>}
-          {notice && !error && <div className="auth-alert notice">{notice}</div>}
+          <div id="auth-panel" role={mode !== 'confirm' ? 'tabpanel' : undefined} aria-labelledby={mode !== 'confirm' ? `auth-${mode}` : undefined} className="auth-panel">
+            {error && <Alert tone="danger">{error}</Alert>}
+            {notice && !error && <Alert tone="success">{notice}</Alert>}
 
-          {mode === 'signin' && (
-            <form className="form-grid" onSubmit={handleSignIn}>
-              {/* No email/password inputs by design: credentials are entered on
-                  the Cognito Hosted UI, never in this application. That keeps
-                  the password out of our DOM, our bundle and our error reports. */}
-              <p className="auth-hint">
-                You&apos;ll be taken to our secure Amazon Cognito sign-in page, then
-                brought straight back.
-              </p>
-              <button type="submit" className="dock-btn primary auth-submit" disabled={submitting}>
-                {submitting ? 'Redirecting…' : 'Continue to secure sign-in'}
-              </button>
-            </form>
-          )}
+            {mode === 'signin' && (
+              <form className="ui-form" onSubmit={handleSignIn} noValidate>
+                <p className="auth-note">
+                  <ShieldCheck size={16} aria-hidden="true" />
+                  <span>You'll enter your password on the secure Amazon Cognito page, then come straight back. Your password never passes through SankatAI.</span>
+                </p>
+                <Button type="submit" variant="primary" block iconEnd={ArrowRight} loading={submitting} loadingText="Redirecting to secure sign-in…">
+                  Continue to secure sign-in
+                </Button>
+              </form>
+            )}
 
-          {mode === 'signup' && (
-            <form className="form-grid" onSubmit={handleSignUp}>
-              <div className="field">
-                <label>Email <span className="req">*</span></label>
-                <input
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={form.email}
-                  onChange={handleChange('email')}
-                  placeholder="you@example.com"
-                />
-              </div>
-              <div className="field">
-                <label>Password <span className="req">*</span></label>
-                <input
-                  type="password"
-                  required
-                  autoComplete="new-password"
-                  value={form.password}
-                  onChange={handleChange('password')}
-                  placeholder="Min. 8 characters, upper & lowercase, a number"
-                />
-              </div>
-              <div className="field">
-                <label>Confirm Password <span className="req">*</span></label>
-                <input
-                  type="password"
-                  required
-                  autoComplete="new-password"
-                  value={form.confirmPassword}
-                  onChange={handleChange('confirmPassword')}
-                  placeholder="••••••••"
-                />
-              </div>
-              <button type="submit" className="dock-btn primary auth-submit" disabled={submitting}>
-                {submitting ? 'Creating Account…' : 'Create Account'}
-              </button>
-            </form>
-          )}
+            {mode === 'signup' && (
+              <form className="ui-form" onSubmit={handleSignUp} noValidate>
+                <Field label="Email" required error={touched.email ? emailErr : undefined}>
+                  <Input type="email" autoComplete="email" inputMode="email" value={form.email} onChange={handleChange('email')} onBlur={touch('email')} placeholder="name@example.com" />
+                </Field>
+                <Field label="Password" required hint={PASSWORD_RULE} error={touched.password ? pwErr : undefined}>
+                  <Input type="password" autoComplete="new-password" value={form.password} onChange={handleChange('password')} onBlur={touch('password')} />
+                </Field>
+                <Field label="Confirm password" required error={touched.confirmPassword ? confirmErr : undefined}>
+                  <Input type="password" autoComplete="new-password" value={form.confirmPassword} onChange={handleChange('confirmPassword')} onBlur={touch('confirmPassword')} />
+                </Field>
+                <Button type="submit" variant="primary" block loading={submitting} loadingText="Creating your account…">Create account</Button>
+              </form>
+            )}
 
-          {mode === 'confirm' && (
-            <form className="form-grid" onSubmit={handleConfirm}>
-              <div className="field">
-                <label>Verification Code <span className="req">*</span></label>
-                <input
-                  type="text"
-                  required
-                  inputMode="numeric"
-                  value={form.code}
-                  onChange={handleChange('code')}
-                  placeholder="123456"
-                />
-              </div>
-              <button type="submit" className="dock-btn primary auth-submit" disabled={submitting}>
-                {submitting ? 'Verifying…' : 'Verify Account'}
-              </button>
-              <button type="button" className="ghost-button" onClick={handleResendCode}>
-                Resend Code
-              </button>
-            </form>
-          )}
-        </section>
-      </main>
-
-      <footer className="app-footer">
-        <div className="footer-content">
-          <div className="footer-brand">
-            <span className="footer-cross">✚</span> Sankat.Ai
+            {mode === 'confirm' && (
+              <form className="ui-form" onSubmit={handleConfirm} noValidate>
+                <Field label="Verification code" required error={touched.code && !form.code.trim() ? 'Enter the code from the email.' : undefined}>
+                  <Input inputMode="numeric" autoComplete="one-time-code" value={form.code} onChange={handleChange('code')} onBlur={touch('code')} />
+                </Field>
+                <Button type="submit" variant="primary" block loading={submitting} loadingText="Verifying…">Verify account</Button>
+                <Button variant="ghost" block onClick={handleResendCode} loading={resending} loadingText="Sending a new code…">Send a new code</Button>
+              </form>
+            )}
           </div>
-          <hr className="footer-divider" />
-          <p className="footer-text">
-            AI-powered emergency triage. Not a substitute for professional medical advice.
-          </p>
-          <p className="footer-text">© 2026 Sankat.Ai — All data stored locally on your device.</p>
         </div>
-      </footer>
+
+        <p className="auth-foot">
+          SankatAI gives guidance, not a diagnosis. In an emergency, <a href="tel:108">call 108</a>.
+        </p>
+      </main>
     </div>
   )
 }

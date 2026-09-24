@@ -1,39 +1,43 @@
-// Settings tab — presentational, except the self-contained Appearance control.
+// Settings: appearance, account + password, session, and service status.
 
 import { useState } from 'react'
-import { Settings, Pencil, MessageSquare, Activity, Palette, Sun, Moon } from 'lucide-react'
+import { Palette, Sun, Moon, Monitor, Activity } from 'lucide-react'
 import { getTheme, applyTheme } from '../../../services/theme'
+import { Badge, Card, InfoRow, SegmentedControl } from '../../../components/ui'
 import AuthSection from './AuthSection.jsx'
 
-export default function SettingsTab({ isOffline, profile, onEditProfile, onGoChat, onSignOut }) {
+export default function SettingsTab({ isOffline, profile, onSignOut }) {
   const [theme, setTheme] = useState(getTheme)
   const choose = (t) => setTheme(applyTheme(t))
 
   return (
-    <div className="db-view scroll-view">
-      <div className="db-cards">
-        <section className="dx-card">
-          <div className="dx-card-title"><Settings size={15} /> Settings</div>
-          <button className="dx-setting-btn" onClick={onEditProfile}><Pencil size={15} /> Edit profile</button>
-          <button className="dx-setting-btn" onClick={onGoChat}><MessageSquare size={15} /> Go to chat</button>
-        </section>
+    <div className="pg">
+      <Card title="Appearance" icon={Palette} description="System follows your device's light or dark setting.">
+        <SegmentedControl
+          label="Theme"
+          block
+          value={theme}
+          onChange={choose}
+          options={[
+            { value: 'light', label: 'Light', icon: Sun },
+            { value: 'dark', label: 'Dark', icon: Moon },
+            { value: 'system', label: 'System', icon: Monitor },
+          ]}
+        />
+      </Card>
 
-        <AuthSection profile={profile} onSignOut={onSignOut} />
+      <AuthSection profile={profile} onSignOut={onSignOut} />
 
-        <section className="dx-card">
-          <div className="dx-card-title"><Palette size={15} /> Appearance</div>
-          <div className="dx-theme-toggle" role="radiogroup" aria-label="Theme">
-            <button type="button" role="radio" aria-checked={theme === 'light'} className={`dx-theme-btn ${theme === 'light' ? 'active' : ''}`} onClick={() => choose('light')}><Sun size={15} /> Light</button>
-            <button type="button" role="radio" aria-checked={theme === 'dark'} className={`dx-theme-btn ${theme === 'dark' ? 'active' : ''}`} onClick={() => choose('dark')}><Moon size={15} /> Dark</button>
-          </div>
-        </section>
-
-        <section className="dx-card">
-          <div className="dx-card-title"><Activity size={15} /> Status</div>
-          <div className="info-row"><span className="info-row-label">AI service</span><span className="info-row-value">{isOffline ? 'Offline (backup mode)' : 'Online'}</span></div>
-          <div className="info-row"><span className="info-row-label">Signed in as</span><span className="info-row-value">{profile?.email || '—'}</span></div>
-        </section>
-      </div>
+      <Card title="Service status" icon={Activity}>
+        <div className="ui-rows">
+          <InfoRow
+            label="AI assistant"
+            value={isOffline
+              ? <Badge tone="warning">Offline — answers are keyword estimates</Badge>
+              : <Badge tone="success">Online</Badge>}
+          />
+        </div>
+      </Card>
     </div>
   )
 }
