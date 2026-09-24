@@ -1,7 +1,7 @@
 // Content-area skeletons, shaped like the real page. They replace ONLY the
 // content — the shell (navigation and SOS) is interactive while data loads.
 
-import { Skeleton } from '../../components/ui'
+import { Skeleton, useDelayedFlag } from '../../components/ui'
 
 const CSS = `
 .skel-chat { flex: 1; width: 100%; max-width: var(--content-reading); margin: 0 auto; padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-6); }
@@ -15,6 +15,9 @@ const CSS = `
 `
 
 export function ContentSkeleton({ variant = 'list' }) {
+  // Nothing for the first 300ms so a fast load never flashes a skeleton.
+  const show = useDelayedFlag(true)
+  if (!show) return <div aria-busy="true" />
   return (
     <div role="status" aria-live="polite" aria-busy="true" className={variant === 'chat' ? 'skel-chat' : 'skel-list'}>
       <style>{CSS}</style>

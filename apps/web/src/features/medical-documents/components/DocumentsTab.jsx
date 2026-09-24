@@ -25,9 +25,10 @@ import { useProfile } from '../../profile/context/ProfileContext.jsx'
 import { saveProfile } from '../../profile/services/profileApi'
 import {
   Alert, Badge, Button, EmptyState, ErrorState, Field, IconButton, Input, Menu, Modal, PageHeader, PinInput,
-  SegmentedControl, Skeleton, Spinner, useToast,
+  SegmentedControl, Skeleton, Spinner, useDelayedFlag, useToast,
 } from '../../../components/ui'
 import { DOCS_CSS } from './documents.styles'
+import { errText } from '../../../utils/errText'
 
 // UI preference only — never tokens (see CLAUDE.md auth invariants).
 const loadView = () => { try { return normalizeDocView(localStorage.getItem(VIEW_STORAGE_KEY)) } catch { return DEFAULT_DOC_VIEW } }
@@ -56,7 +57,7 @@ export default function DocumentsTab() {
     const merged = { ...(profile || {}), fileCategories: next }
     setProfile(merged)
     try { await saveProfile(merged); return true }
-    catch (err) { setProfile(prev); toast.error(err.message || 'Could not save the category.'); return false }
+    catch (err) { setProfile(prev); toast.error(errText(err, 'Could not save the category.')); return false }
   }, [profile, profileLoading, setProfile, toast])
   const [dragOverKey, setDragOverKey] = useState(null)
   const [view, setView] = useState(loadView)
@@ -92,7 +93,7 @@ export default function DocumentsTab() {
       const list = await listUploads('vault')
       setFiles(Array.isArray(list) ? list : [])
     } catch (e) {
-      setLoadError(e.message || 'Could not load your documents.')
+      setLoadError(errText(e, 'Could not load your documents.'))
     } finally {
       setLoading(false)
     }
@@ -100,6 +101,7 @@ export default function DocumentsTab() {
   useEffect(() => { load() }, [load])
   useEffect(() => { listPins().then((l) => setPins(Array.isArray(l) ? l : [])).catch(() => {}) }, [])
 
+  const showSkeleton = useDelayedFlag(loading)
   const categories = useMemo(() => mergeCategories(files, customCats), [files, customCats])
   const uncategorized = useMemo(() => files.filter((f) => !f.category), [files])
 
@@ -119,7 +121,7 @@ export default function DocumentsTab() {
     const disposition = action === 'view' ? 'inline' : 'attachment'
     if (f.passwordProtected) { setPinModal({ file: f, action }); setPin(''); setPinError(''); return }
     setBusyId(f.attachmentId)
-    try { await doOpen(f, null, disposition) } catch (err) { toast.error(err.message || `Could not open “${f.filename}”.`) } finally { setBusyId(null) }
+    try { await doOpen(f, null, disposition) } catch (err) { toast.error(errText(err, `Could not open “${f.filename}”.`)) } finally { setBusyId(null) }
   }
   const submitPin = async () => {
     if (pin.length !== 6 || pinBusy) return
@@ -128,7 +130,7 @@ export default function DocumentsTab() {
       await doOpen(pinModal.file, pin, pinModal.action === 'view' ? 'inline' : 'attachment')
       setPinModal(null); setPin('')
     } catch (err) {
-      setPinError(/403|incorrect|forbidden/i.test(err.message || '') ? 'That PIN is incorrect. Check it and try again.' : (err.message || 'Could not open the file.'))
+      setPinError(/403|incorrect|forbidden/i.test(errText(err, '')) ? 'That PIN is incorrect. Check it and try again.' : (errText(err, 'Could not open the file.')))
     } finally { setPinBusy(false) }
   }
 
@@ -148,7 +150,7 @@ export default function DocumentsTab() {
       setEditTarget(null)
       toast.success('Document updated.')
     } catch (err) {
-      toast.error(err.message || 'Could not update the document.')
+      toast.error(errText(err, 'Could not update the document.'))
     } finally { setEditBusy(false) }
   }
 
@@ -170,7 +172,7 @@ export default function DocumentsTab() {
       if (category) addCustomCat(category)
     } catch (err) {
       setFiles((prev) => prev.map((x) => (x.attachmentId === attachmentId ? { ...x, category: prevCat } : x)))
-      toast.error(err.message || 'Could not move the document.')
+      toast.error(errText(err, 'Could not move the document.'))
     }
   }
   const onRowDragStart = (f, e) => { e.dataTransfer.setData('text/plain', f.attachmentId); e.dataTransfer.effectAllowed = 'move' }
@@ -195,7 +197,7 @@ export default function DocumentsTab() {
       setFiles((prev) => prev.map((f) => (f.category === oldName ? { ...f, category: newName } : f)))
       setCatEditTarget(null)
     } catch (err) {
-      toast.error(err.message || 'Could not rename the category.')
+      toast.error(errText(err, 'Could not rename the category.'))
     } finally { setCatEditBusy(false) }
   }
 
@@ -217,9 +219,9 @@ export default function DocumentsTab() {
       setDeleteTarget(null)
       toast.success('Document deleted.')
     } catch (err) {
-      if (/403|incorrect pin/i.test(err.message || '')) {
+      if (/403|incorrect pin/i.test(errText(err, ''))) {
         setDeletePin(''); setDeletePinDone(false); setDeleteErr('That PIN is incorrect. Please try again.')
-      } else setDeleteErr(err.message || 'Could not delete the document. Please try again.')
+      } else setDeleteErr(errText(err, 'Could not delete the document. Please try again.'))
     } finally { setDeleteBusy(false) }
   }
   const deleteReady = deletePinDone ? isDeleteConfirmed(deleteText) : deletePin.length === 6
@@ -304,9 +306,9 @@ export default function DocumentsTab() {
       />
 
       {loading ? (
-        <div className="doc-group" aria-busy="true">
+        <div className={showSkeleton ? 'doc-group' : ''} aria-busy="true">
           <span className="sr-only" role="status">Loading your documents…</span>
-          {[0, 1, 2].map((i) => (
+          {showSkeleton && [0, 1, 2].map((i) => (
             <div key={i} className="doc doc--skel"><Skeleton width="2.5rem" height="2.5rem" /><span className="doc-main"><Skeleton variant="text" width={`${60 - i * 12}%`} /><Skeleton variant="text" width="35%" /></span></div>
           ))}
         </div>

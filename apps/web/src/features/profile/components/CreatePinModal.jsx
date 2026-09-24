@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { ShieldCheck } from 'lucide-react'
 import { createPin } from '../../../services/securityApi'
 import { Alert, Button, Field, Input, Modal, PinInput } from '../../../components/ui'
+import { errText } from '../../../utils/errText'
 
 export default function CreatePinModal({ open, onClose, onCreated }) {
   const [label, setLabel] = useState('')
@@ -28,7 +29,7 @@ export default function CreatePinModal({ open, onClose, onCreated }) {
       reset()
       onCreated?.(created)
     } catch (err) {
-      setFormErr(err.message || 'Could not create the PIN. Please try again.')
+      setFormErr(errText(err, 'Could not create the PIN. Please try again.'))
     } finally { setSaving(false) }
   }
 

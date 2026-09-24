@@ -9,6 +9,7 @@ import { useAuth } from '../../../context/AuthContext.jsx'
 import { useProfile } from '../context/ProfileContext.jsx'
 import { Alert, Brand, Button, Field, IconButton, Input, Select, SkipLink, Textarea } from '../../../components/ui'
 import { STANDALONE_CSS } from '../../../components/layout/standalone.styles'
+import { errText } from '../../../utils/errText'
 
 const emptyContact = { name: '', relationship: '', phone: '' }
 
@@ -141,7 +142,7 @@ function ProfileSetup() {
       setProfile(saved)
       navigate('/dashboard', { replace: true })
     } catch (err) {
-      setServerError(err.message || 'Could not save your profile. Please try again.')
+      setServerError(errText(err, 'Could not save your profile. Please try again.'))
       setTimeout(() => errorRef.current?.scrollIntoView({ block: 'center' }), 0)
     } finally {
       setSaving(false)

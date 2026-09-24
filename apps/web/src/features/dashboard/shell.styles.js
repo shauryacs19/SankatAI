@@ -63,6 +63,10 @@ export const SHELL_CSS = `
 .sh-page { min-height: 100%; }
 .sh-content--chat > .sh-page { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
+/* Shell-level notice (e.g. profile failed to load) */
+.sh-notice { padding: var(--space-3) var(--space-6) 0; }
+@media (max-width: 767px) { .sh-notice { padding: var(--space-3) var(--space-4) 0; } }
+
 /* Page body used by every non-chat dashboard page */
 .pg { width: 100%; max-width: var(--content-reading); margin: 0 auto; padding: var(--space-6); padding-bottom: var(--space-12); display: flex; flex-direction: column; gap: var(--space-6); }
 .pg--wide { max-width: var(--content-wide); }

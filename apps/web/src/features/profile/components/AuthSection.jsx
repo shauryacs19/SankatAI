@@ -6,6 +6,7 @@ import { KeyRound, Mail, ShieldCheck, LogOut, Lock } from 'lucide-react'
 import { changePassword } from '../../../services/auth/cognito'
 import { useAuth } from '../../../context/AuthContext.jsx'
 import { Alert, Button, Card, Field, InfoRow, Input } from '../../../components/ui'
+import { errText } from '../../../utils/errText'
 
 const MIN_LEN = 8
 
@@ -38,7 +39,7 @@ export default function AuthSection({ profile, onSignOut }) {
       await changePassword(email, current, next)
       setCurrent(''); setNext(''); setConfirm(''); setTouched({}); setDone(true)
     } catch (err) {
-      setError(err.message || 'Could not change your password.')
+      setError(errText(err, 'Could not change your password.'))
     } finally { setBusy(false) }
   }
 

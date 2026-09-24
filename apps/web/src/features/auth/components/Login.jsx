@@ -6,6 +6,7 @@ import { signUp, confirmSignUp, resendConfirmationCode, isCognitoConfigured } fr
 import { useAuth } from '../../../context/AuthContext.jsx'
 import { Alert, Brand, Button, Field, Input, SkipLink, Tabs } from '../../../components/ui'
 import { AUTH_CSS } from './auth.styles'
+import { errText } from '../../../utils/errText'
 
 const emptyForm = { email: '', password: '', confirmPassword: '', code: '' }
 const PASSWORD_RULE = 'At least 8 characters, with upper- and lowercase letters and a number.'
@@ -41,7 +42,7 @@ function Login() {
     try {
       await signIn()
     } catch (err) {
-      setError(err.message || 'Unable to reach the sign-in service.')
+      setError(errText(err, 'Unable to reach the sign-in service.'))
       setSubmitting(false)
     }
   }
@@ -61,7 +62,7 @@ function Login() {
       setNotice(`We sent a 6-digit verification code to ${form.email.trim()}.`)
       setMode('confirm')
     } catch (err) {
-      setError(err.message || 'Unable to create your account.')
+      setError(errText(err, 'Unable to create your account.'))
     } finally {
       setSubmitting(false)
     }
@@ -79,7 +80,7 @@ function Login() {
       setForm((prev) => ({ ...emptyForm, email: prev.email }))
       setMode('signin')
     } catch (err) {
-      setError(err.message || 'That code is invalid or has expired.')
+      setError(errText(err, 'That code is invalid or has expired.'))
     } finally {
       setSubmitting(false)
     }
@@ -92,7 +93,7 @@ function Login() {
       await resendConfirmationCode(form.email.trim())
       setNotice(`A new code is on its way to ${form.email.trim()}.`)
     } catch (err) {
-      setError(err.message || 'Unable to resend the code.')
+      setError(errText(err, 'Unable to resend the code.'))
     } finally {
       setResending(false)
     }

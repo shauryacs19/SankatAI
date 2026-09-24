@@ -8,6 +8,7 @@ import { fmtDate } from '@sankatai/shared'
 import { listPins, deletePin } from '../../../services/securityApi'
 import CreatePinModal from './CreatePinModal'
 import { Button, Card, EmptyState, ErrorState, Field, IconButton, Modal, PinInput, Skeleton, useToast } from '../../../components/ui'
+import { errText } from '../../../utils/errText'
 
 const CSS = `
 .pin-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; }
@@ -31,7 +32,7 @@ export default function SecurityPins() {
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
-    try { const l = await listPins(); setPins(Array.isArray(l) ? l : []) } catch (e) { setError(e.message || 'Could not load your PINs.') } finally { setLoading(false) }
+    try { const l = await listPins(); setPins(Array.isArray(l) ? l : []) } catch (e) { setError(errText(e, 'Could not load your PINs.')) } finally { setLoading(false) }
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -45,7 +46,7 @@ export default function SecurityPins() {
       setDelTarget(null)
       toast.success('PIN deleted.')
     } catch (err) {
-      setDelErr(/403|incorrect/i.test(err.message || '') ? 'That PIN is incorrect.' : (err.message || 'Could not delete the PIN.'))
+      setDelErr(/403|incorrect/i.test(errText(err, '')) ? 'That PIN is incorrect.' : (errText(err, 'Could not delete the PIN.')))
     } finally { setDelBusy(false) }
   }
 

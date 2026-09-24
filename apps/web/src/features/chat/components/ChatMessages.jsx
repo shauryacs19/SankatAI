@@ -119,7 +119,7 @@ export function ErrorMessage({ m, onRetry, onDismiss, retrying }) {
       <AlertTriangle size={18} aria-hidden="true" />
       <div className="msg-error-body">
         <p className="msg-error-title">Your message wasn't sent.</p>
-        <p className="msg-error-desc">{m.text} Check your connection and try again. If this is an emergency, call 108.</p>
+        <p className="msg-error-desc">{m.text} Check your connection and try again. If this is an emergency, <a href="tel:108"><strong>call 108</strong></a>.</p>
         <div className="msg-error-actions">
           {m.retry && <Button size="sm" variant="secondary" icon={RotateCw} onClick={onRetry} loading={retrying} loadingText="Sending…">Try again</Button>}
           <Button size="sm" variant="ghost" onClick={onDismiss}>Dismiss</Button>

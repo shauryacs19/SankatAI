@@ -22,9 +22,9 @@ const CSS = `
 }
 `
 
-export default function EmergencyPanel({ fromAssessment, riskScore, primaryContact, onShareLocation, onFindHospitals, onDismiss }) {
+export default function EmergencyPanel({ fromAssessment, riskScore, primaryContact, contactsLoading, onShareLocation, onFindHospitals, onDismiss }) {
   const hasContact = Boolean(primaryContact?.phone)
-  const noContactHint = 'Add an emergency contact in your health profile to use this.'
+  const noContactHint = contactsLoading ? 'Still loading your emergency contacts…' : 'Add an emergency contact in your health profile to use this.'
   return (
     <section className="em" aria-labelledby="em-title">
       <style>{CSS}</style>

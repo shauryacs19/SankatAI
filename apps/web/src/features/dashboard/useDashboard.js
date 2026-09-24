@@ -17,13 +17,14 @@ import {
 import { ageFromDob, toBubble } from '../chat/utils/format.jsx'
 import { uploadFile, listUploads } from '../../services/uploads'
 import { useToast } from '../../components/ui'
+import { errText } from '../../utils/errText'
 
 const HOSPITALS_NEAR_ME = 'https://www.google.com/maps/search/hospitals+near+me'
 
 export function useDashboard() {
   const navigate = useNavigate()
   const toast = useToast()
-  const { profile, loading } = useProfile()
+  const { profile, loading, error: profileError, refresh: reloadProfile } = useProfile()
   const { signOut } = useAuth()
 
   const [initialLoading, setInitialLoading] = useState(true)
@@ -64,6 +65,12 @@ export function useDashboard() {
     return Math.round((filled / required.length) * 100)
   }, [profile])
 
+  // Retry after a failed initial load: reload the list and open the newest chat.
+  const reloadChats = async () => {
+    const list = await loadConsultations()
+    if (list.length && !activeId) await selectConsultation(list[0].consultationId)
+  }
+
   const loadConsultations = useCallback(async () => {
     try {
       const list = await listConsultations()
@@ -71,7 +78,7 @@ export function useDashboard() {
       setConsultationsError('')
       return list
     } catch (e) {
-      setConsultationsError(e.message || 'Could not load your chats.')
+      setConsultationsError(errText(e, 'Could not load your chats.'))
       return []
     }
   }, [])
@@ -110,7 +117,7 @@ export function useDashboard() {
       const c = await createConsultation()
       setConsultations((prev) => [c, ...prev]); setActiveId(c.consultationId); setMessages([]); setIsEmergency(false)
       return c
-    } catch (e) { toast.error(e.message || 'Could not start a new chat.'); return null }
+    } catch (e) { toast.error(errText(e, 'Could not start a new chat.')); return null }
   }
   // Called after the user confirms in a dialog. Resolves true on success.
   const deleteChat = async (id) => {
@@ -122,7 +129,7 @@ export function useDashboard() {
       toast.success('Chat deleted.')
       return true
     } catch (e) {
-      toast.error(e.message || 'Could not delete the chat. Please try again.')
+      toast.error(errText(e, 'Could not delete the chat. Please try again.'))
       return false
     }
   }
@@ -139,7 +146,7 @@ export function useDashboard() {
       setSearchResults((prev) => (prev ? apply(prev) : prev))
       return true
     } catch (err) {
-      toast.error(err.message || 'Could not rename the chat.')
+      toast.error(errText(err, 'Could not rename the chat.'))
       return false
     }
   }
@@ -152,9 +159,11 @@ export function useDashboard() {
     // Carry local previews so the just-sent bubble shows thumbnails immediately.
     const msgAttachments = ready.map((a) => ({ attachmentId: a.attachmentId, kind: a.kind, name: a.name, url: a.previewUrl || a.url || null }))
     let cid = activeId
+    // Show the user's message immediately, even before a new chat exists, so
+    // it never disappears if creating the chat fails.
+    setMessages((prev) => [...prev, { id: tmpId, sender: 'user', text, createdAt: new Date().toISOString(), status: 'sent', attachments: msgAttachments }])
     try {
       if (!cid) { const c = await createConsultation(); setConsultations((prev) => [c, ...prev]); cid = c.consultationId; setActiveId(cid) }
-      setMessages((prev) => [...prev, { id: tmpId, sender: 'user', text, createdAt: new Date().toISOString(), status: 'sent', attachments: msgAttachments }])
       const res = await apiSendMessage(cid, text, attachmentIds)
       setMessages((prev) => prev.map((m) => (m.id === tmpId ? { ...m, status: 'received' } : m)))
       if (attachmentIds.length) loadChatAttachments(cid)
@@ -171,7 +180,7 @@ export function useDashboard() {
     } catch (err) {
       // Not an AI answer: a distinct, retryable error row. The user's message
       // is marked as not sent rather than left "Sending…" forever.
-      const errRow = { id: `err-${Date.now()}`, sender: 'error', text: err.message || 'The service is unavailable.', retry: { text, ready, failedId: tmpId }, createdAt: new Date().toISOString() }
+      const errRow = { id: `err-${Date.now()}`, sender: 'error', text: errText(err, 'The service is unavailable right now.'), retry: { text, ready, failedId: tmpId }, createdAt: new Date().toISOString() }
       setMessages((prev) => [...prev.map((m) => (m.id === tmpId ? { ...m, status: 'failed' } : m)), errRow])
       setLastReply(errRow)
     } finally { setIsLoading(false) }
@@ -206,7 +215,7 @@ export function useDashboard() {
       await setMessageFeedback(activeId, messageId, next)
     } catch (err) {
       setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, feedback: current } : m)))
-      toast.error(err.message || 'Could not save your feedback.')
+      toast.error(errText(err, 'Could not save your feedback.'))
     }
   }
 
@@ -231,7 +240,7 @@ export function useDashboard() {
     setMessages((p) => p.filter((m) => m.id !== messageId))
     try { await unsendMessage(activeId, messageId) } catch (e) {
       setMessages(prev)
-      toast.error(e.message || 'Could not unsend the message.')
+      toast.error(errText(e, 'Could not unsend the message.'))
     }
   }
 
@@ -252,7 +261,7 @@ export function useDashboard() {
         setAttachments((prev) => prev.map((a) => (a.localId === localId ? { ...a, status: 'uploaded', attachmentId: rec.attachmentId } : a)))
       } catch (err) {
         setAttachments((prev) => prev.map((a) => (a.localId === localId ? { ...a, status: 'failed' } : a)))
-        toast.error(err.message || `Could not upload ${f.name}.`)
+        toast.error(errText(err, `Could not upload ${f.name}.`))
       }
     }
   }
@@ -303,7 +312,7 @@ export function useDashboard() {
 
   const refs = { docInputRef, photoInputRef }
   return {
-    refs, lastReply, loading, initialLoading, profile, fullName, firstName, age, profileCompletion, contacts, primaryContact,
+    refs, lastReply, loading, initialLoading, profileError, reloadProfile, reloadChats, profile, fullName, firstName, age, profileCompletion, contacts, primaryContact,
     consultations, consultationsError, loadConsultations, activeId, messages, input, setInput, isLoading,
     isOffline, isEmergency, setIsEmergency, emergencyFromAssessment, lastRiskScore, analysisOpen, setAnalysisOpen,
     attachments, removeAttachment, isListening, chatAttachmentMap,

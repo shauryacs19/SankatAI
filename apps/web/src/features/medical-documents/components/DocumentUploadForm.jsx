@@ -13,6 +13,7 @@ import { uploadFile } from '../../../services/uploads'
 import { listPins } from '../../../services/securityApi'
 import { kindForFile, isImageFile, fmtFileSize } from '@sankatai/shared'
 import { Alert, Button, Field, IconButton, Input, Select, Switch } from '../../../components/ui'
+import { errText } from '../../../utils/errText'
 
 const CSS = `
 .up-drop {
@@ -105,7 +106,7 @@ export default function DocumentUploadForm({ onSuccess, onCancel }) {
       })
       onSuccess?.({ ...rec, fileName: fileName.trim(), passwordProtected: passwordProtect })
     } catch (err) {
-      setSubmitError(err.message || 'The upload failed. Check your connection and try again.')
+      setSubmitError(errText(err, 'The upload failed. Check your connection and try again.'))
       setSubmitting(false)
     }
   }

@@ -20,7 +20,7 @@ import { ContentSkeleton } from './DashboardSkeleton.jsx'
 import EmergencyPanel from '../emergency/components/EmergencyPanel.jsx'
 import RenameChatModal from '../chat/components/RenameChatModal.jsx'
 import { AI_DISCLAIMER } from '@sankatai/shared'
-import { Avatar, Badge, Brand, Button, IconButton, Modal, SkipLink, pageEnter } from '../../components/ui'
+import { Alert, Avatar, Badge, Brand, Button, IconButton, Modal, SkipLink, pageEnter } from '../../components/ui'
 
 const NAV = [
   { key: 'chat', label: 'Chat', short: 'Chat', Icon: MessageSquare, path: '/dashboard/chat' },
@@ -122,10 +122,19 @@ export default function DashboardLayout() {
             fromAssessment={d.emergencyFromAssessment}
             riskScore={d.lastRiskScore}
             primaryContact={d.primaryContact}
+            contactsLoading={d.loading}
             onShareLocation={d.handleSendLocationAlert}
             onFindHospitals={d.handleFindHospitals}
             onDismiss={() => d.setIsEmergency(false)}
           />
+        )}
+
+        {d.profileError && !d.loading && (
+          <div className="sh-notice">
+            <Alert tone="danger" title="Couldn't load your health profile." action={<Button size="sm" variant="secondary" onClick={() => d.reloadProfile()}>Try again</Button>}>
+              Some details may be missing until it loads. Emergency calling still works.
+            </Alert>
+          </div>
         )}
 
         <main id="main" tabIndex={-1} className={`sh-content ${isChat ? 'sh-content--chat' : ''}`}>

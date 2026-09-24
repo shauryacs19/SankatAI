@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { ArrowRight, ClipboardList, MapPin } from 'lucide-react'
 import { sevMeta, CHAT_SUGGESTIONS } from '@sankatai/shared'
-import { Chip, severityUi, useReducedMotion } from '../../../components/ui'
+import { Alert, Button, Chip, severityUi, useReducedMotion } from '../../../components/ui'
 import { parseAnalysis } from '../../chat/utils/format.jsx'
 import { CHAT_CSS } from '../../chat/chat.styles'
 import { UserMessage, AssistantMessage, ErrorMessage, ThinkingRow } from '../../chat/components/ChatMessages.jsx'
@@ -64,6 +64,8 @@ export default function ChatPage() {
     } catch { /* cancelled */ }
   }
   const retry = async (id) => { setRetryingId(id); await d.retrySend(id); setRetryingId(null) }
+  const [reloading, setReloading] = useState(false)
+  const reloadChats = async () => { setReloading(true); await d.reloadChats(); setReloading(false) }
 
   const showEmpty = messages.length === 0 && !isLoading
 
@@ -72,6 +74,11 @@ export default function ChatPage() {
       <style>{CHAT_CSS}</style>
       <div className="chat-scroll" ref={scrollRef}>
         <section className="chat-thread" aria-label="Conversation">
+          {d.consultationsError && !d.activeId && (
+            <Alert tone="danger" title="Couldn't load your chats." action={<Button size="sm" variant="secondary" loading={reloading} loadingText="Retrying…" onClick={reloadChats}>Try again</Button>}>
+              You can still describe new symptoms below. If this is an emergency, call 108.
+            </Alert>
+          )}
           {showEmpty ? (
             <div className="chat-empty">
               <h2>Hi {d.firstName}. What symptoms are you having?</h2>
