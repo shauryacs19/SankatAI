@@ -278,6 +278,28 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
   needs `--build`. In dev they're plain env on the Vite dev server, so a restart suffices.
 
 ## 10. Changelog (most recent first)
+- **Chat returned template answers: AI key never set + silent fallback made honest (2026-09-24):**
+  - **Root cause:** Secrets Manager `sankatai/dev/openai_api_key` still held the Terraform
+    seed `PLACEHOLDER` (1 version, last changed 2026-08-16). It is non-empty, so the old
+    "key missing" branch never fired; every chat hit Ollama, got **401**, and was
+    swallowed as "OpenAI Analyze error intercepted". Ruled out: NAT egress (ollama.com
+    200 from the box), model name (`gpt-oss:120b` listed), secret shape (bare string).
+  - ⚠️ **`/v1/models` does not validate the key** on Ollama — it returns 200 with a bogus
+    or absent token. `POST https://ollama.com/api/me` does (401), at zero token cost.
+  - **Failure classes logged distinctly** (`triage_service.py`): `AI offline fallback
+    [missing_key|auth_rejected|model_not_found|rate_limited|timeout|unreachable|http_NNN|other]`.
+    `PLACEHOLDER` now counts as missing. Key is never logged.
+  - **Offline flag persisted per message**: `add_message(offline_fallback=...)` stores
+    `offline_fallback` (only when true); `MessageView.isOfflineFallback` (default False) so
+    it survives a history reload. `PostMessageResponse.isOfflineFallback` unchanged.
+  - **Web**: fallback bubbles show an "Offline mode ... not an AI assessment ... call 108"
+    banner (`.dx-aicard-offline`). Mobile does NOT yet read the flag.
+  - **`/api/health/readiness`** adds `aiProvider` (`ok|missing_key|auth_rejected|
+    unreachable|http_NNN`, cached 5 min via `/api/me`) and `aiMode`. Storage alone still
+    decides 200/503 — the fallback keeps the service usable.
+  - ⚠️ `openai>=3` no longer depends on `httpx`; the probe uses stdlib `urllib`.
+  - **Still required, out of band:** put the real Ollama key in Secrets Manager, then
+    redeploy (the rollout re-reads it; the provider client is cached per process).
 - **Web sign-in: CloudFront origin missing from Cognito callbacks (2026-09-24):** the app
   client allowed only `localhost:5173` and `sankatai://`, so the deployed site's Hosted UI
   redirect would fail with `redirect_mismatch`. Root `main.tf` now appends
