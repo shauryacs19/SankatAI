@@ -148,6 +148,13 @@ export default function ChatPage() {
                       </>
                     ) : (
                       <div className={`dx-aicard ${m.severity && SEV[m.severity] ? `sev-${SEV[m.severity].cls}` : ''}`}>
+                        {/* The backend fell back to its keyword engine: never pass that off as an AI answer. */}
+                        {m.offline && (
+                          <div className="dx-aicard-offline" role="status">
+                            <AlertTriangle size={15} />
+                            <span><strong>Offline mode.</strong> The AI assistant is unavailable, so this is an automatic keyword estimate, not an AI assessment. If this could be an emergency, call 108.</span>
+                          </div>
+                        )}
                         {m.severity && SEV[m.severity] && (
                           <div className="dx-aicard-head">
                             <span className="dx-aicard-ic">{m.severity === 'EMERGENCY' ? <Siren size={16} /> : <HeartPulse size={16} />}</span>

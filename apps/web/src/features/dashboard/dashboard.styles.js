@@ -281,6 +281,8 @@ export const DB_CSS = `
 .dx-aicard-follow { margin: 0; padding-top: 10px; border-top: 1px solid var(--border-subtle, #E5E7EB); font-size: 0.85rem; color: var(--text-muted, #64748B); }
 .dx-aicard-disclaimer { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 0.75rem; line-height: 1.5; color: var(--text-muted, #64748B); }
 .dx-aicard-disclaimer svg { flex-shrink: 0; margin-top: 2px; }
+.dx-aicard-offline { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 10px; font-size: 0.8rem; line-height: 1.45; color: var(--sev-high, #EA580C); background: var(--sev-high-soft, #FFF7ED); border: 1px solid var(--sev-high-border, #FED7AA); }
+.dx-aicard-offline svg { flex-shrink: 0; margin-top: 2px; }
 .dx-aicard-foot { display: flex; align-items: center; gap: 14px; padding-top: 10px; border-top: 1px solid var(--border-subtle, #E5E7EB); }
 .dx-aicard-time { font-size: 0.7rem; color: var(--text-muted, #94A3B8); margin-right: auto; }
 /* Labelled feedback buttons inside the card footer: override the icon-only
