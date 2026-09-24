@@ -2,9 +2,10 @@ import { crc32 } from 'node:zlib'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventStreamCodec } from '@smithy/eventstream-codec'
 import {
-  createDownsampler, createTranscript, createVoiceSession, decodeTranscribeMessage, encodeAudioEvent, voiceResult,
+  createDownsampler, createLevelMeter, createTranscript, createVoiceSession, decodeTranscribeMessage, encodeAudioEvent,
+  joinVoiceText, nextVoiceState, pickLanguage, voiceFlags, voiceLanguageLabel, VOICE_FINALIZE_MS,
 } from '@sankatai/shared/voice'
-import { applyVoiceFinal } from './voiceFinal'
+import { startLevelMeter } from './useAudioLevel'
 
 const codec = new EventStreamCodec((b) => new TextDecoder().decode(b), (s) => new TextEncoder().encode(s))
 const str = (value) => ({ type: 'string', value })
@@ -74,22 +75,114 @@ describe('event-stream encoder', () => {
   })
 })
 
-describe('transcript + final decision', () => {
-  it('replaces partials and accumulates finals', () => {
+describe('transcript', () => {
+  it('replaces partials, accumulates finals, and splits them for display', () => {
     const t = createTranscript()
     t.apply([result('a', 'chest', true)])
     t.apply([result('a', 'chest pain', true)])
     expect(t.text).toBe('chest pain')
     t.apply([result('a', 'Chest pain.', false), result('b', 'since', true)])
     expect(t.text).toBe('Chest pain. since')
+    expect([t.finalText, t.partialText, t.pending]).toEqual(['Chest pain.', 'since', 1])
   })
 
-  it('never sends an empty transcript, an errored session, or with auto-send off', () => {
-    expect(voiceResult('', '   ')).toEqual({ text: '', send: false })
-    expect(voiceResult('typed', '')).toEqual({ text: 'typed', send: false })
-    expect(voiceResult('', 'fever', { error: true }).send).toBe(false)
-    expect(voiceResult('', 'fever', { autoSend: false })).toEqual({ text: 'fever', send: false })
-    expect(voiceResult('I have', ' fever ')).toEqual({ text: 'I have fever', send: true })
+  it('picks the detected language by total confidence, counting pending partials', () => {
+    const lid = (hi, en) => [{ LanguageCode: 'hi-IN', Score: hi }, { LanguageCode: 'en-IN', Score: en }]
+    const seg = (id, text, partial, code, scores) => ({ ...result(id, text, partial), LanguageCode: code, LanguageIdentification: scores })
+    const t = createTranscript()
+    t.apply([seg('a', 'मुझे', false, 'hi-IN', lid(0.9, 0.1))])
+    t.apply([seg('b', 'fever', false, 'en-IN', lid(0.4, 0.6))])
+    expect(t.language).toBe('hi-IN') // 1.3 vs 0.7, though each won one segment
+    // A stream can end with its last segment still partial; it counts too.
+    t.apply([seg('c', 'and a headache since morning', true, 'en-IN', lid(0.01, 0.99))])
+    expect(t.language).toBe('en-IN')
+    // Without scores, each segment is one vote for its LanguageCode.
+    expect(pickLanguage([{ code: 'hi-IN' }, { code: 'en-IN' }, { code: 'hi-IN' }])).toBe('hi-IN')
+    expect(pickLanguage([])).toBe('')
+    expect(voiceLanguageLabel('hi-IN')).toBe('Hindi')
+  })
+
+  it('appends to text typed before recording', () => {
+    expect(joinVoiceText('I have', ' fever ')).toBe('I have fever')
+    expect(joinVoiceText('', '  ')).toBe('')
+    expect(joinVoiceText(' typed ', '')).toBe('typed')
+  })
+})
+
+describe('state machine', () => {
+  it('idle -> recording -> finalizing -> review -> idle', () => {
+    let s = nextVoiceState('idle', 'mic')
+    expect(s).toBe('recording')
+    s = nextVoiceState(s, 'stop')
+    expect(s).toBe('finalizing')
+    s = nextVoiceState(s, 'final', { text: 'chest pain' })
+    expect(s).toBe('review')
+    expect(nextVoiceState(s, 'send')).toBe('idle')
+    expect(nextVoiceState(s, 'clear')).toBe('idle')
+    expect(nextVoiceState(s, 'mic')).toBe('recording') // re-record appends
+  })
+
+  it('an empty final returns to idle; cancel keeps review only when text remains', () => {
+    expect(nextVoiceState('finalizing', 'final', { text: '  ' })).toBe('idle')
+    expect(nextVoiceState('recording', 'cancel', { text: '' })).toBe('idle')
+    expect(nextVoiceState('recording', 'cancel', { text: 'typed before' })).toBe('review')
+    expect(nextVoiceState('finalizing', 'cancel', { text: 'typed before' })).toBe('review')
+  })
+
+  it('send is disabled while the popup is open, while sending, and when empty', () => {
+    expect(voiceFlags('recording', { text: 'x' })).toEqual({ popupOpen: true, inputReadOnly: true, sendDisabled: true })
+    expect(voiceFlags('finalizing', { text: 'x' }).sendDisabled).toBe(true)
+    expect(voiceFlags('review', { text: 'x' })).toEqual({ popupOpen: false, inputReadOnly: false, sendDisabled: false })
+    expect(voiceFlags('review', { text: '   ' }).sendDisabled).toBe(true)
+    expect(voiceFlags('review', { text: 'x', sending: true }).sendDisabled).toBe(true)
+  })
+})
+
+describe('audio level', () => {
+  it('flags speaking only above the threshold, after a 150 ms hold, and clears on silence', () => {
+    const m = createLevelMeter()
+    let t = 0
+    const feed = (level, ms) => {
+      let r
+      for (const end = t + ms; t < end; t += 16) r = m.update(level, t)
+      return r
+    }
+    expect(feed(0.01, 500).speaking).toBe(false) // below threshold
+    expect(feed(0.2, 120).speaking).toBe(false) // above, but not held long enough yet
+    expect(feed(0.2, 200).speaking).toBe(true)
+    expect(feed(0, 100).speaking).toBe(true) // brief gap between words: still speaking
+    expect(feed(0, 600).speaking).toBe(false)
+  })
+
+  it('reads the shared mic source through one analyser and cleans up rAF + nodes', () => {
+    let amp = 0
+    let t = 0
+    const frames = []
+    const analyser = { fftSize: 0, getFloatTimeDomainData: (buf) => buf.fill(amp), disconnect: vi.fn() }
+    const ctx = { createAnalyser: vi.fn(() => analyser) }
+    const source = { connect: vi.fn(), disconnect: vi.fn() }
+    const onSpeaking = vi.fn()
+    const onLevel = vi.fn()
+    const caf = vi.fn()
+    const stop = startLevelMeter({ ctx, source, onLevel, onSpeaking, raf: (fn) => frames.push(fn), caf, now: () => t })
+    const run = (n) => { for (let i = 0; i < n; i++) { t += 16; frames.shift()() } }
+
+    expect(source.connect).toHaveBeenCalledWith(analyser)
+    run(20)
+    expect(onSpeaking).not.toHaveBeenCalled()
+    amp = 0.3
+    run(30)
+    expect(onSpeaking).toHaveBeenLastCalledWith(true)
+    expect(onLevel.mock.calls.at(-1)[0]).toBeGreaterThan(0.5)
+    amp = 0
+    run(60)
+    expect(onSpeaking).toHaveBeenLastCalledWith(false)
+
+    stop()
+    expect(caf).toHaveBeenCalledTimes(1)
+    expect(source.disconnect).toHaveBeenCalledWith(analyser)
+    expect(analyser.disconnect).toHaveBeenCalled()
+    expect(ctx.createAnalyser).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -105,14 +198,11 @@ class FakeWebSocket {
 
 const loud = () => new Int16Array(1600).fill(8000)
 
-describe('voice session → chat send', () => {
-  let send, setInput, getSession, stopCapture, onError
+describe('voice session', () => {
+  let onFinal, onText, getSession, stopCapture, onError
 
-  // Wired exactly like useVoiceInput: onFinal -> applyVoiceFinal -> send.
   const newSession = (extra = {}) => createVoiceSession({
-    getSession, WebSocketImpl: FakeWebSocket, stopCapture, onError,
-    onFinal: (transcript, { error }) => applyVoiceFinal({ base: '', transcript, error, autoSend: true, setInput, send }),
-    ...extra,
+    getSession, WebSocketImpl: FakeWebSocket, stopCapture, onError, onFinal, onText, ...extra,
   })
   const connected = async (s) => {
     s.start()
@@ -125,20 +215,21 @@ describe('voice session → chat send', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     FakeWebSocket.instances = []
-    send = vi.fn()
-    setInput = vi.fn()
+    onFinal = vi.fn()
+    onText = vi.fn()
     stopCapture = vi.fn()
     onError = vi.fn()
     getSession = vi.fn(async () => ({ url: 'wss://example/stream', expiresIn: 60, maxSeconds: 60 }))
   })
   afterEach(() => vi.useRealTimers())
 
-  it('sends the final transcript exactly once', async () => {
+  it('streams final/partial text and reports the final transcript exactly once', async () => {
     const s = newSession()
     const ws = await connected(s)
     s.sendPcm(loud())
     expect(ws.sent).toHaveLength(1) // one 100 ms AudioEvent
     ws.receive(transcriptEvent([result('a', 'chest', true)]))
+    expect(onText).toHaveBeenLastCalledWith('chest', { final: '', partial: 'chest', language: '' })
     ws.receive(transcriptEvent([result('a', 'chest pain', false)]))
 
     s.stop()
@@ -146,19 +237,39 @@ describe('voice session → chat send', () => {
     expect(stopCapture).toHaveBeenCalledTimes(1)
     expect(codec.decode(ws.sent.at(-1)).body.length).toBe(0) // end-of-stream frame
     ws.serverClose(1000)
-    await vi.advanceTimersByTimeAsync(20000) // the end timeout must not fire a second final
+    await vi.advanceTimersByTimeAsync(20000) // the finalize timeout must not fire a second final
 
-    expect(send).toHaveBeenCalledTimes(1)
-    expect(send).toHaveBeenCalledWith('chest pain')
+    expect(onFinal).toHaveBeenCalledTimes(1)
+    expect(onFinal).toHaveBeenCalledWith('chest pain', { error: false, language: '' })
   })
 
-  it('does not send an empty transcript', async () => {
+  it('after Stop, the last final result ends finalizing early', async () => {
+    const s = newSession()
+    const ws = await connected(s)
+    ws.receive(transcriptEvent([result('a', 'high fev', true)]))
+    s.stop()
+    expect(onFinal).not.toHaveBeenCalled()
+    ws.receive(transcriptEvent([result('a', 'high fever', false)]))
+    expect(onFinal).toHaveBeenCalledWith('high fever', { error: false, language: '' })
+  })
+
+  it(`finalizing gives up after ${VOICE_FINALIZE_MS} ms with what it has`, async () => {
+    const s = newSession()
+    const ws = await connected(s)
+    ws.receive(transcriptEvent([result('a', 'head', true)]))
+    s.stop()
+    await vi.advanceTimersByTimeAsync(VOICE_FINALIZE_MS - 1)
+    expect(onFinal).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(onFinal).toHaveBeenCalledWith('head', { error: false, language: '' })
+  })
+
+  it('an empty recording finishes with empty text', async () => {
     const s = newSession()
     const ws = await connected(s)
     s.stop()
     ws.serverClose(1000)
-    expect(send).not.toHaveBeenCalled()
-    expect(setInput).toHaveBeenCalledWith('')
+    expect(onFinal).toHaveBeenCalledWith('', { error: false, language: '' })
   })
 
   it('auto-stops after 3 s of silence and at the max duration', async () => {
@@ -202,14 +313,13 @@ describe('voice session → chat send', () => {
     expect(ws.sent).toHaveLength(2)
   })
 
-  it('reports a Transcribe exception and leaves the text unsent', async () => {
+  it('reports a Transcribe exception and keeps the text so far', async () => {
     const s = newSession()
     const ws = await connected(s)
     ws.receive(transcriptEvent([result('a', 'head', true)]))
     ws.receive(exceptionEvent('LimitExceededException', 'too many streams'))
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'transcribe' }))
-    expect(setInput).toHaveBeenLastCalledWith('head')
-    expect(send).not.toHaveBeenCalled()
+    expect(onFinal).toHaveBeenCalledWith('head', { error: true, language: '' })
   })
 
   it('reports a failed session request', async () => {
@@ -219,15 +329,20 @@ describe('voice session → chat send', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'session', message: 'Too many voice sessions.' }))
     expect(stopCapture).toHaveBeenCalledTimes(1)
-    expect(send).not.toHaveBeenCalled()
+    expect(onFinal).toHaveBeenCalledWith('', { error: true, language: '' })
   })
 
-  it('cancel releases the mic and reports nothing', async () => {
-    const onFinal = vi.fn()
-    const s = newSession({ onFinal })
+  it('cancel releases the mic and reports nothing; start after stop is a no-op', async () => {
+    const s = newSession()
     await connected(s)
     s.cancel()
     expect(stopCapture).toHaveBeenCalledTimes(1)
     expect(onFinal).not.toHaveBeenCalled()
+
+    const early = newSession()
+    early.stop() // Stop pressed while the permission prompt was still open
+    early.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(FakeWebSocket.instances).toHaveLength(1) // no new connection
   })
 })

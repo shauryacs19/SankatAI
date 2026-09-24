@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
-
-
-class VoiceSessionRequest(BaseModel):
-    languageCode: str = Field(default="en-IN", max_length=10)
+from pydantic import BaseModel
 
 
 class VoiceSessionResponse(BaseModel):
     url: str
     expiresIn: int
-    languageCode: str
+    # Transcribe identifies the spoken language among these (no client choice).
+    languageOptions: list[str]
+    preferredLanguage: str
     sampleRate: int
-    # Additive: lets VOICE_MAX_SECONDS drive the clients' auto-stop.
+    # Lets VOICE_MAX_SECONDS drive the clients' auto-stop.
     maxSeconds: int

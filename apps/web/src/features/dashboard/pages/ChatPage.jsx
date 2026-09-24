@@ -9,6 +9,7 @@ import { CHAT_CSS } from '../../chat/chat.styles'
 import { UserMessage, AssistantMessage, ErrorMessage, ThinkingRow } from '../../chat/components/ChatMessages.jsx'
 import Composer from '../../chat/components/Composer.jsx'
 import AnalysisDrawer from '../../chat/components/AnalysisDrawer.jsx'
+import { ttsPlayer } from '../../chat/tts/ttsPlayer'
 
 const EXAMPLES = ['I have chest pain and shortness of breath', 'High fever and headache for 2 days', "A deep cut that won't stop bleeding"]
 
@@ -26,6 +27,9 @@ export default function ChatPage() {
   const reduced = useReducedMotion()
   const scrollRef = useRef(null)
   const [retryingId, setRetryingId] = useState(null)
+
+  // Leaving the chat (or switching conversation) stops any reply being read.
+  useEffect(() => () => ttsPlayer.stop(), [d.activeId])
 
   // Keep the newest message in view.
   useEffect(() => {
@@ -113,7 +117,7 @@ export default function ChatPage() {
             {messages.map((m) => {
               if (m.sender === 'user') return <UserMessage key={m.id} m={m} attachments={msgAttachments(m)} onOpenAtt={openAtt} onUnsend={d.unsendMessageById} />
               if (m.sender === 'error') return <ErrorMessage key={m.id} m={m} retrying={retryingId === m.id} onRetry={() => retry(m.id)} onDismiss={() => d.dismissError(m.id)} />
-              return <AssistantMessage key={m.id} m={m} onFeedback={d.submitFeedback} onShare={shareMessage} />
+              return <AssistantMessage key={m.id} m={m} onFeedback={d.submitFeedback} onShare={shareMessage} consultationId={d.activeId} />
             })}
             </AnimatePresence>
           )}

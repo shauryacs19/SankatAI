@@ -100,6 +100,15 @@ resource "aws_iam_role_policy" "backend" {
         Action   = ["transcribe:StartStreamTranscriptionWebSocket"]
         Resource = "*"
       },
+      # Read replies aloud (Polly) and detect the language of typed messages
+      # (Comprehend). Neither action supports resource-level scoping for these
+      # uses, so "*" is the only valid Resource. Both are stateless calls; the
+      # TTS cache reuses the chat bucket's existing object grant above (tts/).
+      {
+        Effect   = "Allow"
+        Action   = ["polly:SynthesizeSpeech", "comprehend:DetectDominantLanguage"]
+        Resource = "*"
+      },
       # Application + system logs. Write-only: the instance can ship logs but
       # cannot read back what it or anything else has written.
       {

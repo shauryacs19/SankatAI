@@ -89,7 +89,8 @@ def post_message(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Consultation not found.")
 
     result = consultation_service.post_message(
-        user.user_id, consultation_id, body.content, body.attachmentIds
+        user.user_id, consultation_id, body.content, body.attachmentIds,
+        lang=body.lang, input_mode=body.inputMode,
     )
     if result is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Message is empty.")

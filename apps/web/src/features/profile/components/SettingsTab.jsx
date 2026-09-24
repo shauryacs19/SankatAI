@@ -1,14 +1,17 @@
 // Settings: appearance, account + password, session, and service status.
 
 import { useState } from 'react'
-import { Palette, Sun, Moon, Monitor, Activity } from 'lucide-react'
+import { Palette, Sun, Moon, Monitor, Activity, Volume2 } from 'lucide-react'
 import { getTheme, applyTheme } from '../../../services/theme'
-import { Badge, Card, InfoRow, SegmentedControl } from '../../../components/ui'
+import { Badge, Card, InfoRow, SegmentedControl, Switch } from '../../../components/ui'
+import { getAutoRead, setAutoRead } from '../../chat/tts/autoRead'
 import AuthSection from './AuthSection.jsx'
 
 export default function SettingsTab({ isOffline, profile, onSignOut }) {
   const [theme, setTheme] = useState(getTheme)
   const choose = (t) => setTheme(applyTheme(t))
+  const [autoRead, setAutoReadState] = useState(getAutoRead)
+  const toggleAutoRead = (on) => { setAutoRead(on); setAutoReadState(on) }
 
   return (
     <div className="pg">
@@ -23,6 +26,15 @@ export default function SettingsTab({ isOffline, profile, onSignOut }) {
             { value: 'dark', label: 'Dark', icon: Moon },
             { value: 'system', label: 'System', icon: Monitor },
           ]}
+        />
+      </Card>
+
+      <Card title="Voice" icon={Volume2}>
+        <Switch
+          label="Auto-read replies to voice messages"
+          description="When you speak a message, SankatAI reads its reply aloud. Every reply also has a play button."
+          checked={autoRead}
+          onChange={toggleAutoRead}
         />
       </Card>
 

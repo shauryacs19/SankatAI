@@ -3,7 +3,7 @@
 > **Purpose:** single source of truth so Claude can get up to speed without
 > re-reading the whole codebase. **Claude updates this file after every completed
 > task** (append to the Changelog + adjust the relevant sections).
-> Last updated: 2026-09-24 (voice input).
+> Last updated: 2026-09-24 (voice LID, multilingual replies, TTS).
 
 ---
 
@@ -72,6 +72,10 @@ Names (Terraform `project_name=sankatai`; also in `backend/.env.aws.example`):
   Change all of them together or sign-in breaks with "Invalid authentication token".
 - DynamoDB `sankatai-web-sessions` — hash `session_id`, TTL attr `ttl`; holds the
   Fernet-encrypted web `id_token`/`refresh_token`.
+- **Amazon Transcribe Streaming** (voice input, §9b), **Amazon Polly** (read-aloud, §9d; Kajal
+  neural, en-IN + hi-IN) and **Amazon Comprehend** (`DetectDominantLanguage`, §9c). All three
+  are called as the backend role and have no resources. The TTS cache reuses the chat-uploads
+  bucket under `tts/` (7-day lifecycle rule).
 
 ## 5. Backend — API + config
 
@@ -84,7 +88,9 @@ Endpoints: `GET /api/health`; `GET/PUT /api/profile`;
 `GET/POST …/{id}/messages`, `POST …/{id}/messages/{msgId}/feedback`;
 `GET/POST/DELETE /api/security/pins`;
 `/api/uploads` (`presign`, `{id}/complete`, list `?scope=vault|chat`,
-`{id}/download`, PATCH, DELETE); `POST /api/voice/session` (see §9b).
+`{id}/download`, PATCH, DELETE); `POST /api/voice/session` (see §9b); `POST /api/tts` (§9d).
+`POST …/messages` also takes optional `lang` (BCP-47) and `inputMode` (`voice`|`text`);
+`MessageView` returns `lang`/`inputMode` (§9c).
 
 **Config comes from Docker, not `.env`** — see §9a. `backend/.env` is no longer read at
 runtime by either compose file and can be deleted once its AWS keys are rotated.
@@ -279,45 +285,95 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
 
 ## 9b. Voice Input (Amazon Transcribe Streaming, 2026-09-24)
 
-**Flow:** mic → client → `POST /api/voice/session {languageCode}` (Cognito-authed, via API
-Gateway) → backend returns `{url, expiresIn:60, languageCode, sampleRate:16000, maxSeconds}` →
+**Flow:** mic → client → `POST /api/voice/session` (Cognito-authed, via API Gateway; no body) →
+backend returns `{url, expiresIn:60, languageOptions, preferredLanguage, sampleRate:16000,
+maxSeconds}` →
 client opens the `wss://transcribestreaming.<region>.amazonaws.com:8443` URL **directly** (audio
 never touches API GW/ALB/backend) → sends 16 kHz mono Int16 PCM as AWS event-stream
-`AudioEvent`s (100 ms) → partials fill the input box live → stop (tap / 3 s silence / 60 s cap)
-sends an empty AudioEvent → final text goes through the **existing** send path (web
-`handleSend(e, spoken)`, mobile `send(spoken)`). Empty transcript → nothing sent. After an
-error the partial text stays in the box, unsent.
+`AudioEvent`s (100 ms) → partials stream into a **listening popup** (web: centered modal, a
+bottom sheet below 480px; mobile: bottom sheet) and into the chat input → Stop / 3 s silence /
+60 s cap sends an empty AudioEvent → **finalizing** until the last final result or 1.5 s
+(`VOICE_FINALIZE_MS`) → popup closes → **review**: the text sits in the input, editable, focused,
+cursor at end → the user sends it with the **existing** Send/Enter (web `handleSend`, mobile
+`send`). **Voice never sends by itself** (auto-send and `VOICE_AUTO_SEND` were removed).
 
-- **Backend:** `routes/voice.py` (401 via `get_current_user`, 400 language, 429 rate limit,
-  503 no creds, `Cache-Control: no-store`), `services/voice_service.py` (allowlist, per-user
-  sliding-window limit, logs lang only — never user id, URL or transcript),
+**Automatic language detection (no selector):** the URL uses streaming language identification:
+`identify-language=true&language-options=en-IN,hi-IN&preferred-language=en-IN` and **no
+`language-code`** (plus `vocabulary-names` if `VOICE_VOCABULARY_NAMES` has one per option).
+Options are validated at startup: at least 2, one dialect per language, and each supported by
+Transcribe LID **and** mapped to a Polly voice; otherwise the error is logged and the default is
+used. Every result, **partial and final**, carries `LanguageCode` + `LanguageIdentification`
+scores. Verified live: a Hindi stream ended with its last segment still partial, so
+`createTranscript().language` (`pickLanguage`) sums scores over finals **and** pending partials
+(a segment without scores = 1 vote). The popup/sheet shows a chip (e.g. "Hindi"); the latest
+recording's language is kept as `draftLang` and sent as
+`{ inputMode: 'voice', lang: draftLang }`. Typed drafts send `{ inputMode: 'text' }`.
+
+**State machine** (`nextVoiceState` / `voiceFlags` in shared, used by both clients):
+`idle ─mic→ recording ─stop→ finalizing ─final→ review` (or `idle` if the text is empty);
+`recording|finalizing ─cancel→ review` if the pre-recording text is non-empty, else `idle`;
+`review ─send|clear→ idle`; `review ─mic→ recording` (the transcript is appended with a space).
+`popupOpen = recording|finalizing`, `inputReadOnly = popupOpen`,
+`sendDisabled = popupOpen || sending || !text.trim()`. Attachment-only sends are still allowed.
+- **Text ownership:** the transcript is written into the same input state used for typing:
+  `baseText` (snapshot at start) + ' ' + transcript. Cancel restores `baseText`. Every session
+  callback checks that the session is still current, and a finished session's socket handlers
+  are nulled, so late Transcribe events can't overwrite review edits.
+- **Audio level (ripple):** `createLevelMeter` (shared) runs an EMA (α 0.2) over per-sample RMS
+  (float scale); `speaking = level > 0.02`, flipping only after 150 ms of hold. Web
+  `useAudioLevel(mic, ref)` puts an `AnalyserNode` (fftSize 512) on the pipeline's **existing**
+  `MediaStreamSource` (no second `getUserMedia`), ticks on rAF, writes `--level` to the element
+  via its ref (no React renders), and sets state only on `isSpeaking` flips. Cleanup (stop,
+  cancel, unmount) cancels the rAF and disconnects the analyser. Mobile feeds `pcmRms` of the
+  same 100 ms PCM chunks sent to Transcribe into an `Animated.Value`. Rings animate only while
+  speaking. The auto-stop silence detector (RMS≥400 Int16 or a transcript change) is separate.
+- **A11y:** `role="dialog"` + `aria-modal`; focus starts on Stop; Tab cycles Stop ↔ ✕; Esc (web)
+  or Android back = Cancel; the backdrop does nothing. Status and preview are
+  `aria-live="polite"`. Permission denied → error state inside the popup with a settings hint
+  (mobile: an "Open settings" button) and no animation. Reduced motion: no rings, static mic
+  (web via framer `useReducedMotion` + CSS; mobile via `AccessibilityInfo`). Dark mode uses tokens.
+  Mobile gives a light haptic (`expo-haptics`, lazy-required) on open and Stop; keyboard
+  "send" follows `sendDisabled`.
+
+- **Backend:** `routes/voice.py` (401 via `get_current_user`, 429 rate limit, 503 no creds,
+  `Cache-Control: no-store`; an old `{languageCode}` body is ignored), `services/voice_service.py`
+  (LID options, per-user limit via the shared `core/rate_limit.SlidingWindowLimiter`; logs only
+  that a session was issued — never the user id, URL or transcript),
   `integrations/aws/transcribe_presign.py` (botocore `SigV4QueryAuth`, service `transcribe`,
   host-only signed, empty-payload hash; creds from the default chain = instance role).
   Presigning is local — no network call, so **no VPC endpoint needed**.
-- **Shared:** `packages/shared/voice.js` (`./voice` export): languages, `createDownsampler`,
+- **Shared:** `packages/shared/voice.js` (`./voice` export): `VOICE_LANGUAGES` + `voiceLanguageLabel`,
+  `pickLanguage`, `createDownsampler`,
   `encodeAudioEvent`/`decodeTranscribeMessage` (`@smithy/eventstream-codec` pinned **~4.2.14**:
-  `@aws-sdk/eventstream-codec` is deprecated and ≥4.3 pulls `@smithy/core`), `createTranscript`,
-  `voiceResult`, `createVoiceSession` (buffers audio while connecting, re-requests the URL once
-  if the handshake is refused, silence = RMS≥400 or transcript change, `onFinal` exactly once).
-- **Web:** `features/chat/voice/{useVoiceInput.js, pcm-worklet.js, voiceFinal.js, voice.test.js}`.
-  The worklet is imported `?url&no-inline` (Safari rejects `data:` worklets). The Composer has
-  an EN/हिं select (saved in localStorage) and a mic button: idle → recording (pulsing ring) →
-  processing. Replaced the old Web Speech API `handleVoice`.
-- **Mobile:** `src/lib/useVoiceInput.js` with `@siteed/audio-studio` (`pcm_16bit`, 16 kHz, no
-  output file) and an EN/हिं toggle in `ChatScreen`. The module is `require`d in a try/catch,
-  so Expo Go shows "needs the full app build" instead of crashing. `app.json` sets the plugin
-  (all extra permissions off) plus `NSMicrophoneUsageDescription`; `RECORD_AUDIO` was already set.
-- **Env:** backend `AWS_REGION`, `VOICE_ALLOWED_LANGS` (default `en-IN,hi-IN,en-US`),
-  `VOICE_MAX_SECONDS` (60), `VOICE_SESSIONS_PER_MINUTE` (10). URL expiry is fixed at 60 s. Clients:
-  `VITE_VOICE_AUTO_SEND` / `EXPO_PUBLIC_VOICE_AUTO_SEND` (default true; `false` = edit before
-  sending). Reference: `backend/.env.example`. The rollout passes none of the VOICE_* vars, so
-  the defaults apply.
+  `@aws-sdk/eventstream-codec` is deprecated and ≥4.3 pulls `@smithy/core`), `createTranscript`
+  (`finalText`/`partialText`/`pending`), `joinVoiceText`, `nextVoiceState`, `voiceFlags`,
+  `createLevelMeter`, `floatRms`/`pcmRms`, and `createVoiceSession`. The session buffers audio
+  while connecting, re-requests the URL once if the handshake is refused, calls
+  `onText(text, {final, partial, language})`, and calls `onFinal(text, {error, language})`
+  exactly once (never after `cancel`).
+  `start()` after `stop()` does nothing.
+- **Web:** `features/chat/voice/{useVoiceInput.js, VoicePopup.jsx, voicePopup.styles.js,
+  useAudioLevel.js, pcm-worklet.js}`, plus tests `voice.test.js` (node),
+  `VoicePopup.test.jsx` and `VoicePopup.reducedMotion.test.jsx` (jsdom), and the test-only
+  `voiceTestHarness.jsx`. `Composer` renders the popup and the mic button (disabled while the
+  popup is open; "Record more" in review). The manual EN/हिं select was removed.
+  The worklet is imported `?url&no-inline` (Safari rejects `data:` worklets).
+- **Mobile:** `src/lib/useVoiceInput.js` (`@siteed/audio-studio`, `pcm_16bit` at 16 kHz, no output
+  file) and `src/components/VoiceSheet.js`; `ChatScreen` has `sendDisabled`
+  (dimmed Send) and `returnKeyType="send"`. The native modules are `require`d in try/catch, so
+  Expo Go shows "needs the full app build" in the sheet. `app.json` sets the plugin (all extra
+  permissions off) and `NSMicrophoneUsageDescription`.
+- **Env:** backend `AWS_REGION`, `VOICE_LANGUAGE_OPTIONS` (default `en-IN,hi-IN`),
+  `VOICE_PREFERRED_LANGUAGE` (`en-IN`), optional `VOICE_VOCABULARY_NAMES`, `VOICE_MAX_SECONDS` (60), `VOICE_SESSIONS_PER_MINUTE` (10). URL expiry is fixed at 60 s. There
+  are no client flags. Reference: `backend/.env.example`. The rollout passes none of the
+  VOICE_* vars, so the defaults apply.
 - **IAM:** backend role `transcribe:StartStreamTranscriptionWebSocket` on `*` (the action has
-  no resource type). `terraform plan` shows 1 in-place change. **NOT applied yet**; until it is,
-  the handshake is refused and clients show "Could not connect to the speech service."
+  no resource type). **Applied 2026-09-24** and verified on the role.
 - **Tests/CI:** `backend/tests/test_voice.py` (7; the signature is re-derived independently),
-  `backend/requirements-dev.txt` and `pytest.ini`; web vitest (17). CI installs the dev
-  requirements and runs `npm test` before the build.
+  `backend/requirements-dev.txt` and `pytest.ini`; web vitest (34, including jsdom popup tests;
+  devDeps `jsdom@^29` because 30 needs Node 22, plus `@testing-library/react`). CI installs the dev
+  requirements and runs `npm test` before the build. There are no mobile unit tests; the shared
+  logic is covered by the web tests.
 - **Known limits:**
   - The rate limit is in-process and per instance.
   - The 60 s cap is enforced by the client. A presigned URL can open several streams within its
@@ -328,23 +384,108 @@ error the partial text stays in the box, unsent.
   - There is no CSP today. If one is added, `connect-src` needs the `wss://…:8443` origin.
   - In noisy rooms, silence detection may only trigger at the 60 s cap.
   - Hermes lacks `TextDecoder`; `voice.js` has a UTF-8 fallback.
+  - The web ripple ticks on rAF, so it pauses in a background tab. This is cosmetic: capture and
+    transcription continue.
 - **Verified:**
   - Live presign against Transcribe ap-south-1 (en-IN and hi-IN) with STS session-token creds.
-  - Node run of the shared session with Polly audio: English and Hindi partials and finals.
-  - Chromium browser pane: synthetic mic → worklet → Transcribe → 3 s auto-stop → one send.
+  - Node run of the shared session with Polly audio.
+  - Chromium browser pane: synthetic mic → popup with live text → 3 s auto-stop → finalizing →
+    review with focus and cursor at the end, nothing sent → edit + Enter sent the edited text once.
   - `expo export --platform android` bundles.
-  - `terraform fmt`, `validate` and `plan`.
-- **NOT verified:** Trivy (no local binary or Docker), a native Android/iOS build on a device,
-  Safari, and the deployed stack.
+- **NOT verified:** the ripple on a visible screen (the pane was hidden, so rAF was throttled; it
+  is covered by the jsdom tests), a native Android/iOS build, Safari, and haptics.
 - **Manual checklist:**
-  - Chrome, Safari (macOS/iOS) and Android Chrome: permission prompt, deny → toast, EN and हिं
-    partials, 3 s silence stop, 60 s stop, stop button, one message sent, send disabled while
-    recording.
-  - Android/iOS dev build: the same, plus Expo Go shows the "full app build" message.
+  - Chrome, Safari (macOS/iOS) and Android Chrome: popup opens and Send is disabled, rings only
+    while talking, EN and हिं preview, Stop → Processing → review (focused, editable, nothing
+    sent), Esc/✕ keeps the earlier text, re-record appends, 3 s and 60 s auto-stop → review,
+    permission denied shows the settings hint, reduced motion shows no rings, dark mode.
+  - Android/iOS dev build (`npx expo run:android`, needed for the new native modules): the same
+    in the sheet, plus haptics, keyboard Send, Android back = Cancel, and "Open settings".
+
+## 9c. Multilingual Replies (2026-09-24)
+
+The assistant replies in the language of the **latest** message (a mid-conversation switch is
+followed). `services/language_service.resolve_language(text, lang, previous)`:
+1. `lang` from voice (Transcribe LID), if it is one of `VOICE_LANGUAGE_OPTIONS`;
+2. typed text → **Amazon Comprehend `DetectDominantLanguage`** (`integrations/aws/comprehend_lang.py`,
+   2 s/3 s timeouts, text capped at 2,000 chars, never logged), mapped to a supported locale by
+   base language (`hi` → `hi-IN`, `en` → `en-IN`) when the score is ≥ 0.8;
+3. the conversation's last `lang`;
+4. `VOICE_PREFERRED_LANGUAGE` (`en-IN`).
+Verified live: Devanagari Hindi → `hi` at 0.9998; romanized Hinglish → `tl` at 0.43, which falls
+back to step 3 or 4. `consultation_service.post_message` lists the messages once, resolves the
+language, persists `lang` + `input_mode` on the user message, and passes `lang` to `run_triage`
+→ `AIProvider.analyze(..., lang)` → `openai_provider.build_prompt(profile, lang)`, which appends:
+"Respond ONLY in {Hindi} ({hi-IN}). Match the user's script (Devanagari for Hindi, or Latin if
+the user wrote Hinglish). Keep medical terms accurate; keep drug names in English." It also
+says to keep the JSON keys and `severity` values in English, so the response stays parseable.
+The assistant message stores `lang` (an offline keyword fallback is marked `en-IN`, because that
+engine writes English). The stateless `/api/analyze` is unchanged (no language directive).
+⚠️ The AI key is still the placeholder, so replies are offline English estimates until the real
+key is set.
+
+## 9d. Text-to-Speech (Amazon Polly, 2026-09-24)
+
+- **Endpoint:** `POST /api/tts {consultationId, messageId}`. Auth required; per-user limit
+  `TTS_REQUESTS_PER_MINUTE` (20). `consultationId` was added to the spec's `{messageId}` so the
+  lookup is one partition query. Arbitrary text is never accepted: `repo.get_message` reads the
+  text and `lang` from the caller's own partition (404 if missing or someone else's; 400 for user
+  messages). The speakable text mirrors the clients' `normalizeAssistant` (follow-up questions,
+  else advice), then `clean_text` strips code blocks, inline code, markdown links/marks, URLs and
+  emoji, and `chunk_text` splits at sentence ends (`.!?।`) into ≤ 2,500-char chunks.
+  `polly_tts.synthesize` sends one SynthesizeSpeech call per chunk (mp3, 24 kHz, TextType
+  text). The first chunk is synthesized before responding, so a Polly failure is a clean 503;
+  the rest stream in order as `audio/mpeg` with `Cache-Control: private, no-store`. Text and
+  audio are never logged.
+- **Voice map:** `TTS_VOICE_MAP` (JSON env). The default is en-IN/hi-IN → Kajal (neural,
+  bilingual; verified in ap-south-1). Unmapped locales fall back to `en-IN`.
+- **Cache (`TTS_CACHE_ENABLED`, default off):** key `tts/<sha256(text + voice)>.mp3` in
+  `TTS_CACHE_BUCKET` (default `CHAT_BUCKET`: private, SSE-S3, CORS GET, already granted to the
+  role). Puts use `ServerSideEncryption=AES256`. A new lifecycle rule `tts-cache-expiry`
+  deletes `tts/` after 7 days. The response is a 307 to a 60 s presigned GET; `fetch` follows it
+  (cross-origin redirects drop the Authorization header).
+- **Web:** `features/chat/tts/{ttsPlayer.js, SpeakerButton.jsx, autoRead.js, tts.test.jsx}`.
+  - The player is a module singleton (`useSyncExternalStore`): one reply at a time, and a
+    superseded load never plays.
+  - `new Audio(objectURL)` from the fetched blob (`request(..., {responseType:'blob'})`); the URL
+    is revoked on end or stop.
+  - `setBlocked(true)` while the mic popup is open stops playback and refuses new playback.
+  - `ChatPage` stops playback on unmount or chat switch.
+  - The speaker button (Play/Pause reply, spinner while loading) sits in the assistant footer.
+  - Settings → Voice has the switch "Auto-read replies to voice messages" (localStorage, default
+    off). `useDashboard` auto-plays only replies to `inputMode === 'voice'`; an autoplay refusal
+    fails quietly.
+- **Mobile:** `lib/tts.js` (expo-audio `createAudioPlayer`; the MP3 blob is written to a cache
+  file via expo-file-system and deleted on end or stop; `playsInSilentMode`), plus
+  `components/SpeakerButton.js`. `ChatScreen` stops playback on blur, unmount or chat switch and
+  auto-reads when the setting is on. Settings → Voice toggle is stored in SecureStore like the
+  theme. `expo-audio` is lazy-required: an older dev build simply hides the button.
+- **IAM:** `polly:SynthesizeSpeech` and `comprehend:DetectDominantLanguage` on `*` (no
+  resource-level scoping for these calls). No VPC endpoints: private subnets egress via the NAT.
+  `terraform plan`: 2 in-place changes (role policy + chat-uploads lifecycle rule). **Not applied
+  yet.**
+- **Tests:** backend `test_tts.py` (12), `test_language.py` (12) and `test_voice.py` (10, now
+  LID); web 45 in total (player, auto-read, speaker button, chip, `lang` on send, playback stops
+  when recording starts).
+- **Verified live:** Polly MP3 for hi-IN and en-IN with the exact parameters; Comprehend in
+  ap-south-1; Transcribe LID for en-IN (0.99999) and hi-IN (0.99999).
+- **NOT verified:** the deployed endpoints (needs the apply + deploy), browser autoplay policy
+  for auto-read (Safari may refuse; the button still works), and mobile native playback on a
+  device (the new `expo-audio` module needs a rebuild).
 
 ## 10. Changelog (most recent first)
+- **Auto language detection + same-language replies + read-aloud (2026-09-24):** see §9b–§9d.
+  Transcribe LID replaces the manual selector; Comprehend + a prompt directive make replies
+  follow the user's language; `POST /api/tts` (Polly) with a speaker button and an opt-in
+  auto-read on web and mobile. New deps: mobile `expo-audio`. Terraform: 2 in-place changes,
+  not applied.
+- **Voice input UX: listening popup + review before send (2026-09-24):** see §9b. Stop no longer
+  sends: the transcript goes to the input for review and editing. New web `VoicePopup` and
+  `useAudioLevel`, mobile `VoiceSheet`, and a shared state machine and level meter.
+  `VOICE_AUTO_SEND` was removed. New deps: web `jsdom`, `@testing-library/react` (dev); mobile
+  `expo-haptics`.
 - **Voice input via Amazon Transcribe Streaming (2026-09-24):** see §9b. New endpoint, shared
-  session module, web and mobile mic UIs, one IAM statement (plan clean, not applied), and
+  session module, web and mobile mic UIs, one IAM statement (applied), and
   backend and web tests added to CI. No README was created (project rule: docs live here).
 - **Web UI/UX redesign: design system, primitives, every page rebuilt (2026-09-24, branch
   `redesign/ui-system`):** Frontend only. No API, auth-flow, route or business-rule changes;

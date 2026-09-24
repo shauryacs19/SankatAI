@@ -36,7 +36,8 @@ const call = async (path, method, body, token, timeoutMs) => {
   }, timeoutMs)
 }
 
-export const request = async (path, { method = 'GET', body, signOutOn401 = true } = {}, timeoutMs = DEFAULT_TIMEOUT_MS) => {
+// responseType 'blob' returns the body as a Blob (e.g. read-aloud MP3).
+export const request = async (path, { method = 'GET', body, signOutOn401 = true, responseType = 'json' } = {}, timeoutMs = DEFAULT_TIMEOUT_MS) => {
   let token = await getValidIdToken()
   let res = await call(path, method, body, token, timeoutMs)
 
@@ -61,7 +62,7 @@ export const request = async (path, { method = 'GET', body, signOutOn401 = true 
     throw new Error(detail)
   }
   if (res.status === 204) return null
-  return res.json()
+  return responseType === 'blob' ? res.blob() : res.json()
 }
 
 // Profile checks happen during sign-in. Keep them reasonably short, but not so
@@ -81,8 +82,10 @@ export const createConsultation = (title) => request('/consultations', { method:
 export const getMessages = (id) => request(`/consultations/${id}/messages`)
 export const deleteConsultation = (id) => request(`/consultations/${id}`, { method: 'DELETE' })
 export const renameConsultation = (id, title) => request(`/consultations/${id}`, { method: 'PATCH', body: { title } })
-export const sendMessage = (id, content, attachmentIds = []) =>
-  request(`/consultations/${id}/messages`, { method: 'POST', body: { content, attachmentIds } })
+// meta: { inputMode: 'voice' | 'text', lang } — lang is the language Transcribe
+// identified for a dictated message; the server replies in it.
+export const sendMessage = (id, content, attachmentIds = [], { inputMode, lang } = {}) =>
+  request(`/consultations/${id}/messages`, { method: 'POST', body: { content, attachmentIds, ...(inputMode && { inputMode }), ...(lang && { lang }) } })
 export const setMessageFeedback = (consultationId, messageId, feedback) =>
   request(`/consultations/${consultationId}/messages/${messageId}/feedback`, { method: 'POST', body: { feedback } })
 

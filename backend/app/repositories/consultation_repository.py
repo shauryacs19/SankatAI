@@ -161,6 +161,8 @@ def _msg_view(item: dict) -> dict:
         "feedback": item.get("feedback"),
         "attachmentIds": list(ids) if isinstance(ids, list) else [],
         "isOfflineFallback": bool(item.get("offline_fallback")),
+        "lang": item.get("lang"),
+        "inputMode": item.get("input_mode"),
     }
 
 
@@ -276,6 +278,8 @@ def add_message(
     risk_score: Optional[int] = None,
     attachment_ids: Optional[list] = None,
     offline_fallback: bool = False,
+    lang: Optional[str] = None,
+    input_mode: Optional[str] = None,
 ) -> dict:
     now = now_iso()
     message_id = short_id()
@@ -296,5 +300,16 @@ def add_message(
     if offline_fallback:
         # Stored only when true, so existing rows read back as False.
         item["offline_fallback"] = True
+    if lang:
+        item["lang"] = lang  # reply language; the assistant's drives read-aloud
+    if input_mode:
+        item["input_mode"] = input_mode
     get_chat_table().put_item(Item=item)
     return _msg_view(item)
+
+
+def get_message(user_id: str, consultation_id: str, message_id: str) -> Optional[dict]:
+    """Raw item for one message in the caller's own partition (None if absent
+    or unsent)."""
+    item = _find_message_item(user_id, consultation_id, message_id)
+    return None if not item or item.get("deleted") else item

@@ -111,20 +111,6 @@ export const CHAT_CSS = `
   font-size: var(--fs-md); line-height: var(--lh-md); color: var(--text-primary);
 }
 .composer-input:focus-visible { outline: none; }
-.composer-lang {
-  flex-shrink: 0; min-height: var(--touch); padding: 0 var(--space-1); border: 0; border-radius: var(--radius-control);
-  background: transparent; color: var(--text-secondary); font-size: var(--fs-sm); cursor: pointer;
-}
-.composer-lang:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.composer-lang:disabled { opacity: 0.6; cursor: default; }
-/* Recording: a ring pulses around the stop button. With reduced motion it stays still. */
-.composer-mic--rec { position: relative; color: var(--primary-text); }
-.composer-mic--rec::after {
-  content: ''; position: absolute; inset: 0.25rem; border: 2px solid var(--primary); border-radius: var(--radius-pill);
-  pointer-events: none; animation: mic-pulse 1.2s var(--ease-standard) infinite;
-}
-@keyframes mic-pulse { from { transform: scale(0.85); opacity: 0.9; } to { transform: scale(1.3); opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .composer-mic--rec::after { animation: none !important; transform: none; opacity: 1; } }
 .composer-note { display: flex; gap: var(--space-2); font-size: var(--fs-xs); line-height: var(--lh-xs); color: var(--text-muted); padding: 0 var(--space-1); }
 .composer-note svg { margin-top: 0.0625rem; }
 .composer-note a { color: var(--sev-emergency-ink); font-weight: var(--fw-semibold); text-decoration: underline; text-underline-offset: 2px; }

@@ -6,15 +6,17 @@
 //
 // Flow: POST /api/voice/session -> presigned wss URL (60 s to connect) ->
 // audio goes DIRECTLY to Transcribe, never through our backend -> the final
-// text is sent through the normal chat send path by the caller.
+// text lands in the chat input for the user to review, edit and send.
 
 import { EventStreamCodec } from '@smithy/eventstream-codec'
 
+// Transcribe identifies which of these is spoken (the backend's
+// VOICE_LANGUAGE_OPTIONS); labels are for the detected-language chip.
 export const VOICE_LANGUAGES = [
-  { code: 'en-IN', label: 'English (India)', short: 'EN' },
-  { code: 'hi-IN', label: 'Hindi', short: 'हिं' },
+  { code: 'en-IN', label: 'English' },
+  { code: 'hi-IN', label: 'Hindi' },
 ]
-export const VOICE_DEFAULT_LANGUAGE = 'en-IN'
+export const voiceLanguageLabel = (code) => VOICE_LANGUAGES.find((l) => l.code === code)?.label || code || ''
 export const VOICE_SAMPLE_RATE = 16000
 export const VOICE_MAX_SECONDS = 60 // overridden by the session's maxSeconds
 export const VOICE_SILENCE_MS = 3000
@@ -22,7 +24,10 @@ export const VOICE_SILENCE_MS = 3000
 const FRAME_SAMPLES = VOICE_SAMPLE_RATE / 10 // 100 ms per AudioEvent (AWS: 50–200 ms)
 const MAX_BUFFERED_SAMPLES = VOICE_SAMPLE_RATE * 10 // audio held while connecting
 const SPEECH_RMS = 400 // Int16 RMS (~ -38 dBFS) above which a frame counts as speech
-const END_TIMEOUT_MS = 5000 // wait for Transcribe's last results after stopping
+export const VOICE_FINALIZE_MS = 1500 // after Stop: wait at most this long for the last final
+export const VOICE_LEVEL_THRESHOLD = 0.02 // smoothed float RMS above which the user is speaking
+const LEVEL_SMOOTHING = 0.2 // EMA factor per level sample
+const LEVEL_HOLD_MS = 150 // the speaking flag flips only after holding this long
 const EXPIRY_MARGIN_MS = 5000
 
 // ---------------------------------------------------------------- utf-8 ----
@@ -126,33 +131,104 @@ export function decodeTranscribeMessage(bytes) {
   }
 }
 
-// ----------------------------------------------------------- transcript ----
-// Partial results for a segment are replaced until it becomes final.
-export function createTranscript() {
-  const finals = []
-  const partials = new Map()
+// ---------------------------------------------------------------- level ----
+export const floatRms = (buf) => {
+  let sum = 0
+  for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
+  return buf.length ? Math.sqrt(sum / buf.length) : 0
+}
+export const pcmRms = (pcm) => rms(pcm) / 32768
+
+// Smooths per-sample RMS (float scale, 0..1) with an EMA and derives a
+// `speaking` flag that only flips after holding for LEVEL_HOLD_MS, so the
+// ripple doesn't flicker between words. Drives the listening animation only;
+// silence auto-stop uses the session's own detector.
+export function createLevelMeter({ threshold = VOICE_LEVEL_THRESHOLD, holdMs = LEVEL_HOLD_MS } = {}) {
+  let level = 0
+  let speaking = false
+  let flipSince = null
   return {
-    apply(results) {
-      for (const r of results) {
-        const text = (r.Alternatives?.[0]?.Transcript || '').trim()
-        if (r.IsPartial) partials.set(r.ResultId, text)
-        else {
-          partials.delete(r.ResultId)
-          if (text) finals.push(text)
-        }
-      }
+    update(sampleRms, t) {
+      level += LEVEL_SMOOTHING * (sampleRms - level)
+      const above = level > threshold
+      if (above === speaking) flipSince = null
+      else if (flipSince === null) flipSince = t
+      if (flipSince !== null && t - flipSince >= holdMs) { speaking = above; flipSince = null }
+      return { level, speaking }
     },
-    get text() { return [...finals, ...partials.values()].filter(Boolean).join(' ') },
   }
 }
 
-// What to do with the transcript when a recording ends. Text already in the
-// box stays in front of it. Sends only a non-empty transcript from a session
-// that ended cleanly; after an error the text is left for the user to review.
-export function voiceResult(base, transcript, { autoSend = true, error = false } = {}) {
-  const spoken = String(transcript || '').trim()
-  const text = [String(base || '').trim(), spoken].filter(Boolean).join(' ')
-  return { text, send: Boolean(spoken) && autoSend && !error }
+// ---------------------------------------------------------- state machine ----
+// idle ──mic──> recording ──stop──> finalizing ──final──> review
+// recording/finalizing ──cancel──> review if text remains, else idle
+// review ──send / clear──> idle      review ──mic──> recording (appends)
+// `text` is what the input will hold after the event.
+export function nextVoiceState(state, event, { text = '' } = {}) {
+  const hasText = String(text).trim().length > 0
+  const live = state === 'recording' || state === 'finalizing'
+  switch (event) {
+    case 'mic': return state === 'idle' || state === 'review' ? 'recording' : state
+    case 'stop': return state === 'recording' ? 'finalizing' : state
+    case 'final':
+    case 'cancel': return live ? (hasText ? 'review' : 'idle') : state
+    case 'send':
+    case 'clear': return state === 'review' ? 'idle' : state
+    default: return state
+  }
+}
+
+export function voiceFlags(state, { text = '', sending = false } = {}) {
+  const popupOpen = state === 'recording' || state === 'finalizing'
+  return { popupOpen, inputReadOnly: popupOpen, sendDisabled: popupOpen || sending || !String(text).trim() }
+}
+
+// Text typed before recording stays in front; the transcript is appended.
+export const joinVoiceText = (base, transcript) =>
+  [String(base || '').trim(), String(transcript || '').trim()].filter(Boolean).join(' ')
+
+// ----------------------------------------------------------- transcript ----
+// Partial results for a segment are replaced until it becomes final. With
+// language identification each result carries LanguageCode and (usually)
+// LanguageIdentification scores — on partials too, and a stream can end with
+// its last segment still partial, so both count toward the detected language.
+const langOf = (r) => ({ code: r.LanguageCode || '', scores: Array.isArray(r.LanguageIdentification) ? r.LanguageIdentification : null })
+
+// Highest total confidence across segments; a segment without scores counts
+// as one vote for its LanguageCode.
+export function pickLanguage(langs) {
+  const tally = new Map()
+  const add = (code, v) => { if (code) tally.set(code, (tally.get(code) || 0) + v) }
+  for (const l of langs) {
+    if (l.scores?.length) l.scores.forEach((s) => add(s.LanguageCode, Number(s.Score) || 0))
+    else add(l.code, 1)
+  }
+  let best = ''
+  let max = 0
+  for (const [code, v] of tally) if (v > max) { best = code; max = v }
+  return best
+}
+
+export function createTranscript() {
+  const finals = [] // { text, lang }
+  const partials = new Map() // ResultId -> { text, lang }
+  return {
+    apply(results) {
+      for (const r of results) {
+        const seg = { text: (r.Alternatives?.[0]?.Transcript || '').trim(), lang: langOf(r) }
+        if (r.IsPartial) partials.set(r.ResultId, seg)
+        else {
+          partials.delete(r.ResultId)
+          if (seg.text) finals.push(seg)
+        }
+      }
+    },
+    get finalText() { return finals.map((f) => f.text).join(' ') },
+    get partialText() { return [...partials.values()].map((p) => p.text).filter(Boolean).join(' ') },
+    get pending() { return partials.size },
+    get text() { return [...finals, ...partials.values()].map((x) => x.text).filter(Boolean).join(' ') },
+    get language() { return pickLanguage([...finals, ...partials.values()].filter((x) => x.text).map((x) => x.lang)) },
+  }
 }
 
 const voiceError = (code, message) => Object.assign(new Error(message), { code })
@@ -163,16 +239,16 @@ const voiceError = (code, message) => Object.assign(new Error(message), { code }
 // `silenceMs` without speech, at the session's max duration, or on error.
 //
 // opts:
-//   getSession(languageCode) -> Promise<{ url, expiresIn, maxSeconds }>
-//   languageCode, WebSocketImpl (default: global WebSocket), silenceMs, now()
-//   onText(text)          live transcript (finals + current partial)
+//   getSession() -> Promise<{ url, expiresIn, maxSeconds }> (Transcribe picks the language)
+//   WebSocketImpl (default: global WebSocket), silenceMs, now()
+//   onText(text, {final, partial, language})  live transcript; split for display
 //   onState(state)        'recording' | 'processing' | 'idle'
 //   onError(err)          err.code: 'session' | 'network' | 'transcribe'
 //   stopCapture()         release the microphone (called exactly once)
-//   onFinal(text, {error}) called EXACTLY once per session (never after cancel)
+//   onFinal(text, {error, language}) called EXACTLY once per session (never after cancel)
 export function createVoiceSession(opts) {
   const {
-    getSession, languageCode = VOICE_DEFAULT_LANGUAGE, silenceMs = VOICE_SILENCE_MS,
+    getSession, silenceMs = VOICE_SILENCE_MS,
     WebSocketImpl = globalThis.WebSocket, now = () => Date.now(),
     onText = () => {}, onState = () => {}, onError = () => {}, stopCapture = () => {}, onFinal = () => {},
   } = opts
@@ -212,11 +288,11 @@ export function createVoiceSession(opts) {
     if (silent) return
     if (error) onError(error)
     onState('idle')
-    onFinal(transcript.text.trim(), { error: Boolean(error) })
+    onFinal(transcript.text.trim(), { error: Boolean(error), language: transcript.language })
   }
 
   const fetchSession = () => {
-    pending ??= Promise.resolve(getSession(languageCode))
+    pending ??= Promise.resolve(getSession())
       .then((s) => { session = { ...s, issuedAt: now() }; return session })
       .finally(() => { pending = null })
     return pending
@@ -249,7 +325,7 @@ export function createVoiceSession(opts) {
     flush(true)
     frame(new Uint8Array(0)) // end of audio: Transcribe sends the last finals, then closes
     clearTimeout(endTimer)
-    endTimer = setTimeout(() => finish(), END_TIMEOUT_MS)
+    endTimer = setTimeout(() => finish(), VOICE_FINALIZE_MS)
   }
 
   const connect = async (attempt) => {
@@ -284,8 +360,10 @@ export function createVoiceSession(opts) {
       transcript.apply(msg.results)
       if (transcript.text !== before) {
         lastSpeechAt = now()
-        onText(transcript.text)
+        onText(transcript.text, { final: transcript.finalText, partial: transcript.partialText, language: transcript.language })
       }
+      // After Stop, the last final (nothing partial left) ends it early.
+      if (stopping && transcript.pending === 0 && msg.results.some((r) => !r.IsPartial)) finish()
     }
     ws.onerror = () => {} // the close event that follows carries the outcome
     ws.onclose = (ev) => {
@@ -313,11 +391,11 @@ export function createVoiceSession(opts) {
     releaseMic()
     onState('processing')
     if (opened) endStream()
-    else endTimer = setTimeout(() => finish(), END_TIMEOUT_MS + 5000) // still connecting
+    else endTimer = setTimeout(() => finish(), VOICE_FINALIZE_MS) // still connecting
   }
 
   const start = () => {
-    if (done || tick) return
+    if (done || tick || stopping) return
     startedAt = lastSpeechAt = now()
     onState('recording')
     tick = setInterval(() => {

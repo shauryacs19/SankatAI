@@ -1,0 +1,135 @@
+"""Reply-language resolution and its injection into the LLM system prompt."""
+
+from __future__ import annotations
+
+import pytest
+
+from app.core import config
+from app.integrations.ai import openai_provider
+from app.integrations.aws import comprehend_lang
+from app.services import consultation_service, language_service
+
+
+@pytest.fixture(autouse=True)
+def languages(monkeypatch):
+    monkeypatch.setattr(config, "VOICE_LANGUAGE_OPTIONS", ["en-IN", "hi-IN"])
+    monkeypatch.setattr(config, "VOICE_PREFERRED_LANGUAGE", "en-IN")
+
+
+def comprehend(monkeypatch, result):
+    calls = []
+
+    def fake(text):
+        calls.append(text)
+        return result
+    monkeypatch.setattr(comprehend_lang, "detect_dominant_language", fake)
+    return calls
+
+
+def test_voice_lang_takes_priority_over_comprehend(monkeypatch):
+    calls = comprehend(monkeypatch, ("en", 0.99))
+    assert language_service.resolve_language("I have a fever", "hi-IN", "en-IN") == "hi-IN"
+    assert calls == []  # no Comprehend call when voice already told us
+
+
+def test_typed_text_uses_comprehend_mapped_to_locale(monkeypatch):
+    comprehend(monkeypatch, ("hi", 0.97))
+    assert language_service.resolve_language("मुझे बुखार है", None, "en-IN") == "hi-IN"
+
+
+def test_low_confidence_falls_back_to_conversation_then_default(monkeypatch):
+    comprehend(monkeypatch, ("tl", 0.43))  # e.g. romanised Hinglish
+    assert language_service.resolve_language("mujhe bukhar hai", None, "hi-IN") == "hi-IN"
+    assert language_service.resolve_language("mujhe bukhar hai", None, None) == "en-IN"
+
+
+def test_unsupported_or_failed_detection_falls_back(monkeypatch):
+    comprehend(monkeypatch, ("fr", 0.99))  # confident, but not a language we answer in
+    assert language_service.resolve_language("J'ai de la fièvre", None, "hi-IN") == "hi-IN"
+    comprehend(monkeypatch, None)  # Comprehend unavailable
+    assert language_service.resolve_language("fever", None, None) == "en-IN"
+
+
+def test_unknown_voice_lang_is_ignored(monkeypatch):
+    comprehend(monkeypatch, ("en", 0.95))
+    assert language_service.resolve_language("fever", "ta-IN", None) == "en-IN"
+
+
+def test_prompt_carries_the_language_instruction():
+    prompt = openai_provider.build_prompt(None, "hi-IN")
+    assert "Respond ONLY in Hindi (hi-IN)" in prompt
+    assert "Devanagari" in prompt and "drug names in English" in prompt
+    assert openai_provider.build_prompt(None, None) == openai_provider.build_system_prompt(None)
+
+
+class FakeRepo:
+    def __init__(self, earlier):
+        self.earlier = earlier
+        self.added = []
+
+    def list_messages(self, user_id, consultation_id):
+        return list(self.earlier)
+
+    def add_message(self, user_id, consultation_id, role, content, **kw):
+        self.added.append({"role": role, "content": content, **kw})
+        return {"id": f"m{len(self.added)}", "role": role, "content": content, "lang": kw.get("lang"), "inputMode": kw.get("input_mode")}
+
+    def touch_consultation(self, *a, **kw):
+        pass
+
+
+@pytest.fixture
+def chat(monkeypatch):
+    def setup(earlier=(), offline=False):
+        repo = FakeRepo(earlier)
+        seen = {}
+
+        def fake_triage(history, profile, provider=None, lang=None):
+            seen["lang"] = lang
+            seen["history"] = history
+            return '{"severity": "LOW", "riskScore": 10, "advice": "Rest."}', offline
+        monkeypatch.setattr(consultation_service, "repo", repo)
+        monkeypatch.setattr(consultation_service.profile_repository, "get_profile", lambda uid: None)
+        monkeypatch.setattr(consultation_service, "run_triage", fake_triage)
+        return repo, seen
+    return setup
+
+
+def test_voice_message_reply_language_is_persisted_on_both(chat, monkeypatch):
+    comprehend(monkeypatch, ("en", 0.99))
+    repo, seen = chat()
+    consultation_service.post_message("u", "c", "सीने में दर्द", lang="hi-IN", input_mode="voice")
+    assert seen["lang"] == "hi-IN"
+    user, bot = repo.added
+    assert (user["lang"], user["input_mode"]) == ("hi-IN", "voice")
+    assert bot["role"] == "assistant" and bot["lang"] == "hi-IN"
+
+
+def test_switching_language_mid_conversation_follows_the_latest_message(chat, monkeypatch):
+    comprehend(monkeypatch, ("en", 0.98))
+    earlier = [{"role": "user", "content": "बुखार", "lang": "hi-IN"}, {"role": "assistant", "content": "{}", "lang": "hi-IN"}]
+    repo, seen = chat(earlier)
+    consultation_service.post_message("u", "c", "Now I also have a cough", input_mode="text")
+    assert seen["lang"] == "en-IN"
+    assert len(seen["history"]) == 3  # earlier turns + this one
+
+
+def test_typed_low_confidence_uses_the_conversation_language(chat, monkeypatch):
+    comprehend(monkeypatch, ("tl", 0.4))
+    repo, seen = chat([{"role": "assistant", "content": "{}", "lang": "hi-IN"}])
+    consultation_service.post_message("u", "c", "abhi bhi dard hai")
+    assert seen["lang"] == "hi-IN"
+
+
+def test_offline_fallback_reply_is_marked_english(chat, monkeypatch):
+    comprehend(monkeypatch, None)
+    repo, _ = chat(offline=True)
+    consultation_service.post_message("u", "c", "दर्द", lang="hi-IN", input_mode="voice")
+    assert repo.added[1]["lang"] == "en-IN"
+
+
+def test_attachment_only_message_skips_language_detection(chat, monkeypatch):
+    calls = comprehend(monkeypatch, ("en", 0.99))
+    repo, seen = chat()
+    consultation_service.post_message("u", "c", "", attachment_ids=["a1"])
+    assert calls == [] and "lang" not in seen and repo.added[0]["lang"] is None

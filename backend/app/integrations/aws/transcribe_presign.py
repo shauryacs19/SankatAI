@@ -43,12 +43,17 @@ def _credentials() -> ReadOnlyCredentials:
 
 def presign_stream_url(
     region: str,
-    language_code: str,
+    language_options: list[str],
+    preferred_language: str,
     sample_rate: int,
     expires: int,
+    vocabulary_names: Optional[list[str]] = None,
     credentials: Optional[ReadOnlyCredentials] = None,
 ) -> str:
-    """Return a ``wss://`` URL for StartStreamTranscriptionWebSocket.
+    """Return a ``wss://`` URL for StartStreamTranscriptionWebSocket with
+    streaming language identification: Transcribe picks the spoken language
+    from ``language_options`` (so no ``language-code``) and reports it on each
+    result as ``LanguageCode`` / ``LanguageIdentification``.
 
     Only ``host`` is signed, as the WebSocket handshake adds headers the
     signer cannot predict. The payload hash is SHA-256 of the empty string
@@ -56,15 +61,20 @@ def presign_stream_url(
     Transcribe WebSocket documentation specifies.
     """
     creds = credentials or _credentials()
+    params = {
+        "identify-language": "true",
+        "language-options": ",".join(language_options),
+        "preferred-language": preferred_language,
+        "media-encoding": "pcm",
+        "sample-rate": str(sample_rate),
+        "enable-partial-results-stabilization": "true",
+    }
+    if vocabulary_names:
+        params["vocabulary-names"] = ",".join(vocabulary_names)
     request = AWSRequest(
         method="GET",
         url=f"wss://transcribestreaming.{region}.amazonaws.com:8443{_PATH}",
-        params={
-            "language-code": language_code,
-            "media-encoding": "pcm",
-            "sample-rate": str(sample_rate),
-            "enable-partial-results-stabilization": "true",
-        },
+        params=params,
     )
     SigV4QueryAuth(creds, _SERVICE, region, expires=expires).add_auth(request)
     return request.url

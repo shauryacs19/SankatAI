@@ -8,6 +8,7 @@ import {
   HeartPulse, CloudOff, FileText, ShieldCheck, ThumbsUp, ThumbsDown, Share2, MoreVertical, Trash2,
   CheckCheck, AlertTriangle, Ambulance, RotateCw,
 } from 'lucide-react'
+import SpeakerButton from '../tts/SpeakerButton.jsx'
 import { AI_DISCLAIMER, EMERGENCY_CALLOUT } from '@sankatai/shared'
 import { Alert, Button, IconButton, Menu, SeverityBadge, severityUi, messageEnter } from '../../../components/ui'
 import { formatBold, fmtTime } from '../utils/format.jsx'
@@ -54,7 +55,7 @@ function MessageMeta({ m }) {
   )
 }
 
-export function AssistantMessage({ m, onFeedback, onShare }) {
+export function AssistantMessage({ m, onFeedback, onShare, consultationId }) {
   const sev = m.severity ? severityUi(m.severity) : null
   const offline = Boolean(m.offline)
   const cls = ['msg-ai', sev && !offline ? `msg-ai--sev msg-ai--${sev.cls}` : '', offline ? 'msg-ai--offline' : ''].join(' ')
@@ -106,6 +107,7 @@ export function AssistantMessage({ m, onFeedback, onShare }) {
             <Button size="sm" variant="ghost" icon={ThumbsUp} aria-pressed={m.feedback === 'like'} onClick={() => onFeedback(m.id, 'like')}>Yes</Button>
             <Button size="sm" variant="ghost" icon={ThumbsDown} aria-pressed={m.feedback === 'dislike'} onClick={() => onFeedback(m.id, 'dislike')}>No</Button>
           </div>
+          <SpeakerButton consultationId={consultationId} messageId={m.id} />
           <IconButton className="msg-ai-share" label="Share this response" icon={Share2} size={16} onClick={() => onShare(m)} tooltipAlign="end" />
         </footer>
       )}

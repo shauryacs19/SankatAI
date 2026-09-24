@@ -121,6 +121,7 @@ def run_triage(
     messages: list[Message],
     patient_profile: Optional[PatientProfile],
     provider: Optional[AIProvider] = None,
+    lang: Optional[str] = None,
 ) -> tuple[str, bool]:
     """Run an assessment. Returns ``(text, is_offline_fallback)``.
 
@@ -135,7 +136,7 @@ def run_triage(
 
     try:
         provider = provider or get_provider()
-        return provider.analyze(messages, patient_profile), False
+        return provider.analyze(messages, patient_profile, lang=lang), False
     except Exception as error:  # noqa: BLE001 - any failure => graceful fallback
         logger.error(
             "AI offline fallback [%s]: %s: %s",

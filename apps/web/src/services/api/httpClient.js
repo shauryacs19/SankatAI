@@ -21,7 +21,8 @@ const expire = () => {
   return new Error('Your session has expired. Please sign in again.')
 }
 
-export const request = async (path, { method = 'GET', body } = {}) => {
+// responseType 'blob' returns the body as a Blob (e.g. read-aloud MP3).
+export const request = async (path, { method = 'GET', body, responseType = 'json' } = {}) => {
   const send = async () =>
     fetch(`/api${path}`, {
       method,
@@ -55,5 +56,5 @@ export const request = async (path, { method = 'GET', body } = {}) => {
   }
 
   if (res.status === 204) return null
-  return res.json()
+  return responseType === 'blob' ? res.blob() : res.json()
 }

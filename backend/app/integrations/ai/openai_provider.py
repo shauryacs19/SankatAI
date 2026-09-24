@@ -18,6 +18,7 @@ from openai import OpenAI
 
 from app.core import config
 from app.schemas.triage import Message, PatientProfile
+from app.services.language_service import language_directive
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
@@ -92,13 +93,21 @@ OUTPUT STRICTLY THIS JSON FORMAT ONLY:
 }}"""
 
 
+def build_prompt(profile: Optional[PatientProfile], lang: Optional[str] = None) -> str:
+    """System prompt plus, per request, the reply-language instruction."""
+    prompt = build_system_prompt(profile)
+    if lang:
+        prompt += f"\n\nLANGUAGE:\n{language_directive(lang)}"
+    return prompt
+
+
 class AIProvider(ABC):
     """Abstraction the triage service depends on."""
 
     @abstractmethod
-    def analyze(self, messages: list[Message], patient_profile: Optional[PatientProfile]) -> str:
-        """Return a JSON string assessment. Raise on failure so the caller can
-        trigger the offline fallback."""
+    def analyze(self, messages: list[Message], patient_profile: Optional[PatientProfile], lang: Optional[str] = None) -> str:
+        """Return a JSON string assessment, written in `lang` when given. Raise
+        on failure so the caller can trigger the offline fallback."""
 
 
 class OpenAIProvider(AIProvider):
@@ -116,10 +125,10 @@ class OpenAIProvider(AIProvider):
             raise RuntimeError("Missing OPENAI_API_KEY.")
         return OpenAI(api_key=api_key, base_url=config.AI_BASE_URL or None, timeout=config.AI_TIMEOUT)
 
-    def analyze(self, messages: list[Message], patient_profile: Optional[PatientProfile]) -> str:
+    def analyze(self, messages: list[Message], patient_profile: Optional[PatientProfile], lang: Optional[str] = None) -> str:
         client = self._client()
 
-        full_messages = [{"role": "system", "content": build_system_prompt(patient_profile)}]
+        full_messages = [{"role": "system", "content": build_prompt(patient_profile, lang)}]
         full_messages.extend({"role": m.role, "content": m.content} for m in messages)
 
         response = client.chat.completions.create(

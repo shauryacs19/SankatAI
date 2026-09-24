@@ -58,4 +58,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "chat_uploads" {
       days_after_initiation = 1
     }
   }
+
+  # Read-aloud cache (TTS_CACHE_ENABLED): synthesized MP3s under tts/ expire
+  # after 7 days. Overlapping rules resolve to the shorter expiration.
+  rule {
+    id     = "tts-cache-expiry"
+    status = "Enabled"
+
+    filter {
+      prefix = "tts/"
+    }
+
+    expiration {
+      days = 7
+    }
+  }
 }

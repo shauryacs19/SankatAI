@@ -28,6 +28,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.profile import router as profile_router
 from app.api.routes.security import router as security_router
 from app.api.routes.triage import router as triage_router
+from app.api.routes.tts import router as tts_router
 from app.api.routes.uploads import router as uploads_router
 from app.api.routes.voice import router as voice_router
 from app.core import config
@@ -81,6 +82,7 @@ app.include_router(consultations_router)
 app.include_router(security_router)
 app.include_router(uploads_router)
 app.include_router(voice_router)
+app.include_router(tts_router)
 
 
 if __name__ == "__main__":

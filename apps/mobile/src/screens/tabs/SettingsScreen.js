@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native'
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Switch } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { Pencil, MessageSquare, Activity, Palette, Sun, Moon, Smartphone } from 'lucide-react-native'
+import { Pencil, MessageSquare, Activity, Palette, Sun, Moon, Smartphone, Volume2 } from 'lucide-react-native'
 import { radius } from '../../theme'
 import { useProfile } from '../../context/ProfileContext'
 import { useTheme } from '../../context/ThemeContext'
@@ -9,6 +9,7 @@ import { fetchWithTimeout } from '../../lib/api'
 import { API_BASE_URL } from '../../config'
 import ScreenHeader from '../../components/ScreenHeader'
 import AuthSection from '../../components/AuthSection'
+import { getAutoRead, setAutoRead } from '../../lib/tts'
 
 const THEMES = [
   { key: 'light', label: 'Light', Icon: Sun },
@@ -21,6 +22,9 @@ export default function SettingsScreen({ navigation }) {
   const { colors, pref, setPref } = useTheme()
   const styles = makeStyles(colors)
   const [isOffline, setIsOffline] = useState(false)
+  const [autoRead, setAutoReadState] = useState(false)
+  useEffect(() => { getAutoRead().then(setAutoReadState) }, [])
+  const toggleAutoRead = (on) => { setAutoReadState(on); setAutoRead(on) }
 
   useEffect(() => {
     fetchWithTimeout(`${API_BASE_URL}/api/health`, {}, 6000).then((r) => setIsOffline(!r.ok)).catch(() => setIsOffline(true))
@@ -43,6 +47,22 @@ export default function SettingsScreen({ navigation }) {
                 </TouchableOpacity>
               )
             })}
+          </View>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.statusTitle}><Volume2 size={14} color={colors.primary} /><Text style={styles.cardTitle}>Voice</Text></View>
+          <View style={styles.switchRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.itemText}>Auto-read replies to voice messages</Text>
+              <Text style={styles.switchDesc}>When you speak a message, Sankat.AI reads its reply aloud.</Text>
+            </View>
+            <Switch
+              value={autoRead}
+              onValueChange={toggleAutoRead}
+              trackColor={{ true: colors.primary }}
+              accessibilityLabel="Auto-read replies to voice messages"
+            />
           </View>
         </View>
 
@@ -77,6 +97,8 @@ const makeStyles = (colors) => StyleSheet.create({
   themeBtnOn: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   themeText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary },
   item: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: radius.md },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, paddingBottom: 12 },
+  switchDesc: { fontSize: 12, color: colors.muted, marginTop: 2 },
   itemText: { fontSize: 15, fontWeight: '500', color: colors.textSecondary },
   row: { flexDirection: 'row', justifyContent: 'space-between', padding: 12 },
   rowLabel: { color: colors.muted, fontSize: 14 },

@@ -16,6 +16,7 @@ from app.repositories import consultation_repository as repo
 from app.repositories import profile_repository
 from app.schemas.triage import Message as ChatMessage
 from app.schemas.triage import PatientProfile
+from app.services import language_service
 from app.services.triage_service import run_triage
 
 
@@ -100,23 +101,34 @@ def set_message_feedback(
 
 
 def post_message(user_id: str, consultation_id: str, content: str,
-                 attachment_ids: Optional[list] = None) -> Optional[dict]:
+                 attachment_ids: Optional[list] = None, lang: Optional[str] = None,
+                 input_mode: Optional[str] = None) -> Optional[dict]:
     """Persist the user's message (optionally with attachments). If the message
     has text, run triage and store the reply; an attachment-only message is just
     recorded (no AI turn). Returns ``{userMessage, assistantMessage,
     isOfflineFallback}`` or None when there's nothing to send.
+
+    The reply language is resolved per message (voice `lang`, else Comprehend on
+    the text, else the conversation's last language, else en-IN) and stored on
+    both messages; the assistant's drives read-aloud.
     """
     text = (content or "").strip()
     attachment_ids = list(attachment_ids or [])
     if not text and not attachment_ids:
         return None
 
+    earlier = repo.list_messages(user_id, consultation_id)
+    reply_lang = language_service.resolve_language(text, lang, language_service.last_language(earlier)) if text else None
+
     # Persist the user's message (with any attachment references).
-    user_msg = repo.add_message(user_id, consultation_id, "user", content, attachment_ids=attachment_ids)
+    user_msg = repo.add_message(
+        user_id, consultation_id, "user", content, attachment_ids=attachment_ids,
+        lang=reply_lang, input_mode=input_mode,
+    )
+    history_items = [*earlier, user_msg]
 
     # Attachment-only message: record it, no AI turn.
     if not text:
-        history_items = repo.list_messages(user_id, consultation_id)
         is_first_user_msg = sum(1 for m in history_items if m["role"] == "user") == 1
         if is_first_user_msg:
             repo.touch_consultation(user_id, consultation_id, title="Shared an attachment")
@@ -125,7 +137,6 @@ def post_message(user_id: str, consultation_id: str, content: str,
         return {"userMessage": user_msg, "assistantMessage": None, "isOfflineFallback": False}
 
     # Build the conversation history (last 8 turns) for the AI.
-    history_items = repo.list_messages(user_id, consultation_id)
     history = [
         ChatMessage(role=m["role"], content=m["content"])
         for m in history_items
@@ -134,7 +145,7 @@ def post_message(user_id: str, consultation_id: str, content: str,
 
     patient_profile = _patient_profile_from_profile(profile_repository.get_profile(user_id))
 
-    text, is_offline = run_triage(history, patient_profile)
+    text, is_offline = run_triage(history, patient_profile, lang=reply_lang)
 
     # Parse severity/risk out of the model's JSON, if present.
     severity = None
@@ -157,6 +168,8 @@ def post_message(user_id: str, consultation_id: str, content: str,
         severity=severity,
         risk_score=risk_score,
         offline_fallback=is_offline,
+        # The offline keyword engine only writes English.
+        lang=language_service.DEFAULT_FALLBACK_LANGUAGE if is_offline else reply_lang,
     )
 
     # First user message becomes the consultation title.

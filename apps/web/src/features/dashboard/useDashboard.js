@@ -12,13 +12,15 @@ import { useProfile } from '../profile/context/ProfileContext.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
 import {
   listConsultations, createConsultation, getMessages, deleteConsultation, unsendMessage,
-  renameConsultation, sendMessage as apiSendMessage, setMessageFeedback,
+  renameConsultation, sendMessage as apiSendMessage, setMessageFeedback, fetchTts,
 } from '../chat/services/chatApi'
 import { ageFromDob, toBubble } from '../chat/utils/format.jsx'
 import { uploadFile, listUploads } from '../../services/uploads'
 import { useToast } from '../../components/ui'
 import { errText } from '../../utils/errText'
 import { useVoiceInput } from '../chat/voice/useVoiceInput'
+import { ttsPlayer } from '../chat/tts/ttsPlayer'
+import { shouldAutoRead } from '../chat/tts/autoRead'
 
 const HOSPITALS_NEAR_ME = 'https://www.google.com/maps/search/hospitals+near+me'
 
@@ -150,8 +152,8 @@ export function useDashboard() {
     }
   }
 
-  // Core send. `retryOf` is the id of an error row being retried.
-  const sendText = async (text, ready) => {
+  // Core send. `meta` = { inputMode, lang } (voice drafts carry the detected language).
+  const sendText = async (text, ready, meta = { inputMode: 'text' }) => {
     setIsLoading(true)
     const tmpId = `tmp-${Date.now()}`
     const attachmentIds = ready.map((a) => a.attachmentId)
@@ -163,7 +165,7 @@ export function useDashboard() {
     setMessages((prev) => [...prev, { id: tmpId, sender: 'user', text, createdAt: new Date().toISOString(), status: 'sent', attachments: msgAttachments }])
     try {
       if (!cid) { const c = await createConsultation(); setConsultations((prev) => [c, ...prev]); cid = c.consultationId; setActiveId(cid) }
-      const res = await apiSendMessage(cid, text, attachmentIds)
+      const res = await apiSendMessage(cid, text, attachmentIds, meta)
       setMessages((prev) => prev.map((m) => (m.id === tmpId ? { ...m, status: 'received' } : m)))
       if (attachmentIds.length) loadChatAttachments(cid)
       setIsOffline(Boolean(res.isOfflineFallback))
@@ -174,33 +176,36 @@ export function useDashboard() {
         setLastReply(bot)
         if (bot.riskScore != null) setLastRiskScore(bot.riskScore)
         if (bot.severity === 'EMERGENCY') { setIsEmergency(true); setEmergencyFromAssessment(true) }
+        // Opt-in: read replies to spoken messages aloud. A browser may refuse
+        // autoplay; the speaker button still works, so fail quietly.
+        if (shouldAutoRead(meta.inputMode)) ttsPlayer.play(bot.id, () => fetchTts(cid, bot.id)).catch(() => {})
       }
       loadConsultations()
     } catch (err) {
       // Not an AI answer: a distinct, retryable error row. The user's message
       // is marked as not sent rather than left "Sending…" forever.
-      const errRow = { id: `err-${Date.now()}`, sender: 'error', text: errText(err, 'The service is unavailable right now.'), retry: { text, ready, failedId: tmpId }, createdAt: new Date().toISOString() }
+      const errRow = { id: `err-${Date.now()}`, sender: 'error', text: errText(err, 'The service is unavailable right now.'), retry: { text, ready, meta, failedId: tmpId }, createdAt: new Date().toISOString() }
       setMessages((prev) => [...prev.map((m) => (m.id === tmpId ? { ...m, status: 'failed' } : m)), errRow])
       setLastReply(errRow)
     } finally { setIsLoading(false) }
   }
 
-  // `spoken`: text from voice input, sent through this same path.
-  const handleSend = async (e, spoken) => {
+  const handleSend = async (e) => {
     e?.preventDefault()
-    const text = (spoken ?? input).trim()
+    const text = input.trim()
     // Only fully-uploaded attachments can be sent with the message.
     const ready = attachments.filter((a) => a.status === 'uploaded' && a.attachmentId)
     if ((!text && ready.length === 0) || isLoading) return
+    const meta = voice.state === 'review' ? { inputMode: 'voice', lang: voice.draftLang || undefined } : { inputMode: 'text' }
     setInput('')
     setAttachments([]) // they now belong to the message
-    await sendText(text, ready)
+    await sendText(text, ready, meta)
   }
   const retrySend = async (errId) => {
     const row = messages.find((m) => m.id === errId)
     if (!row?.retry || isLoading) return
     setMessages((prev) => prev.filter((m) => m.id !== errId && m.id !== row.retry.failedId))
-    await sendText(row.retry.text, row.retry.ready)
+    await sendText(row.retry.text, row.retry.ready, row.retry.meta)
   }
   const dismissError = (errId) => setMessages((prev) => prev.filter((m) => m.id !== errId))
 
@@ -267,8 +272,9 @@ export function useDashboard() {
   }
   const removeAttachment = (localId) => setAttachments((prev) => prev.filter((a) => a.localId !== localId))
 
-  // Amazon Transcribe voice input; the final transcript goes through handleSend.
-  const voice = useVoiceInput({ input, setInput, onSend: (text) => handleSend(undefined, text), onError: (msg) => toast.error(msg) })
+  // Amazon Transcribe voice input. The transcript lands in `input` for review;
+  // the user sends it (edited or not) with the normal Send / Enter.
+  const voice = useVoiceInput({ input, setInput, onError: (msg) => toast.error(msg) })
 
   // Opens in a NEW tab so the app (and its emergency actions) stays open. The
   // tab is opened synchronously inside the click so popup blockers allow it,
