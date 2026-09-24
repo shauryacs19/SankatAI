@@ -1,5 +1,15 @@
 # SankatAI web — design audit (Phase 0)
 
+> **Outcome (2026-09-24, branch `redesign/ui-system`).** All seven phases done.
+> - **Distinct literal style values:** 350 → 58. The 58 are almost all token references; about 20 raw literals remain, all motion timings, letter-spacing or 2px icon nudges.
+> - **Raw colours in page CSS:** 125 → 0.
+> - **Dead classes:** 72 → 0.
+> - **Contrast:** 0 failures on rendered colours in both themes.
+> - **Horizontal scroll:** none at 360 / 600 / 768 / 1024 / 1440.
+> - **Bundle:** JS + CSS 712.3 → 698.1 kB raw, 203.0 → 205.2 kB gzip.
+>
+> Details are in the §10 entry of `context.md`. The audit below is the "before" state.
+
 Scope: `apps/web/src` excluding `features/admin/**`. Audited 2026-09-24 against commit `798de56`.
 Method: read every in-scope component; a script extracted every literal from all 9 style
 sources plus inline `style={{}}`; contrast computed with the WCAG 2.x formula on the real

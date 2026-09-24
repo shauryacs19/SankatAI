@@ -3,7 +3,7 @@
 > **Purpose:** single source of truth so Claude can get up to speed without
 > re-reading the whole codebase. **Claude updates this file after every completed
 > task** (append to the Changelog + adjust the relevant sections).
-> Last updated: 2026-08-16.
+> Last updated: 2026-09-24.
 
 ---
 
@@ -278,6 +278,67 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
   needs `--build`. In dev they're plain env on the Vite dev server, so a restart suffices.
 
 ## 10. Changelog (most recent first)
+- **Web UI/UX redesign: design system, primitives, every page rebuilt (2026-09-24, branch
+  `redesign/ui-system`):** Frontend only. No API, auth-flow, route or business-rule changes;
+  `features/admin/**` untouched. The audit, plan and approved decisions D1–D7 are in
+  `apps/web/DESIGN_AUDIT.md`; the rules are in `apps/web/DESIGN_SYSTEM.md`.
+  - **Tokens:** `packages/shared/theme.js` gained additive exports (`semantic`, `severityTokens`,
+    `neutral`, `typeScale`, `space`, `motionTokens`, `zIndex`, `breakpoints`). Mobile imports are
+    unchanged. `apps/web/src/styles/tokens.js` is the ONLY place web CSS variables are generated.
+    `index.css` and `App.css` are deleted.
+    - ⚠️ Web dark surfaces now match shared `darkColors` (`#111827`/`#1F2937`); they had drifted.
+    - ⚠️ Severity fills are fixed in both themes. The EMERGENCY fill is `#DC2626` in dark too; the
+      old `#F87171` gave SOS text 2.77:1. Text uses `--sev-*-ink` companions, because the fills
+      fail as small text (MODERATE is 2.94:1 on white).
+    - ⚠️ Dark theme puts dark ink on `--primary` (white on `#D9635E` is 3.56:1).
+    - Inter webfont dropped; the system font stack is used.
+    - Theme is now Light / Dark / **System** (default), following `prefers-color-scheme`.
+  - **Primitives** in `src/components/ui/`: Button (primary / secondary / ghost / destructive /
+    emergency), IconButton, Field + inputs, Card, Modal / ConfirmDialog, Menu, Toast, Skeleton,
+    Empty / Error states, Alert, badges, SegmentedControl / Tabs, Switch, SkipLink, motion
+    presets. `utils/errText.js` turns "Failed to fetch" into plain language.
+  - **Shell:** `DashboardLayout` split into `useDashboard()` (state; same API calls) plus the
+    presentational layout. Navigation per breakpoint: side nav ≥1024px, icon rail 768–1023px,
+    bottom tab bar <768px. **SOS is in the app bar at every size, and the loading skeleton now
+    covers only the content area.** Before, a full-screen overlay hid SOS while data loaded. The
+    emergency panel renders instantly and never animates.
+  - **Behaviour changes (approved, D5):**
+    - A failed send is a retryable error row, not an error dressed as an AI answer. The user's
+      message stays visible as "Not sent".
+    - Hospital search opens in a new tab and falls back to "near me" if location is denied.
+    - Deleting a chat now asks for confirmation.
+    - Location / delete / unsend failures show a toast instead of failing silently.
+    - The upload page's AI-consent toggle is removed. It was never sent anywhere.
+    - The landing "Documentation" section is removed; its cards only linked to login.
+    - Offline-fallback answers get a dashed card, an "Offline estimate — not an AI assessment"
+      label and no AI mark.
+  - **Copy corrected:**
+    - Upload success no longer says "nothing was uploaded".
+    - Removed "All data stored locally on your device".
+    - Removed the unconditional "Verified" badge.
+    - Empty medical fields read "Not provided", not "None".
+    - No "Risk 0" when SOS is pressed before any assessment.
+    - Landing: no "Works offline" claim, no aspirin advice, no fake hospital.
+  - **Dev-only QA harness:** `apps/web/preview.html` + `src/dev/` render the real app against a
+    mocked API. Flags: `?empty=1`, `fail=1`, `slow=`, `offline=1`, `static=1`, `auth=0`. Console
+    helpers: `__qa()` and `__contrast()`. It is not a build input and never ships. `AuthContext`
+    and `App` gained exports for it.
+  - **Measured:**
+    - Distinct literal style values: 350 → 58, almost all token references. Raw colours in page
+      CSS: 125 → 0. Dead classes: 72 → 0.
+    - Duplicate implementations collapsed onto shared primitives: buttons 15 → 1 (+ IconButton),
+      inputs 6 → 1, modal markup 8 → 1 (Modal), empty states 6 → 1, loaders 6 → Skeleton + Spinner.
+    - Rendered contrast: 0 failures on every page in both themes. No horizontal scroll at
+      360 / 600 / 768 / 1024 / 1440.
+    - Bundle (JS + CSS): 712.3 → 698.1 kB raw, 203.0 → 205.2 kB gzip. CSS now lives in JS
+      strings. Largest chunk: 255.8 kB.
+  - **NOT verified:**
+    - A real signed-in session against the deployed backend (preview uses mocks).
+    - Real keyboard presses and OS-level reduced motion. The browser pane was not on screen, so
+      the focus trap and tab order were checked by dispatched events, and reduced motion by
+      skipping animations.
+    - The mobile app. It reads only the unchanged exports.
+  - Lint: the 5 remaining errors are pre-existing, in `AuthContext.jsx` / `ProfileContext.jsx`.
 - **Chat returned template answers: AI key never set + silent fallback made honest (2026-09-24):**
   - **Root cause:** Secrets Manager `sankatai/dev/openai_api_key` still held the Terraform
     seed `PLACEHOLDER` (1 version, last changed 2026-08-16). It is non-empty, so the old

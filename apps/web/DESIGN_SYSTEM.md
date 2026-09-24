@@ -64,8 +64,8 @@ above is contrast-checked.
 | Token | px / line-height | Use |
 | --- | --- | --- |
 | `--fs-xs` | 12 / 16 | badges, timestamps, overlines |
-| `--fs-sm` | 14 / 20 | secondary copy, labels, table-like meta |
-| `--fs-md` | 16 / 24 | **body, inputs, buttons** (the mobile body minimum) |
+| `--fs-sm` | 14 / 20 | secondary copy, labels, buttons, meta |
+| `--fs-md` | 16 / 24 | **body and inputs** (the mobile body minimum; 16px inputs also stop iOS zoom) |
 | `--fs-lg` | 18 / 26 | card titles |
 | `--fs-xl` | 20 / 28 | page titles in the app bar |
 | `--fs-2xl` | 24 / 32 | empty-state and auth headings |
@@ -152,3 +152,24 @@ A bare "Loading…" is not acceptable.
 - Offline or fallback answers are visibly different from AI answers. They have a dashed border, the "Offline estimate — not an AI assessment" label, and no AI mark.
 - The medical disclaimer is always visible (in the side nav on desktop, under the composer everywhere). It is never collapsed.
 - An empty medical field reads "Not provided", never "None".
+
+## Checking your work (dev preview)
+
+`npm run dev --workspace=@sankatai/web`, then open `/preview.html`. It renders the real app
+against a mocked API with a signed-in session. It is dev-only: `preview.html` is not a build
+input, so none of it ships.
+
+| Query | Effect |
+| --- | --- |
+| `route=/dashboard/files` | Start page (default `/dashboard/chat`). `auth=0` shows the signed-out pages. |
+| `empty=1` | Empty lists |
+| `fail=1` | Every API call fails |
+| `slow=3000` | Every call is delayed by 3 seconds |
+| `offline=1` | AI replies are offline fallbacks |
+| `static=1` | Animations are skipped, for stable screenshots |
+
+In the browser console:
+- `__qa()` reports horizontal overflow, controls with no accessible name, touch targets under 44px, the heading outline and the font sizes in use.
+- `__contrast()` checks every visible text element's rendered contrast against its real background.
+
+Run both in light and dark at 360 / 768 / 1024 / 1440 before shipping UI changes.
