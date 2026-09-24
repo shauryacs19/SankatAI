@@ -1,22 +1,41 @@
-// Light/Dark theme. Sets data-theme on <html>; the CSS tokens in index.css do
-// the rest. Persisted per-browser in localStorage.
+// Light / Dark / System theme. The saved preference lives in localStorage (a UI
+// preference only — never tokens). The RESOLVED theme is written to
+// <html data-theme>; the CSS tokens in styles/tokens.js do the rest.
+// Default is 'system', which follows prefers-color-scheme live.
 
 const KEY = 'sankatai_theme'
+export const THEME_PREFS = ['light', 'dark', 'system']
+
+const media = () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null)
+const resolve = (pref) => (pref === 'system' ? (media()?.matches ? 'dark' : 'light') : pref)
 
 export const getTheme = () => {
-  try { return localStorage.getItem(KEY) === 'dark' ? 'dark' : 'light' } catch { return 'light' }
+  try {
+    const v = localStorage.getItem(KEY)
+    return THEME_PREFS.includes(v) ? v : 'system'
+  } catch { return 'system' }
 }
 
-export const applyTheme = (theme) => {
-  const t = theme === 'dark' ? 'dark' : 'light'
-  document.documentElement.setAttribute('data-theme', t)
-  try { localStorage.setItem(KEY, t) } catch { /* ignore */ }
-  return t
+let current = 'system'
+const paint = () => document.documentElement.setAttribute('data-theme', resolve(current))
+
+export const applyTheme = (pref) => {
+  current = THEME_PREFS.includes(pref) ? pref : 'system'
+  paint()
+  try { localStorage.setItem(KEY, current) } catch { /* private mode: ignore */ }
+  return current
 }
 
-// Apply the saved theme on startup (no flash of the wrong theme).
+// Apply the saved preference before first paint and keep 'system' in sync with
+// the OS setting.
 export const initTheme = () => {
-  const t = getTheme()
-  document.documentElement.setAttribute('data-theme', t)
-  return t
+  current = getTheme()
+  paint()
+  const m = media()
+  if (m) {
+    const onChange = () => { if (current === 'system') paint() }
+    if (m.addEventListener) m.addEventListener('change', onChange)
+    else if (m.addListener) m.addListener(onChange)
+  }
+  return current
 }
