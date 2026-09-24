@@ -75,7 +75,7 @@ export const LANDING_CSS = `
 .lx-foot-cols h2 { margin-bottom: var(--space-2); }
 .lx-foot-cols a, .lx-foot-link { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 2.25rem; padding: 0; border: 0; background: transparent; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-secondary); text-align: left; }
 .lx-logo { display: inline-flex; align-items: center; min-height: var(--touch); }
-@media (pointer: coarse) { .lx-foot-cols a, .lx-foot-link { min-height: var(--touch); } }
+@media (pointer: coarse) { .lx-foot-cols a, .lx-foot-link { min-height: var(--touch); min-width: var(--touch); } }
 .lx-foot-cols a:hover, .lx-foot-link:hover { color: var(--text-primary); text-decoration: underline; text-underline-offset: 2px; }
 .lx-foot-bottom { max-width: 72rem; margin: 0 auto; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--border-subtle); font-size: var(--fs-xs); line-height: var(--lh-xs); color: var(--text-muted); }
 

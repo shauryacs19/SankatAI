@@ -57,7 +57,7 @@ export default function EmergencyTab({ contacts = [], primaryContact, onSendLoca
                   <span className="emg-row-name">{c.name || 'Emergency contact'}{c.relationship ? ` · ${c.relationship}` : ''}</span>
                   <span className="emg-row-num">{c.phone}</span>
                 </span>
-                <Button variant="emergency" size="sm" icon={Phone} href={`tel:${c.phone}`} aria-label={`Call ${c.name || 'emergency contact'}`}>Call</Button>
+                <Button variant="emergency" icon={Phone} href={`tel:${c.phone}`} aria-label={`Call ${c.name || 'emergency contact'}`}>Call</Button>
               </li>
             ))}
           </ul>

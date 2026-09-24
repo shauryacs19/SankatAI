@@ -21,7 +21,7 @@ export default function DocumentUploadPage() {
       <header className="sa-bar">
         <Button variant="ghost" icon={ArrowLeft} onClick={goBack}>Documents</Button>
         <Brand size="sm" className="sa-brand" />
-        <Button variant="emergency" size="sm" icon={Phone} href="tel:108" aria-label="Emergency — call 108">108</Button>
+        <Button variant="emergency" icon={Phone} href="tel:108" aria-label="Emergency — call 108">108</Button>
       </header>
 
       <main id="main" tabIndex={-1} className="sa-main">

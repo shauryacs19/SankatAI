@@ -110,7 +110,7 @@ function Login() {
       <SkipLink />
       <header className="auth-bar">
         <Link to="/" className="auth-home" aria-label="SankatAI home"><Brand size="sm" /></Link>
-        <Button variant="emergency" size="sm" icon={Phone} href="tel:108" aria-label="Emergency — call 108">108</Button>
+        <Button variant="emergency" icon={Phone} href="tel:108" aria-label="Emergency — call 108">108</Button>
       </header>
 
       <main id="main" tabIndex={-1} className="auth-main">

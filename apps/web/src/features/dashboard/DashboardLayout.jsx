@@ -113,7 +113,7 @@ export default function DashboardLayout() {
           <div className="sh-bar-actions">
             {isChat && <IconButton label="New chat" icon={Plus} className="sh-bar-newchat" onClick={newChat} tooltipSide="bottom" />}
             {isChat && <IconButton label="AI analysis" icon={PanelRightOpen} onClick={() => d.setAnalysisOpen(true)} tooltipSide="bottom" tooltipAlign="end" />}
-            <Button variant="emergency" size="sm" icon={Siren} onClick={d.triggerSos} aria-label="SOS — get emergency help now">SOS</Button>
+            <Button variant="emergency" icon={Siren} onClick={d.triggerSos} aria-label="SOS — get emergency help now">SOS</Button>
           </div>
         </header>
 
