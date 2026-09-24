@@ -156,6 +156,7 @@ def post_message(user_id: str, consultation_id: str, content: str,
         text,
         severity=severity,
         risk_score=risk_score,
+        offline_fallback=is_offline,
     )
 
     # First user message becomes the consultation title.

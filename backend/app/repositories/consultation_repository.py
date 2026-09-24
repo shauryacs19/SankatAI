@@ -160,6 +160,7 @@ def _msg_view(item: dict) -> dict:
         "createdAt": item.get("created_at"),
         "feedback": item.get("feedback"),
         "attachmentIds": list(ids) if isinstance(ids, list) else [],
+        "isOfflineFallback": bool(item.get("offline_fallback")),
     }
 
 
@@ -274,6 +275,7 @@ def add_message(
     severity: Optional[str] = None,
     risk_score: Optional[int] = None,
     attachment_ids: Optional[list] = None,
+    offline_fallback: bool = False,
 ) -> dict:
     now = now_iso()
     message_id = short_id()
@@ -291,5 +293,8 @@ def add_message(
     }
     if attachment_ids:
         item["attachment_ids"] = list(attachment_ids)
+    if offline_fallback:
+        # Stored only when true, so existing rows read back as False.
+        item["offline_fallback"] = True
     get_chat_table().put_item(Item=item)
     return _msg_view(item)

@@ -14,6 +14,8 @@ import os
 import re
 from typing import Optional
 
+import openai
+
 from app.integrations.ai.openai_provider import AIProvider, get_provider
 from app.schemas.triage import Message, PatientProfile
 
@@ -85,6 +87,36 @@ def emergency_fallback_analyze(messages: list[Message]) -> str:
 
 # --- Orchestration ---------------------------------------------------------
 
+# Terraform seeds the Secrets Manager entry with this literal (ignore_changes),
+# so "key present" is not the same as "key configured".
+_UNSET_KEYS = {"", "PLACEHOLDER"}
+
+
+def ai_key_configured() -> bool:
+    return os.getenv("OPENAI_API_KEY", "").strip() not in _UNSET_KEYS
+
+
+def classify_provider_error(error: Exception) -> str:
+    """Map a provider exception to a short, non-secret failure class.
+
+    Each class points at a different fix (rotate the key, pick another model,
+    check NAT egress, ...), so they must not all collapse into one log line.
+    """
+    if isinstance(error, (openai.AuthenticationError, openai.PermissionDeniedError)):
+        return "auth_rejected"
+    if isinstance(error, openai.NotFoundError):
+        return "model_not_found"
+    if isinstance(error, openai.RateLimitError):
+        return "rate_limited"
+    if isinstance(error, openai.APITimeoutError):  # subclass of APIConnectionError
+        return "timeout"
+    if isinstance(error, openai.APIConnectionError):
+        return "unreachable"
+    if isinstance(error, openai.APIStatusError):
+        return f"http_{error.status_code}"
+    return "other"
+
+
 def run_triage(
     messages: list[Message],
     patient_profile: Optional[PatientProfile],
@@ -92,16 +124,23 @@ def run_triage(
 ) -> tuple[str, bool]:
     """Run an assessment. Returns ``(text, is_offline_fallback)``.
 
-    Mirrors the previous behavior: no API key -> straight to fallback; any
-    provider error -> graceful fallback.
+    No usable API key -> straight to fallback; any provider error -> graceful
+    fallback. The fallback is a deliberate safety net, but it is never silent:
+    every path logs its failure class and returns ``is_offline_fallback=True``
+    so the client can label the answer as an offline keyword estimate.
     """
-    if not os.getenv("OPENAI_API_KEY"):
-        logger.warning("API Key missing! Triggering Fallback Engine.")
+    if not ai_key_configured():
+        logger.error("AI offline fallback [missing_key]: OPENAI_API_KEY is unset or still the placeholder.")
         return emergency_fallback_analyze(messages), True
 
     try:
         provider = provider or get_provider()
         return provider.analyze(messages, patient_profile), False
     except Exception as error:  # noqa: BLE001 - any failure => graceful fallback
-        logger.error("OpenAI Analyze error intercepted: %s", error)
+        logger.error(
+            "AI offline fallback [%s]: %s: %s",
+            classify_provider_error(error),
+            type(error).__name__,
+            str(error)[:300],
+        )
         return emergency_fallback_analyze(messages), True

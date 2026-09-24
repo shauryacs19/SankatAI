@@ -37,6 +37,9 @@ class MessageView(BaseModel):
     createdAt: Optional[str] = None
     feedback: Optional[str] = None  # "like" | "dislike" | None (AI messages only)
     attachmentIds: list[str] = Field(default_factory=list)
+    # True when this assistant message came from the offline keyword engine
+    # rather than the AI model. Persisted, so it survives a history reload.
+    isOfflineFallback: bool = False
 
 
 class PostMessageResponse(BaseModel):
