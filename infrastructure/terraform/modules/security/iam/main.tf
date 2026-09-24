@@ -69,6 +69,9 @@ resource "aws_iam_role_policy" "backend" {
           "dynamodb:Query",
           "dynamodb:BatchGetItem",
           "dynamodb:BatchWriteItem",
+          # Metadata only; used by /api/health/readiness, which otherwise
+          # reports every table as down.
+          "dynamodb:DescribeTable",
         ]
         Resource = [
           var.user_profiles_table_arn,
