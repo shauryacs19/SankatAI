@@ -6,7 +6,9 @@ import {
   signOut as hostedSignOut,
 } from '../services/auth/cognito'
 
-const AuthContext = createContext(null)
+// Exported only so the dev-only preview harness (src/dev/) can supply a
+// signed-in session without touching the real auth flow.
+export const AuthContext = createContext(null)
 
 export const AUTH_STATUS = {
   INITIALIZING: 'initializing',

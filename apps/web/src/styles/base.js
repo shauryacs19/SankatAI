@@ -41,6 +41,11 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
+/* Full-page status (session restore). */
+.app-status { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-4); padding: var(--space-6); }
+.app-status-line { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-secondary); }
+.app-status-sos { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--touch); padding: 0 var(--space-4); border-radius: var(--radius-control); background: var(--sev-emergency); color: var(--on-emergency); font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+
 /* Reduced motion: the app stays fully usable; animations collapse to instant. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

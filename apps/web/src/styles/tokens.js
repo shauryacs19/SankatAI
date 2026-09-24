@@ -48,6 +48,8 @@ const staticVars = () => {
   for (const [k, v] of Object.entries(motionTokens.easing)) lines.push(`--ease-${k}: ${bezier(v)};`)
   for (const [k, v] of Object.entries(zIndex)) lines.push(`--z-${k}: ${v};`)
   // Layout constants.
+  // Life-critical fill hover: stays vivid red in both themes (white text 6.47:1).
+  lines.push(`--sev-emergency-hover: ${severityTokens.light.EMERGENCY.ink};`, `--on-emergency: ${neutral[0]};`)
   lines.push('--content-reading: 45rem;', '--content-wide: 60rem;', '--control-h: 2.75rem;', '--control-h-sm: 2.25rem;', '--touch: 2.75rem;')
   return lines.join('\n  ')
 }

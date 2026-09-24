@@ -1,0 +1,16 @@
+// Shared UI primitives. Pages compose these instead of styling their own
+// buttons, inputs, cards, modals or states. See apps/web/DESIGN_SYSTEM.md.
+export { Button, IconButton, Tooltip, Spinner } from './Button.jsx'
+export { Field, Input, PinInput, Textarea, Select, IconInput } from './Field.jsx'
+export { Card, PageHeader, SkipLink } from './Card.jsx'
+export { Modal, ConfirmDialog } from './Modal.jsx'
+export { Menu } from './Menu.jsx'
+export { ToastProvider } from './Toast.jsx'
+export { useToast } from './toastContext'
+export { Skeleton, EmptyState, ErrorState, Alert } from './Feedback.jsx'
+export { Badge, Chip, SeverityBadge, SeverityDot, Avatar, Brand } from './Badge.jsx'
+export { SEVERITY_UI, severityUi } from './severity'
+export { SegmentedControl, Tabs, Switch } from './Controls.jsx'
+export { default as InfoRow } from './InfoRow.jsx'
+export { useDelayedFlag, useFocusTrap, useScrollLock } from './hooks'
+export * from './motion'

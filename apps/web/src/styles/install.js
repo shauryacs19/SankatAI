@@ -3,11 +3,12 @@
 
 import { TOKENS_CSS } from './tokens'
 import { BASE_CSS, LEGACY_ALIASES_CSS } from './base'
+import { UI_CSS } from '../components/ui/ui.styles'
 
 export const installStyles = () => {
   if (document.getElementById('sk-global')) return
   const el = document.createElement('style')
   el.id = 'sk-global'
-  el.textContent = TOKENS_CSS + BASE_CSS + LEGACY_ALIASES_CSS
+  el.textContent = TOKENS_CSS + BASE_CSS + UI_CSS + LEGACY_ALIASES_CSS
   document.head.prepend(el)
 }

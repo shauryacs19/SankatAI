@@ -1,4 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { MotionConfig } from 'framer-motion'
+import { Phone } from 'lucide-react'
 import Landing from '../features/marketing/Landing.jsx'
 import Login from '../features/auth/components/Login.jsx'
 import ProfileSetup from '../features/profile/pages/ProfileSetup.jsx'
@@ -14,13 +16,18 @@ import DocumentUploadPage from '../features/medical-documents/pages/DocumentUplo
 import AdminDashboard from '../features/admin/AdminDashboard.jsx'
 import { AUTH_STATUS, AuthProvider, useAuth } from '../context/AuthContext.jsx'
 import { ProfileProvider, useProfile, isProfileComplete } from '../features/profile/context/ProfileContext.jsx'
+import { Brand, Spinner, ToastProvider } from '../components/ui'
 import '../App.css'
 
+// Shown while the session is restored (which can bounce through Cognito).
+// Emergency calling is never gated behind it.
 function Loading() {
   return (
-    <div className="app" style={{ display: 'grid', placeItems: 'center', minHeight: '60vh' }}>
-      <p style={{ color: 'var(--muted, #888)' }}>Loading…</p>
-    </div>
+    <main className="app-status" aria-busy="true">
+      <Brand />
+      <p className="app-status-line" role="status"><Spinner /> Checking your sign-in…</p>
+      <a className="app-status-sos" href="tel:108"><Phone size={16} aria-hidden="true" /> Emergency? Call 108</a>
+    </main>
   )
 }
 
@@ -81,18 +88,23 @@ function AppRoutes() {
   )
 }
 
-function App() {
+// Exported for the dev-only preview harness (src/dev/preview.jsx).
+export function App() {
   return (
     <ProfileProvider>
-      <AppRoutes />
+      <ToastProvider>
+        <AppRoutes />
+      </ToastProvider>
     </ProfileProvider>
   )
 }
 
 export default function AppWithAuth() {
   return (
-    <AuthProvider>
-      <App />
-    </AuthProvider>
+    <MotionConfig reducedMotion="user">
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </MotionConfig>
   )
 }

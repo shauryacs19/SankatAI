@@ -69,7 +69,7 @@ export const neutral = {
 const semanticLight = {
   bg: neutral[50], surface: neutral[0], surfaceRaised: neutral[0], surfaceSunken: neutral[100], surfaceHover: neutral[100],
   textPrimary: neutral[900], textSecondary: neutral[700], textMuted: '#5B6B80', // #64748B is 4.34:1 on surface-sunken
-  borderSubtle: neutral[200], borderStrong: '#8492A6',
+  borderSubtle: neutral[200], borderDefault: neutral[300], borderStrong: '#8492A6',
   focusRing: neutral[900],
   primary: lightColors.primary, primaryHover: lightColors.primaryHover, primaryText: '#A93F3B', onPrimary: '#FFFFFF',
   primarySoft: lightColors.primarySoft, primaryBorder: lightColors.primaryBorder,
@@ -81,7 +81,7 @@ const semanticLight = {
 const semanticDark = {
   bg: neutral[950], surface: '#111827', surfaceRaised: '#1F2937', surfaceSunken: '#1F2937', surfaceHover: '#1F2937',
   textPrimary: neutral[100], textSecondary: neutral[300], textMuted: neutral[400],
-  borderSubtle: '#263244', borderStrong: '#6B7A90',
+  borderSubtle: '#263244', borderDefault: neutral[700], borderStrong: '#6B7A90',
   focusRing: neutral[100],
   primary: darkColors.primary, primaryHover: darkColors.primaryHover, primaryText: '#E0736E', onPrimary: neutral[950],
   primarySoft: darkColors.primarySoft, primaryBorder: darkColors.primaryBorder,
