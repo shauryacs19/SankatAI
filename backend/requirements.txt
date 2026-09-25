@@ -8,5 +8,7 @@ openai>=1.59.6
 python-dotenv>=1.0.1
 pydantic>=2.13.4
 boto3>=1.35.99
-# PyJWT + cryptography removed: JWT validation moved to the API Gateway Cognito
-# authorizer. The backend no longer decodes or verifies tokens.
+# PyJWT[crypto] is back ONLY for /api/admin/*, which re-verifies the Cognito
+# token (RS256 via the pool JWKS) behind the API Gateway authorizer. Every other
+# route still trusts the gateway's x-user-id header. cryptography ships cp314 wheels.
+PyJWT[crypto]>=2.10.1

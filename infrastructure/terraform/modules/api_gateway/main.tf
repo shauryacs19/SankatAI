@@ -67,9 +67,14 @@ resource "aws_apigatewayv2_integration" "backend" {
   #
   # There is no x-user-email: Cognito ACCESS tokens do not carry an `email`
   # claim (that is ID-token-only). The backend records email as null.
+  #
+  # x-client-ip / x-request-id feed the admin audit log only (never an
+  # authorization decision); `overwrite:` means a caller cannot spoof them.
   request_parameters = {
-    "overwrite:path"             = "$request.path"
-    "overwrite:header.x-user-id" = "$context.authorizer.claims.sub"
+    "overwrite:path"                = "$request.path"
+    "overwrite:header.x-user-id"    = "$context.authorizer.claims.sub"
+    "overwrite:header.x-client-ip"  = "$context.identity.sourceIp"
+    "overwrite:header.x-request-id" = "$context.requestId"
   }
 }
 

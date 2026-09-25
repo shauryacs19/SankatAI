@@ -64,6 +64,18 @@ module "iam" {
   chat_history_table_arn  = module.database.chat_history_table_arn
   attachments_table_arn   = module.database.attachments_table_arn
   ai_api_key_secret_arn   = module.secrets.ai_api_key_arn
+
+  # Admin console + analytics.
+  admin_table_arns = [
+    module.database.admins_table_arn,
+    module.database.admin_invitations_table_arn,
+    module.database.analytics_events_table_arn,
+    module.database.analytics_agg_table_arn,
+  ]
+  admin_audit_table_arn     = module.database.admin_audit_table_arn
+  cognito_user_pool_arn     = module.cognito.user_pool_arn
+  analytics_salt_secret_arn = module.secrets.analytics_salt_arn
+  ses_sender_email          = var.ses_sender_email
 }
 
 module "network" {

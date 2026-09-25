@@ -179,18 +179,21 @@ def _find_message_item(user_id: str, consultation_id: str, message_id: str) -> O
 
 def set_message_feedback(
     user_id: str, consultation_id: str, message_id: str, feedback: Optional[str]
-) -> tuple[str, Optional[dict]]:
+) -> tuple[str, Optional[dict], tuple[Optional[str], Optional[str]]]:
     """Set/clear like|dislike feedback on an AI message.
 
-    Returns ``(status, view)`` where status is one of ``ok`` / ``not_found`` /
-    ``not_ai``. Scoped to the caller's ``user_id`` partition, so a user can only
-    touch their own messages. ``feedback=None`` clears it.
+    Returns ``(status, view, previous)`` where status is one of ``ok`` /
+    ``not_found`` / ``not_ai`` and ``previous`` is the ``(feedback,
+    feedback_at)`` the message had before (for analytics). Scoped to the
+    caller's ``user_id`` partition, so a user can only touch their own
+    messages. ``feedback=None`` clears it.
     """
     item = _find_message_item(user_id, consultation_id, message_id)
     if not item:
-        return "not_found", None
+        return "not_found", None, (None, None)
     if item.get("role") != "assistant":
-        return "not_ai", None
+        return "not_ai", None, (None, None)
+    previous = (item.get("feedback"), item.get("feedback_at"))
 
     key = {"user_id": user_id, "chat_id": item["chat_id"]}
     if feedback is None:
@@ -208,7 +211,7 @@ def set_message_feedback(
             ExpressionAttributeValues={":f": feedback, ":fa": now_iso()},
         )
         item["feedback"] = feedback
-    return "ok", _msg_view(item)
+    return "ok", _msg_view(item), previous
 
 
 def list_messages(user_id: str, consultation_id: str) -> list[dict]:

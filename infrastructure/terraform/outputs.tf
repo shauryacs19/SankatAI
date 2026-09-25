@@ -134,3 +134,42 @@ output "backend_instance_profile_name" {
 output "backend_role_arn" {
   value = module.iam.role_arn
 }
+
+# ── Admin console + analytics (read by .github/scripts/terraform-outputs.sh) ─
+output "admins_table_name" {
+  value = module.database.admins_table_name
+}
+
+output "admin_invitations_table_name" {
+  value = module.database.admin_invitations_table_name
+}
+
+output "admin_audit_table_name" {
+  value = module.database.admin_audit_table_name
+}
+
+output "analytics_events_table_name" {
+  value = module.database.analytics_events_table_name
+}
+
+output "analytics_agg_table_name" {
+  value = module.database.analytics_agg_table_name
+}
+
+output "analytics_salt_secret_name" {
+  description = "Set its value once out of band (see modules/secrets)."
+  value       = module.secrets.analytics_salt_name
+}
+
+output "api_gateway_id" {
+  value = module.api_gateway.api_id
+}
+
+output "app_url" {
+  description = "Origin used to build invitation links."
+  value       = var.app_url != "" ? var.app_url : "https://${module.frontend.cloudfront_domain_name}"
+}
+
+output "ses_sender_email" {
+  value = var.ses_sender_email
+}

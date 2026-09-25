@@ -1,9 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  handleRedirectCallback,
+  confirmSignIn as cognitoConfirmSignIn,
+  NEXT_STEP,
+  refreshSession,
   restoreSession,
-  signIn as hostedSignIn,
-  signOut as hostedSignOut,
+  signIn as cognitoSignIn,
+  signOut as cognitoSignOut,
 } from '../services/auth/cognito'
 
 // Exported only so the dev-only preview harness (src/dev/) can supply a
@@ -11,47 +13,31 @@ import {
 // eslint-disable-next-line react-refresh/only-export-components -- dev harness needs the context object
 export const AuthContext = createContext(null)
 
+// Old names kept as aliases so existing call sites read the same.
 export const AUTH_STATUS = {
-  INITIALIZING: 'initializing',
-  AUTHENTICATED: 'authenticated',
-  UNAUTHENTICATED: 'unauthenticated',
+  LOADING: 'loading',
+  AUTHED: 'authed',
+  GUEST: 'guest',
+  INITIALIZING: 'loading',
+  AUTHENTICATED: 'authed',
+  UNAUTHENTICATED: 'guest',
 }
 
 export function AuthProvider({ children }) {
-  const [status, setStatus] = useState(AUTH_STATUS.INITIALIZING)
+  const [status, setStatus] = useState(AUTH_STATUS.LOADING)
   const [user, setUser] = useState(null)
-
-  // StrictMode double-invokes effects in development. The authorization code is
-  // single-use, so a second exchange would fail — guard the whole bootstrap.
   const bootstrapped = useRef(false)
 
+  // Silent session check: reads the library's stored session and refreshes it
+  // if needed. It never navigates anywhere, so public pages load for guests.
   const restore = useCallback(async () => {
     try {
-      // 1. Returning from the Hosted UI with ?code= — exchange it for tokens.
-      const callback = await handleRedirectCallback()
-      if (callback?.user) {
-        setUser(callback.user)
-        setStatus(AUTH_STATUS.AUTHENTICATED)
-        if (callback.returnTo && callback.returnTo !== window.location.pathname) {
-          window.history.replaceState({}, '', callback.returnTo)
-        }
-        return
-      }
-
-      // 2. Plain page load. Tokens are memory-only, so this bounces through
-      //    Cognito's Hosted UI session cookie — no prompt if it is still valid.
-      const result = await restoreSession()
-      if (result === 'restoring') return // redirect in flight; keep the splash up
-      if (result && result !== 'anonymous') {
-        setUser(result)
-        setStatus(AUTH_STATUS.AUTHENTICATED)
-        return
-      }
-      setUser(null)
-      setStatus(AUTH_STATUS.UNAUTHENTICATED)
+      const restored = await restoreSession()
+      setUser(restored)
+      setStatus(restored ? AUTH_STATUS.AUTHED : AUTH_STATUS.GUEST)
     } catch {
       setUser(null)
-      setStatus(AUTH_STATUS.UNAUTHENTICATED)
+      setStatus(AUTH_STATUS.GUEST)
     }
   }, [])
 
@@ -61,31 +47,44 @@ export function AuthProvider({ children }) {
     restore()
   }, [restore])
 
+  // The API client dispatches this when a 401 survives one refresh.
   useEffect(() => {
     const handleExpired = () => {
       setUser(null)
-      setStatus(AUTH_STATUS.UNAUTHENTICATED)
+      setStatus(AUTH_STATUS.GUEST)
     }
     window.addEventListener('sankatai:auth-expired', handleExpired)
     return () => window.removeEventListener('sankatai:auth-expired', handleExpired)
   }, [])
 
-  // Full-page redirect to the Hosted UI. Nothing after this runs.
-  const signIn = useCallback(async () => {
-    await hostedSignIn()
+  const finish = useCallback((result) => {
+    if (result.nextStep === NEXT_STEP.DONE) {
+      setUser(result.user)
+      setStatus(AUTH_STATUS.AUTHED)
+    }
+    return result
   }, [])
 
-  // Federated sign-out: also clears the Cognito session cookie, so a later
-  // reload does not silently sign the user back in.
+  /** SRP sign-in. Resolves {nextStep}; DONE also updates the session state. */
+  const signIn = useCallback(async (credentials) => finish(await cognitoSignIn(credentials)), [finish])
+  const confirmSignIn = useCallback(async (answer) => finish(await cognitoConfirmSignIn(answer)), [finish])
+
   const signOut = useCallback(async () => {
+    cognitoSignOut()
     setUser(null)
-    setStatus(AUTH_STATUS.UNAUTHENTICATED)
-    await hostedSignOut()
+    setStatus(AUTH_STATUS.GUEST)
+  }, [])
+
+  /** Re-issue tokens (e.g. after being granted ADMIN) and update the user. */
+  const refreshUser = useCallback(async () => {
+    const next = await refreshSession()
+    setUser(next)
+    return next
   }, [])
 
   const value = useMemo(
-    () => ({ status, user, signIn, signOut, restore }),
-    [status, user, signIn, signOut, restore],
+    () => ({ status, user, signIn, confirmSignIn, signOut, restore, refreshUser }),
+    [status, user, signIn, confirmSignIn, signOut, restore, refreshUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

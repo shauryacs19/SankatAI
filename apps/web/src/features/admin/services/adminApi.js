@@ -1,49 +1,25 @@
-// Admin metrics service — the single seam between the UI and the data source.
-//
-// Today these return MOCK data (from ../data/adminMockData) wrapped in a promise
-// so the calling code already treats them as async. To go live later, replace
-// each body with a real authenticated FastAPI call, e.g.:
-//
-//   export const getAdminMetrics = (period) =>
-//     httpClient.request(`/admin/metrics?period=${period}`)
-//
-// ...where the backend validates the Cognito JWT + admin group and returns the
-// same shape. No component changes required.
+// Admin console API. Every call is authorised by the backend (API Gateway JWT
+// authorizer + JWT re-verification + ADMIN group + active admins row); nothing
+// here decides access. Responses are aggregates only — never patient data.
+import { request } from '../../../services/api/httpClient'
 
-import {
-  ADMIN_PERIODS,
-  getDataset,
-  getSystemHealthMock,
-  getRecentActivityMock,
-} from '../data/adminMockData'
+const query = ({ from, to, granularity }) => new URLSearchParams({ from, to, granularity }).toString()
 
-const mock = (value) => Promise.resolve(value)
+export const getAnalytics = (range) => request(`/admin/analytics?${query(range)}`)
+export const exportAnalyticsCsv = (range) => request(`/admin/analytics?${query(range)}&format=csv`, { responseType: 'text' })
+export const getUserAggregates = (range) => request(`/admin/users?${query(range)}`)
+export const getFeedback = (range) => request(`/admin/feedback?${query(range)}`)
+export const getSystemHealth = () => request('/admin/system-health')
 
-export const adminPeriods = ADMIN_PERIODS
+export const listAdmins = () => request('/admin/admins')
+export const removeAdmin = (sub, { confirmSelf = false } = {}) =>
+  request(`/admin/admins/${encodeURIComponent(sub)}${confirmSelf ? '?confirm_self=true' : ''}`, { method: 'DELETE' })
 
-export const getAdminMetrics = (period = '30d') => mock(getDataset(period).metrics)
-export const getUserAnalytics = (period = '30d') =>
-  mock({ series: getDataset(period).userSeries, topStats: getDataset(period).topStats })
-export const getChatAnalytics = (period = '30d') => mock(getDataset(period).chat)
-export const getSeverityAnalytics = (period = '30d') => mock(getDataset(period).severity)
-export const getUploadAnalytics = (period = '30d') => mock(getDataset(period).uploads)
-export const getAIUsage = (period = '30d') => mock(getDataset(period).ai)
-export const getTopStats = (period = '30d') => mock(getDataset(period).topStats)
-export const getSystemHealth = () => mock(getSystemHealthMock())
-export const getRecentActivity = () => mock(getRecentActivityMock())
+export const listInvitations = () => request('/admin/invitations')
+export const createInvitation = (email) => request('/admin/invitations', { method: 'POST', body: { email } })
+export const revokeInvitation = (id) => request(`/admin/invitations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+// Not admin-gated: this is how an invited user becomes an admin.
+export const acceptInvitation = (token, idToken) =>
+  request('/admin/invitations/accept', { method: 'POST', body: { token, idToken } })
 
-// Convenience aggregate used by the page to load everything for a period.
-export const getAdminDashboard = async (period = '30d') => {
-  const [metrics, users, chat, severity, uploads, ai, topStats, health, activity] = await Promise.all([
-    getAdminMetrics(period),
-    getUserAnalytics(period),
-    getChatAnalytics(period),
-    getSeverityAnalytics(period),
-    getUploadAnalytics(period),
-    getAIUsage(period),
-    getTopStats(period),
-    getSystemHealth(),
-    getRecentActivity(),
-  ])
-  return { metrics, users, chat, severity, uploads, ai, topStats, health, activity }
-}
+export const getAuditLogs = (cursor) => request(`/admin/audit-logs?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)

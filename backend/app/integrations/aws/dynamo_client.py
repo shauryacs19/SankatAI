@@ -45,6 +45,79 @@ def get_chat_table():
     return get_resource().Table(config.CHAT_HISTORY_TABLE)
 
 
+def get_admins_table():
+    return get_resource().Table(config.ADMINS_TABLE)
+
+
+def get_invitations_table():
+    return get_resource().Table(config.ADMIN_INVITATIONS_TABLE)
+
+
+def get_audit_table():
+    return get_resource().Table(config.ADMIN_AUDIT_TABLE)
+
+
+def get_analytics_events_table():
+    return get_resource().Table(config.ANALYTICS_EVENTS_TABLE)
+
+
+def get_analytics_agg_table():
+    return get_resource().Table(config.ANALYTICS_AGG_TABLE)
+
+
+# Key schemas of the admin/analytics tables (mirrors Terraform modules/database).
+# Used by ensure_tables() for DynamoDB Local and by the tests.
+ADMIN_TABLE_SPECS = {
+    "ADMINS_TABLE": {
+        "KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
+        "AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}, {"AttributeName": "sk", "AttributeType": "S"}],
+    },
+    "ADMIN_INVITATIONS_TABLE": {
+        "KeySchema": [{"AttributeName": "invitation_id", "KeyType": "HASH"}],
+        "AttributeDefinitions": [
+            {"AttributeName": "invitation_id", "AttributeType": "S"},
+            {"AttributeName": "email_lower", "AttributeType": "S"},
+            {"AttributeName": "status", "AttributeType": "S"},
+            {"AttributeName": "created_at", "AttributeType": "S"},
+        ],
+        "GlobalSecondaryIndexes": [
+            {
+                "IndexName": "email_lower-index",
+                "KeySchema": [{"AttributeName": "email_lower", "KeyType": "HASH"}, {"AttributeName": "created_at", "KeyType": "RANGE"}],
+                "Projection": {"ProjectionType": "ALL"},
+            },
+            {
+                "IndexName": "status-index",
+                "KeySchema": [{"AttributeName": "status", "KeyType": "HASH"}, {"AttributeName": "created_at", "KeyType": "RANGE"}],
+                "Projection": {"ProjectionType": "ALL"},
+            },
+        ],
+    },
+    "ADMIN_AUDIT_TABLE": {
+        "KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
+        "AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}, {"AttributeName": "sk", "AttributeType": "S"}],
+    },
+    "ANALYTICS_EVENTS_TABLE": {
+        "KeySchema": [{"AttributeName": "event_id", "KeyType": "HASH"}],
+        "AttributeDefinitions": [{"AttributeName": "event_id", "AttributeType": "S"}],
+    },
+    "ANALYTICS_AGG_TABLE": {
+        "KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
+        "AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}, {"AttributeName": "sk", "AttributeType": "S"}],
+    },
+}
+
+
+def ensure_admin_tables(client=None) -> None:
+    """Create the admin + analytics tables if missing (DynamoDB Local / tests)."""
+    client = client or get_resource().meta.client
+    existing = set(client.list_tables().get("TableNames", []))
+    for setting, spec in ADMIN_TABLE_SPECS.items():
+        name = getattr(config, setting)
+        if name not in existing:
+            client.create_table(TableName=name, BillingMode="PAY_PER_REQUEST", **spec)
+
+
 # --- Local dev: create tables if missing ----------------------------------
 
 def ensure_tables() -> None:
@@ -86,3 +159,4 @@ def ensure_tables() -> None:
                 {"AttributeName": "attachment_id", "AttributeType": "S"},
             ],
         )
+    ensure_admin_tables(client)

@@ -12,6 +12,9 @@
 //   offline=1                AI replies are offline fallbacks; /api/health 503
 //   noprofile=1              profile loads as null (onboarding)
 //   static=1                 skip framer animations (stable screenshots for QA)
+//   admin=1                  signed-in user is in the ADMIN group; /api/admin/* mocked
+//                            (e.g. ?admin=1&route=/admin). QA fixtures only — the real
+//                            console reads the backend's aggregates.
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -29,6 +32,7 @@ const EMPTY = q.get('empty') === '1'
 const FAIL = q.get('fail') === '1'
 const SLOW = Number(q.get('slow') || 0)
 const OFFLINE = q.get('offline') === '1'
+const ADMIN = q.get('admin') === '1'
 
 const now = Date.now()
 const iso = (msAgo) => new Date(now - msAgo).toISOString()
@@ -114,7 +118,102 @@ const route_ = async (method, path, body) => {
     if (method === 'POST') { const p = { id: `p${Date.now()}`, label: body.label || 'PIN', createdAt: new Date().toISOString() }; pins = [...pins, p]; return json(200, p) }
     if (method === 'DELETE') { if (body?.pin !== '123456') return json(403, { detail: 'Incorrect PIN.' }); pins = pins.filter((p) => !path.endsWith(p.id)); return json(204) }
   }
+  if (ADMIN && path.startsWith('/api/admin')) return adminRoute(method, path, body)
   return json(404, { detail: `No mock for ${method} ${path}` })
+}
+
+// --- admin console fixtures (dev harness only) -------------------------------
+const m = (value) => ({ value, unavailable: null })
+const na = (reason) => ({ value: null, unavailable: reason })
+function adminAnalytics(path) {
+  const u = new URLSearchParams(path.split('?')[1] || '')
+  const hourly = u.get('granularity') === 'hour'
+  const n = hourly ? 24 : 30
+  const labels = Array.from({ length: n }, (_, i) => (hourly
+    ? `${u.get('from')}T${String(i).padStart(2, '0')}`
+    : new Date(now - (n - 1 - i) * D).toISOString().slice(0, 10)))
+  const wave = (i, base, amp) => (EMPTY ? 0 : Math.max(0, Math.round(base + amp * Math.sin(i / 3))))
+  const tracked = (i) => i >= (hourly ? 0 : 6) // live tracking began 6 days into the window
+  const series = (fn) => labels.map((t, i) => ({ t, ...fn(i) }))
+  return {
+    range: { from: labels[0].slice(0, 10), to: labels[n - 1].slice(0, 10), granularity: hourly ? 'hour' : 'day', labels },
+    users: {
+      total: m(1284), newInRange: m(96), totalRegistered: m(1210), activeNow: m(7), dau: m(58), wau: m(212), mau: m(640), activeInRange: m(655),
+      series: series((i) => ({ new: wave(i, 3, 2), active: hourly || !tracked(i) ? null : wave(i, 50, 12) })),
+    },
+    ai: {
+      requests: m(1432), responses: m(1390), failed: m(42), successRate: m(97.1), avgLatencyMs: m(1830), totalResponses: m(18204), responsesToday: m(61),
+      byInputType: { text: m(1180), voice: m(252), image: na('The AI does not analyse images; attachments are stored, not sent to the model.') },
+      series: series((i) => ({ requests: wave(i, 48, 14), responses: wave(i, 46, 13), failed: wave(i, 2, 2) })),
+    },
+    feedback: { up: m(212), down: m(31), ratio: m(87.2), series: series((i) => ({ up: wave(i, 7, 3), down: wave(i, 1, 1) })) },
+    triage: {
+      total: m(1390), emergency: m(38),
+      bySeverity: { EMERGENCY: m(38), HIGH: m(171), MODERATE: m(512), LOW: m(669) },
+      series: series((i) => ({ EMERGENCY: wave(i, 1, 1), HIGH: wave(i, 6, 2), MODERATE: wave(i, 17, 5), LOW: wave(i, 22, 6) })),
+    },
+    activity: {
+      documentsUploaded: m(88), chatAttachments: m(143), conversationsStarted: m(402), conversationsTotal: m(5120), activeConversations: m(377),
+      series: series((i) => ({ conversations: wave(i, 13, 4), vault: wave(i, 3, 2), chat: wave(i, 5, 3) })),
+    },
+    api: { requests: m(40211), errors4xx: m(512), errors5xx: m(9), avgLatencyMs: m(212) },
+    kpis: {
+      totalUsers: m(1284), activeUsers: m(7), aiResponses: m(1390), emergencyCases: m(38), upvotes: m(212), downvotes: m(31),
+      apiErrors: m(9), avgResponseMs: m(1830),
+    },
+  }
+}
+let adminInvites = [
+  { id: 'a'.repeat(32), email: 'new.doctor@gmail.com', status: 'pending', createdAt: iso(3 * H), expiresAt: iso(-45 * H), emailStatus: 'sent' },
+  { id: 'b'.repeat(32), email: 'old@gmail.com', status: 'expired', createdAt: iso(5 * D), expiresAt: iso(3 * D), emailStatus: 'sent' },
+]
+function adminRoute(method, path, body) {
+  const p = path.replace('/api/admin', '')
+  if (p.startsWith('/analytics') || p.startsWith('/users') || p.startsWith('/feedback')) return json(200, adminAnalytics(p))
+  if (p === '/system-health') {
+    const at = new Date().toISOString()
+    return json(200, {
+      checks: [
+        { name: 'backend', status: 'healthy', latencyMs: 0, checkedAt: at, detail: 'this response' },
+        { name: 'dynamodb', status: 'healthy', latencyMs: 18, checkedAt: at, detail: null },
+        { name: 's3', status: 'healthy', latencyMs: 42, checkedAt: at, detail: null },
+        { name: 'cognito', status: 'healthy', latencyMs: 61, checkedAt: at, detail: null },
+        { name: 'ai_provider', status: 'degraded', latencyMs: 1, checkedAt: at, detail: 'no API key (answers use the offline keyword engine)' },
+        { name: 'api_gateway', status: 'unavailable', latencyMs: 3, checkedAt: at, detail: 'API_GATEWAY_ID not configured' },
+      ],
+      apiGatewayLastHour: null,
+      recentFailures: [{ name: 'ai_provider', status: 'degraded', detail: 'no API key', at }],
+      cachedForSeconds: 60, generatedAt: at,
+    })
+  }
+  if (p === '/admins') return json(200, { activeCount: 2, admins: [
+    { sub: 'sub-self', email: 'aarav@example.com', status: 'active', isSelf: true, grantedAt: iso(30 * D), grantedVia: 'bootstrap' },
+    { sub: 'sub-2', email: 'priya@gmail.com', status: 'active', isSelf: false, grantedAt: iso(4 * D), grantedVia: 'invitation:x' },
+  ] })
+  if (p.startsWith('/admins/')) return json(200, { status: 'revoked', cognitoCleanup: 'done', self: false })
+  if (p === '/invitations' && method === 'GET') return json(200, { invitations: adminInvites })
+  if (p === '/invitations' && method === 'POST') {
+    const inv = { id: `${Date.now()}`.padEnd(32, '0'), email: body.email, status: 'pending', createdAt: new Date().toISOString(), expiresAt: iso(-48 * H), emailStatus: 'sent' }
+    adminInvites = [inv, ...adminInvites]
+    return json(201, inv)
+  }
+  if (p.startsWith('/invitations/') && method === 'DELETE') {
+    adminInvites = adminInvites.map((i) => (p.endsWith(i.id) ? { ...i, status: 'revoked' } : i))
+    return json(200, {})
+  }
+  if (p.startsWith('/audit-logs')) {
+    const actions = ['analytics_view', 'invite_create', 'health_view', 'access_denied', 'admin_remove', 'export']
+    return json(200, {
+      items: actions.map((action, i) => ({
+        ts: iso(i * 37 * 60e3), adminSub: i === 3 ? 'c0ffee00-user-0000-0000-000000000003' : 'a1b2c3d4-admin-0000-0000-000000000001',
+        action, resource: action === 'invite_create' ? 'invitation:aaaa invitee:ne***@gmail.com' : 'range:2026-08-27..2026-09-25/day',
+        result: i === 3 ? 'denied' : 'success', reason: i === 3 ? 'not_in_admin_group' : null,
+        ip: '203.0.113.7', userAgent: 'Mozilla/5.0', requestId: `req-${1000 + i}`,
+      })),
+      nextCursor: null,
+    })
+  }
+  return json(404, { detail: `No admin mock for ${method} ${path}` })
 }
 
 const realFetch = window.fetch.bind(window)
@@ -132,11 +231,13 @@ window.fetch = async (input, init = {}) => {
 
 const signedIn = q.get('auth') !== '0'
 const auth = {
-  status: signedIn ? AUTH_STATUS.AUTHENTICATED : AUTH_STATUS.UNAUTHENTICATED,
-  user: signedIn ? { email: 'aarav@example.com' } : null,
-  signIn: async () => { alert('Preview: sign-in would redirect to Cognito here.') },
+  status: signedIn ? AUTH_STATUS.AUTHED : AUTH_STATUS.GUEST,
+  user: signedIn ? { userId: 'sub-self', email: 'aarav@example.com', groups: ADMIN ? ['ADMIN'] : [] } : null,
+  signIn: async () => { alert('Preview: sign-in calls Cognito (SRP) here.'); return { nextStep: 'DONE' } },
+  confirmSignIn: async () => ({ nextStep: 'DONE' }),
   signOut: async () => {},
   restore: async () => {},
+  refreshUser: async () => ({ userId: 'sub-self', email: 'aarav@example.com', groups: ['ADMIN'] }),
 }
 
 if (q.get('static') === '1') MotionGlobalConfig.skipAnimations = true

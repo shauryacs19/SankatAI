@@ -43,6 +43,19 @@ attachments_table_name:attachments_table_name
 chat_bucket_name:chat_bucket_name
 documents_bucket_name:documents_bucket_name
 ai_api_key_secret_name:ai_api_key_secret_name
+admins_table_name:admins_table_name
+admin_invitations_table_name:admin_invitations_table_name
+admin_audit_table_name:admin_audit_table_name
+analytics_events_table_name:analytics_events_table_name
+analytics_agg_table_name:analytics_agg_table_name
+analytics_salt_secret_name:analytics_salt_secret_name
+api_gateway_id:api_gateway_id
+app_url:app_url
+"
+
+# May legitimately be empty (invitations then answer 503 until it is set).
+OPTIONAL_MAPPINGS="
+ses_sender_email:ses_sender_email
 "
 
 missing=0
@@ -60,6 +73,14 @@ for pair in $MAPPINGS; do
 
   echo "${out_name}=${value}" >> "${GITHUB_OUTPUT:-/dev/stdout}"
   echo "    ${out_name} = ${value}"
+done
+
+for pair in $OPTIONAL_MAPPINGS; do
+  out_name="${pair%%:*}"
+  tf_name="${pair##*:}"
+  value=$(jq -r --arg k "$tf_name" '.[$k].value // empty' /tmp/tf-outputs.json)
+  echo "${out_name}=${value}" >> "${GITHUB_OUTPUT:-/dev/stdout}"
+  echo "    ${out_name} = ${value:-<empty>}"
 done
 
 rm -f /tmp/tf-outputs.json

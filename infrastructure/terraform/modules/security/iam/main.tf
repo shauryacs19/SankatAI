@@ -37,7 +37,7 @@ resource "aws_iam_role_policy" "backend" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       # Objects in the two upload buckets (presign PUT/GET, delete on vault
       # delete). Object-level actions only.
       {
@@ -137,7 +137,67 @@ resource "aws_iam_role_policy" "backend" {
         ]
         Resource = "arn:aws:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/${var.project_name}-backend"
       },
-    ]
+      # ── Admin console + analytics ─────────────────────────────────────────
+      # Admins, invitations (+ GSIs) and analytics tables. Transactions need
+      # the underlying Put/Update/ConditionCheck actions; no Scan, no Delete.
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:ConditionCheckItem",
+          "dynamodb:Query",
+          "dynamodb:BatchGetItem",
+          "dynamodb:DescribeTable",
+        ]
+        Resource = concat(var.admin_table_arns, [for arn in var.admin_table_arns : "${arn}/index/*"])
+      },
+      # Audit log is append-only: write new items and read them back. No
+      # UpdateItem/DeleteItem/BatchWriteItem, so history cannot be rewritten.
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:Query"]
+        Resource = var.admin_audit_table_arn
+      },
+      # ADMIN group membership + pool metadata, on this one pool only.
+      {
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:AdminAddUserToGroup",
+          "cognito-idp:AdminRemoveUserFromGroup",
+          "cognito-idp:AdminUserGlobalSignOut",
+          "cognito-idp:DescribeUserPool",
+        ]
+        Resource = var.cognito_user_pool_arn
+      },
+      # Analytics salt (read by the rollout on the instance).
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = var.analytics_salt_secret_arn
+      },
+      # System Health: API Gateway metrics. GetMetricData has no resource-level
+      # permissions in IAM, so "*" is the only valid Resource; it reads metric
+      # values only (no logs, no alarms, no writes).
+      {
+        Effect   = "Allow"
+        Action   = ["cloudwatch:GetMetricData"]
+        Resource = "*"
+      },
+      ],
+      # Invitation email: SendEmail only, only From the configured sender.
+      # Resource is any identity so sandbox recipient checks pass; the
+      # FromAddress condition is what pins the sender.
+      var.ses_sender_email == "" ? [] : [{
+        Effect   = "Allow"
+        Action   = ["ses:SendEmail"]
+        Resource = "arn:aws:ses:${var.region}:${data.aws_caller_identity.current.account_id}:identity/*"
+        Condition = {
+          StringEquals = { "ses:FromAddress" = var.ses_sender_email }
+        }
+      }],
+    )
   })
 }
 

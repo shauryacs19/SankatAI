@@ -249,7 +249,8 @@ export function useDashboard() {
     }
   }
 
-  const handleSignOut = async () => { await signOut(); navigate('/login', { replace: true }) }
+  // Leave the protected area first, then clear the session and app state.
+  const handleSignOut = async () => { navigate('/', { replace: true }); await signOut() }
 
   // Chat attachments upload directly to the transient chat bucket (scope=chat).
   const onFilesSelected = (kind) => async (e) => {

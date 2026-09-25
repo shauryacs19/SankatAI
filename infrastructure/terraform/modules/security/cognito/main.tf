@@ -13,6 +13,14 @@ resource "aws_cognito_user_pool" "sankatai" {
 
   username_attributes = ["email"]
 
+  # Forgot-password codes go to the verified email only (in-place update).
+  account_recovery_setting {
+    recovery_mechanism {
+      name     = "verified_email"
+      priority = 1
+    }
+  }
+
   schema {
     name                = "email"
     attribute_data_type = "String"
@@ -29,6 +37,11 @@ resource "aws_cognito_user_pool_client" "sankatai" {
   name         = "${var.project_name}-app-client"
   user_pool_id = aws_cognito_user_pool.sankatai.id
 
+  # The web app signs in with SRP only (the password never leaves the
+  # browser). ALLOW_USER_PASSWORD_AUTH stays ONLY because this client is shared
+  # with the mobile app, whose sign-in prefers it (JS SRP is slow on Hermes)
+  # and whose change-password requires it (apps/mobile/src/lib/cognito.js).
+  # Remove it once mobile moves to SRP or gets its own app client.
   explicit_auth_flows = [
     "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_USER_SRP_AUTH",
@@ -36,6 +49,8 @@ resource "aws_cognito_user_pool_client" "sankatai" {
   ]
 
   # ── Hosted UI: authorization code flow ────────────────────────────────────
+  # Kept configured but NOT used by the web app any more: sign-in is the
+  # in-app SRP form. No Google/federated IdP exists, so nothing redirects here.
   # `code` only — the implicit flow is deliberately not enabled, as it returns
   # tokens in the URL fragment where they leak into history and referrers.
   #
@@ -72,4 +87,14 @@ resource "aws_cognito_user_pool_client" "sankatai" {
 resource "aws_cognito_user_pool_domain" "sankatai" {
   domain       = "${var.project_name}-auth"
   user_pool_id = aws_cognito_user_pool.sankatai.id
+}
+
+# Admin RBAC. Membership is managed only by the backend (invitation accept /
+# admin removal) and by scripts/bootstrap_admin.py — never by Terraform, so
+# no user identifiers live in code or state. Access tokens carry the group in
+# `cognito:groups`; the backend also requires an active row in the admins table.
+resource "aws_cognito_user_group" "admin" {
+  name         = "ADMIN"
+  user_pool_id = aws_cognito_user_pool.sankatai.id
+  description  = "Sankat.AI administrators (admin console)."
 }

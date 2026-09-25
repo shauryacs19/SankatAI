@@ -20,9 +20,11 @@ from dotenv import load_dotenv
 # which sends profile requests to the wrong DynamoDB configuration.
 load_dotenv()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.admin import admin_error_handler
+from app.api.routes.admin import router as admin_router
 from app.api.routes.consultations import router as consultations_router
 from app.api.routes.health import router as health_router
 from app.api.routes.profile import router as profile_router
@@ -33,6 +35,8 @@ from app.api.routes.uploads import router as uploads_router
 from app.api.routes.voice import router as voice_router
 from app.core import config
 from app.integrations.aws import dynamo_client
+from app.services import analytics_service
+from app.services.admin_access_service import AdminError
 
 logger = logging.getLogger("sankatai")
 logging.basicConfig(level=logging.INFO)
@@ -74,6 +78,22 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def record_activity(request: Request, call_next):
+    # x-user-id exists only on requests API Gateway authenticated (it is
+    # overwritten there), so this counts authenticated users, never anonymous
+    # traffic. touch_user() is an in-memory check plus, at most once per user
+    # per day / 5 minutes, a background write; it never raises.
+    response = await call_next(request)
+    user_id = request.headers.get("x-user-id")
+    if user_id and response.status_code < 500:
+        analytics_service.touch_user(user_id)
+    return response
+
+
+app.add_exception_handler(AdminError, admin_error_handler)
+
+
 # Routers (feature-by-feature).
 app.include_router(health_router)
 app.include_router(triage_router)
@@ -83,6 +103,7 @@ app.include_router(security_router)
 app.include_router(uploads_router)
 app.include_router(voice_router)
 app.include_router(tts_router)
+app.include_router(admin_router)
 
 
 if __name__ == "__main__":

@@ -53,6 +53,15 @@ jobs:
       chat_bucket_name: ${{ steps.tf.outputs.chat_bucket_name }}
       documents_bucket_name: ${{ steps.tf.outputs.documents_bucket_name }}
       ai_api_key_secret_name: ${{ steps.tf.outputs.ai_api_key_secret_name }}
+      admins_table_name: ${{ steps.tf.outputs.admins_table_name }}
+      admin_invitations_table_name: ${{ steps.tf.outputs.admin_invitations_table_name }}
+      admin_audit_table_name: ${{ steps.tf.outputs.admin_audit_table_name }}
+      analytics_events_table_name: ${{ steps.tf.outputs.analytics_events_table_name }}
+      analytics_agg_table_name: ${{ steps.tf.outputs.analytics_agg_table_name }}
+      analytics_salt_secret_name: ${{ steps.tf.outputs.analytics_salt_secret_name }}
+      api_gateway_id: ${{ steps.tf.outputs.api_gateway_id }}
+      app_url: ${{ steps.tf.outputs.app_url }}
+      ses_sender_email: ${{ steps.tf.outputs.ses_sender_email }}
 
     steps:
       - name: Checkout tested commit
@@ -158,5 +167,16 @@ jobs:
           CHAT_BUCKET: ${{ needs.terraform-outputs.outputs.chat_bucket_name }}
           DOCUMENTS_BUCKET: ${{ needs.terraform-outputs.outputs.documents_bucket_name }}
           SECRET_ID: ${{ needs.terraform-outputs.outputs.ai_api_key_secret_name }}
+          COGNITO_USER_POOL_ID: ${{ needs.terraform-outputs.outputs.cognito_user_pool_id }}
+          COGNITO_APP_CLIENT_ID: ${{ needs.terraform-outputs.outputs.cognito_user_pool_client_id }}
+          ADMINS_TABLE: ${{ needs.terraform-outputs.outputs.admins_table_name }}
+          ADMIN_INVITATIONS_TABLE: ${{ needs.terraform-outputs.outputs.admin_invitations_table_name }}
+          ADMIN_AUDIT_TABLE: ${{ needs.terraform-outputs.outputs.admin_audit_table_name }}
+          ANALYTICS_EVENTS_TABLE: ${{ needs.terraform-outputs.outputs.analytics_events_table_name }}
+          ANALYTICS_AGG_TABLE: ${{ needs.terraform-outputs.outputs.analytics_agg_table_name }}
+          ANALYTICS_SALT_SECRET_ID: ${{ needs.terraform-outputs.outputs.analytics_salt_secret_name }}
+          API_GATEWAY_ID: ${{ needs.terraform-outputs.outputs.api_gateway_id }}
+          APP_URL: ${{ needs.terraform-outputs.outputs.app_url }}
+          SES_SENDER_EMAIL: ${{ needs.terraform-outputs.outputs.ses_sender_email }}
           TAG: ${{ github.sha }}
         run: bash .github/scripts/deploy-backend.sh

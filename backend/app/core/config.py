@@ -176,3 +176,38 @@ if VOICE_PREFERRED_LANGUAGE not in VOICE_LANGUAGE_OPTIONS:
     VOICE_PREFERRED_LANGUAGE = VOICE_LANGUAGE_OPTIONS[0]
 # Optional custom vocabularies, one per language option, in the same order.
 VOICE_VOCABULARY_NAMES = [v.strip() for v in os.getenv("VOICE_VOCABULARY_NAMES", "").split(",") if v.strip()]
+
+
+# --- Admin console (RBAC, invitations, audit) ---
+# /api/admin/* is the ONE place the backend verifies the Cognito JWT itself, on
+# top of the API Gateway authorizer (defence in depth for the most privileged
+# routes). Every other route still trusts only the gateway's x-user-id header.
+COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID", "").strip()
+COGNITO_APP_CLIENT_ID = os.getenv("COGNITO_APP_CLIENT_ID", "").strip()
+ADMIN_GROUP = "ADMIN"
+ADMINS_TABLE = os.getenv("ADMINS_TABLE", f"{PROJECT_NAME}-admins")
+ADMIN_INVITATIONS_TABLE = os.getenv("ADMIN_INVITATIONS_TABLE", f"{PROJECT_NAME}-admin-invitations")
+ADMIN_AUDIT_TABLE = os.getenv("ADMIN_AUDIT_TABLE", f"{PROJECT_NAME}-admin-audit-log")
+ADMIN_INVITE_TTL_HOURS = 48
+ADMIN_INVITES_PER_HOUR = int(os.getenv("ADMIN_INVITES_PER_HOUR", "10"))  # per inviting admin
+# Public web origin used to build invitation links (e.g. https://dxxxx.cloudfront.net).
+APP_URL = os.getenv("APP_URL", "").strip().rstrip("/")
+# Verified SES identity invitations are sent from. Empty = invitations disabled (503).
+SES_SENDER_EMAIL = os.getenv("SES_SENDER_EMAIL", "").strip()
+# HTTP API id, for the CloudWatch AWS/ApiGateway metrics on System Health.
+API_GATEWAY_ID = os.getenv("API_GATEWAY_ID", "").strip()
+
+# --- Platform analytics ---
+# FastAPI emits events off the request path into ANALYTICS_EVENTS_TABLE (TTL)
+# and atomic daily counters in ANALYTICS_AGG_TABLE; the admin dashboard reads
+# only the counters. ANALYTICS_SALT pseudonymises user ids (sha256(id+salt));
+# without it, per-user metrics (DAU/WAU/MAU) are not recorded at all.
+ANALYTICS_ENABLED = os.getenv("ANALYTICS_ENABLED", "true").lower() in {"1", "true", "yes"}
+ANALYTICS_EVENTS_TABLE = os.getenv("ANALYTICS_EVENTS_TABLE", f"{PROJECT_NAME}-analytics-events")
+ANALYTICS_AGG_TABLE = os.getenv("ANALYTICS_AGG_TABLE", f"{PROJECT_NAME}-analytics-daily-agg")
+ANALYTICS_EVENT_TTL_DAYS = int(os.getenv("ANALYTICS_EVENT_TTL_DAYS", "90"))
+_analytics_salt = _secret("ANALYTICS_SALT")
+# Same convention as the AI key: Terraform seeds the secret with PLACEHOLDER.
+ANALYTICS_SALT = "" if _analytics_salt in {"", "PLACEHOLDER"} else _analytics_salt
+# Day boundaries for the daily buckets. India has no DST, so a fixed offset is exact.
+ANALYTICS_UTC_OFFSET_MINUTES = int(os.getenv("ANALYTICS_UTC_OFFSET_MINUTES", "330"))

@@ -6,6 +6,9 @@
 # Required env (exported by the SSM preamble, all sourced from terraform output):
 #   REGION CORS_ORIGINS IMAGE SECRET_ID APP_PORT CONTAINER_PORT
 #   USERS_TABLE CHAT_HISTORY_TABLE ATTACHMENTS_TABLE CHAT_BUCKET DOCUMENTS_BUCKET
+#   COGNITO_USER_POOL_ID COGNITO_APP_CLIENT_ID ADMINS_TABLE ADMIN_INVITATIONS_TABLE
+#   ADMIN_AUDIT_TABLE ANALYTICS_EVENTS_TABLE ANALYTICS_AGG_TABLE
+#   ANALYTICS_SALT_SECRET_ID API_GATEWAY_ID APP_URL SES_SENDER_EMAIL (may be empty)
 set -euxo pipefail
 
 # Ubuntu 24.04 does not ship the AWS CLI and user_data installs only
@@ -33,6 +36,12 @@ aws secretsmanager get-secret-value \
   --secret-id "$SECRET_ID" --region "$REGION" \
   --query SecretString --output text > /opt/sankatai/secrets/openai_api_key
 chmod 600 /opt/sankatai/secrets/openai_api_key
+# Analytics pseudonymisation salt, same handling. PLACEHOLDER until set out of
+# band; the backend then records no per-user metrics (it never crashes).
+aws secretsmanager get-secret-value \
+  --secret-id "$ANALYTICS_SALT_SECRET_ID" --region "$REGION" \
+  --query SecretString --output text > /opt/sankatai/secrets/analytics_salt
+chmod 600 /opt/sankatai/secrets/analytics_salt
 
 docker rm -f sankatai-backend 2>/dev/null || true
 
@@ -48,7 +57,9 @@ docker run -d \
   --restart unless-stopped \
   -p "${APP_PORT}:${CONTAINER_PORT}" \
   -v /opt/sankatai/secrets/openai_api_key:/run/secrets/openai_api_key:ro \
+  -v /opt/sankatai/secrets/analytics_salt:/run/secrets/analytics_salt:ro \
   -e OPENAI_API_KEY_FILE=/run/secrets/openai_api_key \
+  -e ANALYTICS_SALT_FILE=/run/secrets/analytics_salt \
   -e AWS_REGION="$REGION" \
   -e PROJECT_NAME=sankatai \
   -e USERS_TABLE="$USERS_TABLE" \
@@ -58,6 +69,16 @@ docker run -d \
   -e DOCUMENTS_BUCKET="$DOCUMENTS_BUCKET" \
   -e CORS_ALLOWED_ORIGINS="$CORS_ORIGINS" \
   -e AUTH_ENABLED=true \
+  -e COGNITO_USER_POOL_ID="$COGNITO_USER_POOL_ID" \
+  -e COGNITO_APP_CLIENT_ID="$COGNITO_APP_CLIENT_ID" \
+  -e ADMINS_TABLE="$ADMINS_TABLE" \
+  -e ADMIN_INVITATIONS_TABLE="$ADMIN_INVITATIONS_TABLE" \
+  -e ADMIN_AUDIT_TABLE="$ADMIN_AUDIT_TABLE" \
+  -e ANALYTICS_EVENTS_TABLE="$ANALYTICS_EVENTS_TABLE" \
+  -e ANALYTICS_AGG_TABLE="$ANALYTICS_AGG_TABLE" \
+  -e API_GATEWAY_ID="$API_GATEWAY_ID" \
+  -e APP_URL="$APP_URL" \
+  -e SES_SENDER_EMAIL="$SES_SENDER_EMAIL" \
   "$IMAGE"
 
 # Smoke test from inside the box. The instance is private with no public IP, so

@@ -3,3 +3,5 @@
 -r requirements.txt
 pytest>=8.3.0
 httpx>=0.28.0
+# In-memory DynamoDB/Cognito/SES/CloudWatch for the admin + analytics tests.
+moto[cognitoidp,dynamodb]>=5.1.0

@@ -29,3 +29,28 @@ resource "aws_secretsmanager_secret_version" "ai_api_key" {
     ignore_changes = [secret_string]
   }
 }
+
+# Salt for pseudonymising user ids in analytics (sha256(id + salt)). Same
+# out-of-band pattern as the AI key: the plaintext never enters state.
+#   aws secretsmanager put-secret-value --secret-id sankatai/dev/analytics_salt \
+#     --secret-string "$(openssl rand -hex 32)"
+# Never rotate it casually: a new salt splits every distinct-user count.
+resource "aws_secretsmanager_secret" "analytics_salt" {
+  name                    = "${var.project_name}/${var.environment}/analytics_salt"
+  description             = "Salt for pseudonymous user hashes in platform analytics"
+  recovery_window_in_days = 7
+
+  tags = {
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "analytics_salt" {
+  secret_id     = aws_secretsmanager_secret.analytics_salt.id
+  secret_string = "PLACEHOLDER"
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
+}

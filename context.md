@@ -3,7 +3,7 @@
 > **Purpose:** single source of truth so Claude can get up to speed without
 > re-reading the whole codebase. **Claude updates this file after every completed
 > task** (append to the Changelog + adjust the relevant sections).
-> Last updated: 2026-09-24 (voice LID, multilingual replies, TTS).
+> Last updated: 2026-09-25 (admin console + real analytics; web custom SRP login, no Hosted UI).
 
 ---
 
@@ -62,7 +62,11 @@ Names (Terraform `project_name=sankatai`; also in `backend/.env.aws.example`):
   `aws_s3_bucket_cors_configuration` (methods PUT/GET/HEAD, origins from
   `var.cors_allowed_origins`, default `["*"]`) — defined in
   `infrastructure/terraform/modules/storage/{chat_uploads,file_storage}.tf`.
-- Cognito pool `ap-south-1_gxKpxpsyl`, client `tm62pjk48amoj3c3l6i9m135e`.
+- Cognito pool: **always take it from `terraform output cognito_user_pool_id`**. Terraform
+  state on 2026-09-25 shows `ap-south-1_FXxRCpE9K`; the `gxKpxpsyl` id below is stale.
+  Group **`ADMIN`** (Terraform `aws_cognito_user_group.admin`; membership managed only by the
+  backend and `scripts/bootstrap_admin.py`). Account recovery: `verified_email` only.
+- (historical) Cognito pool `ap-south-1_gxKpxpsyl`, client `tm62pjk48amoj3c3l6i9m135e`.
   (⚠️ `ap-south-1_4pBYOQiu7` / `7829g8n7319m34te0bkmu9h3sq` and `ap-south-1_nUPGx5F7B` /
   `1ltbkvsnt6bk0kst5dkpeub6j9` are STALE — do not use.)
   **The pool ID is duplicated in 7 places** — `apps/mobile/src/config.js`,
@@ -72,6 +76,12 @@ Names (Terraform `project_name=sankatai`; also in `backend/.env.aws.example`):
   Change all of them together or sign-in breaks with "Invalid authentication token".
 - DynamoDB `sankatai-web-sessions` — hash `session_id`, TTL attr `ttl`; holds the
   Fernet-encrypted web `id_token`/`refresh_token`.
+- Admin/analytics DynamoDB (on-demand, SSE, PITR), see §9e: `sankatai-admins` (pk/sk),
+  `sankatai-admin-invitations` (hash `invitation_id`, GSIs `email_lower-index` + `status-index`,
+  TTL `ttl`), `sankatai-admin-audit-log` (pk `AUDIT#YYYY-MM` / sk `ts#uuid`, append-only by IAM),
+  `sankatai-analytics-events` (hash `event_id`, TTL), `sankatai-analytics-daily-agg` (pk/sk, TTL).
+  Secret `sankatai/dev/analytics_salt` (PLACEHOLDER until set). SES identity from
+  `var.ses_sender_email` (root `email.tf`, count 0 when empty).
 - **Amazon Transcribe Streaming** (voice input, §9b), **Amazon Polly** (read-aloud, §9d; Kajal
   neural, en-IN + hi-IN) and **Amazon Comprehend** (`DetectDominantLanguage`, §9c). All three
   are called as the backend role and have no resources. The TTS cache reuses the chat-uploads
@@ -86,7 +96,7 @@ Cognito token.
 Endpoints: `GET /api/health`; `GET/PUT /api/profile`;
 `GET/POST /api/consultations`, `PATCH …/{id}` (rename), `DELETE`,
 `GET/POST …/{id}/messages`, `POST …/{id}/messages/{msgId}/feedback`;
-`GET/POST/DELETE /api/security/pins`;
+`GET/POST/DELETE /api/security/pins`; admin console `/api/admin/*` (§9e);
 `/api/uploads` (`presign`, `{id}/complete`, list `?scope=vault|chat`,
 `{id}/download`, PATCH, DELETE); `POST /api/voice/session` (see §9b); `POST /api/tts` (§9d).
 `POST …/messages` also takes optional `lang` (BCP-47) and `inputMode` (`voice`|`text`);
@@ -220,9 +230,9 @@ more than the NAT they'd replace.
 Admin: **SSM Session Manager only** (`aws ssm start-session --target <id>`).
 No SSH key, no port 22, no bastion.
 
-**The backend performs no JWT validation.** It has no PyJWT dependency, no JWKS
-client, and no Cognito config. `integrations/aws/cognito_auth.py` is now ~60
-lines that read two headers.
+**The backend performs no JWT validation — except `/api/admin/*`** (2026-09-25, §9e), which
+re-verifies the bearer token against the pool JWKS (`integrations/aws/cognito_jwt.py`, PyJWT)
+as defence in depth. Every other route still reads only `x-user-id`.
 
 Both clients:
 - Send the Cognito **access token** as `Authorization: Bearer`.
@@ -232,26 +242,23 @@ Both clients:
 - **No `x-user-email`** — Cognito access tokens have no `email` claim, so
   `CurrentUser.email` is always `None`. Clients read email from their own ID token.
 
-Web (`services/auth/`):
-- `pkce.js` — S256 verifier/challenge/state.
-- `hostedUi.js` — authorize → callback exchange → refresh → federated logout.
-- `tokenStore.js` — tokens in memory only.
-- **Reload does not log out.** Cognito's Hosted UI session cookie lets
-  `restoreSession()` bounce through `/oauth2/authorize` and return a fresh code
-  with no credential prompt. A one-shot `restoreTried` flag prevents redirect
-  loops when that cookie has genuinely expired.
-- `sessionStorage` holds only PKCE verifier / CSRF state / returnTo / that flag.
-  **Never tokens.**
-- Sign-in is a redirect; `Login.jsx` has no password field. Sign-up, confirm and
-  change-password still use the SDK directly (no redirect needed).
+Web: **custom SRP login, no Hosted UI** since 2026-09-25 — see §9f. (The old
+`hostedUi.js`/`pkce.js`/`tokenStore.js` silent-redirect restore was the cause of the
+"site auto-redirects to Cognito on load" bug and is deleted.)
 
 Mobile: unchanged — tokens in `expo-secure-store`, single-flight refresh, one
 retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
 
 ### Refactor invariants
 
-- Never reintroduce localStorage/AsyncStorage/sessionStorage for JWT persistence.
-- Never validate JWTs in the backend — that belongs to the API Gateway authorizer.
+- Mobile: never AsyncStorage for JWTs (SecureStore). **Web: tokens live in
+  amazon-cognito-identity-js's default storage** (localStorage; sessionStorage when
+  "Remember me" is off) — changed 2026-09-25 at the user's direction; the app itself never
+  writes tokens or roles.
+- JWT validation belongs to the API Gateway authorizer. The ONE exception is `/api/admin/*`
+  (re-verified in the backend, §9e). Do not add backend JWT checks elsewhere.
+- Admin access = API GW JWT + backend JWT re-verify + `cognito:groups` ∋ ADMIN + active
+  `admins` row. Never add an email/ID allow-list in the request path.
 - The backend must be unreachable except through API Gateway. The identity
   headers are trusted, so a directly-reachable instance = trivial impersonation.
 - Do not create another backend under a client directory.
@@ -473,7 +480,160 @@ key is set.
   for auto-read (Safari may refuse; the button still works), and mobile native playback on a
   device (the new `expo-audio` module needs a rebuild).
 
+## 9e. Admin console + platform analytics (2026-09-25)
+
+**RBAC (`app/api/admin_auth.py`).** `require_admin` = (1) API GW authorizer passed
+(`x-user-id`), (2) backend re-verifies the Bearer access token: RS256 via cached JWKS
+(PyJWKClient, 1 h), `iss` = pool, `token_use=access`, `client_id` = app client, `exp`; its
+`sub` must equal `x-user-id`, (3) `cognito:groups` contains `ADMIN`, (4) `admins` row
+`pk=ADMIN, sk=<sub>` has `status=active` (ConsistentRead) — so revocation is immediate even
+with a still-valid token. Verifier unconfigured/JWKS down → 503 (fail closed). Denials are
+audited (`access_denied`). Routes: `app/api/routes/admin.py` → services
+`admin_access_service`, `analytics_service`, `admin_health_service`, `audit_service` →
+repositories `admin_repository`, `analytics_repository`, `audit_repository`. `AdminError`
+→ `{detail, code}` (handler registered in `main.py`).
+
+**Endpoints** (all under `/api/admin`, `Cache-Control: no-store`): `GET analytics?from&to&
+granularity=day|hour[&format=csv]`, `GET users`, `GET feedback`, `GET system-health`,
+`GET admins`, `DELETE admins/{sub}[?confirm_self=true]`, `GET|POST invitations`,
+`DELETE invitations/{id}`, `POST invitations/accept` (verified caller, NOT admin-gated),
+`GET audit-logs?cursor&limit`.
+
+**Invitations.** Gmail only (`^[a-z0-9._%+-]+@gmail\.com$`, lower-cased). Link token =
+`<invitation_id>.<token_urlsafe(32)>`; only `sha256(secret)` stored, compared with
+`hmac.compare_digest`; emailed via SES to `${APP_URL}/admin/invite/accept?token=…`; never
+logged/returned. Existing pending invite → token ROTATED (old link dies). 10/admin/hour
+(in-process limiter). Accept: verify ID token (sent in the body; only it has
+`email`/`email_verified`), `sub` match, email equal + verified → `AdminAddUserToGroup` →
+ONE `TransactWriteItems` [invitation pending→accepted (token_hash + expiry re-checked),
+admin row active, counter +1] = single use; on failure the group add is compensated.
+Codes: invalid 400, expired/revoked 410, accepted/already_admin 409, wrong_email/
+email_unverified 403. Web then refreshes tokens to get the group claim.
+
+**Removal.** Transaction [row active→revoked, `META/ACTIVE_COUNT` −1 with
+`active_count > 1`] → last admin is blocked atomically (409). THEN
+`AdminRemoveUserFromGroup` + `AdminUserGlobalSignOut` (DB first = fail-closed; retrying a
+revoked admin re-runs only the Cognito cleanup; `cognito_cleanup` stored). Self-removal needs
+`confirm_self=true` and another active admin. **Recovery / first admin:**
+`BOOTSTRAP_ADMIN_EMAIL=… COGNITO_USER_POOL_ID=… ADMINS_TABLE=… ADMIN_AUDIT_TABLE=… python -m
+scripts.bootstrap_admin` (operator creds; idempotent; user must exist + be verified).
+
+**Audit.** `admin-audit-log`, append-only: role has PutItem+Query only; puts are
+conditional. Fields: admin_sub, action, resource (ids, masked emails, ranges), result,
+reason, ip/request_id (API GW `overwrite:header.x-client-ip/x-request-id`), user_agent.
+
+**Analytics write path.** `analytics_service.emit()` → bounded 2-thread executor (drops
+above 2000 pending, rate-limited warning) → PutItem event (TTL 90 d) + atomic ADD counters
+`METRIC#<m>` × `<YYYY-MM-DD>` / `TOTAL` / hourly `#H` (TTL 8 d). Metadata is an allow-list
+(enums/ints/dates) — free text can't be stored. `user_hash = sha256(sub + ANALYTICS_SALT)`;
+triage/emergency events carry no hash. Days are IST (`ANALYTICS_UTC_OFFSET_MINUTES=330`).
+Emitters: `create_consultation` CHAT_CREATED; `post_message` AI_REQUEST, AI_RESPONSE |
+AI_RESPONSE_FAILED (= offline fallback, with `response_time_ms`), TRIAGE_COMPLETED{severity},
+EMERGENCY_CASE; feedback → standing votes (retract = −1 on the day the vote was cast, only if
+cast after LIVE_SINCE); `mark_uploaded` DOCUMENT_UPLOADED{scope,kind} once; `main.py`
+middleware → `touch_user` for any request with `x-user-id` (per-day + 5-min distinct sets
+`SET#active_users#<shard>` (SS of 16-hex salted hashes, 4 shards ≈ 92k/day), first-seen
+marker → USER_REGISTERED, only after `META/BACKFILL=done`). USER_LOGIN is accepted by the
+schema but NOT emitted (no real login signal: Cognito is client-side). Image input =
+"Unavailable" (the model never sees images). No salt → per-user metrics Unavailable.
+
+**Read path.** Query/BatchGet only, no Scan. Total users = Cognito
+`EstimatedNumberOfUsers` (cached 60 s). WAU/MAU = unions of daily sets (ranges ≤ 92 d).
+Series points before a metric's `META/SINCE#<m>` are `null` (drawn as gaps, "Not recorded"),
+never 0. API errors/latency = CloudWatch `AWS/ApiGateway` `Count/4xx/5xx/Latency` by `ApiId`.
+**Backfill** `scripts/backfill_analytics.py` (once; claims `META/BACKFILL`; counts rows older
+than `META/LIVE_SINCE` from chat-history/attachments projections — never message text —
+and Cognito `ListUsers` creation dates; ADDs, so live counts are never doubled).
+
+**Health** (`admin_health_service`, cached 60 s): backend, DynamoDB DescribeTable, S3
+HeadBucket, Cognito DescribeUserPool, AI key probe (`/api/me`), API GW CloudWatch
+(5xx ≥ 5 % = degraded). Not checkable → `unavailable`, never healthy. Recent failures are
+per-process. No ARNs/hostnames/raw errors in responses.
+
+**IAM added** (backend role): admins/invitations/analytics tables Get/Put/Update/
+ConditionCheck/Query/BatchGet/Describe (+index); audit PutItem+Query; cognito-idp
+AdminAdd/RemoveUserFromGroup, AdminUserGlobalSignOut, DescribeUserPool on the pool ARN;
+GetSecretValue on the salt; `cloudwatch:GetMetricData` on `*` (no resource-level support);
+`ses:SendEmail` on `identity/*` with `ses:FromAddress` = sender (only when set).
+
+**Env (backend):** COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_ID, ADMINS_TABLE,
+ADMIN_INVITATIONS_TABLE, ADMIN_AUDIT_TABLE, ANALYTICS_EVENTS_TABLE, ANALYTICS_AGG_TABLE,
+ANALYTICS_SALT(_FILE), ANALYTICS_ENABLED, ANALYTICS_EVENT_TTL_DAYS,
+ANALYTICS_UTC_OFFSET_MINUTES, API_GATEWAY_ID, APP_URL, SES_SENDER_EMAIL,
+ADMIN_INVITES_PER_HOUR. All wired: terraform outputs → `terraform-outputs.sh` → `app-cd.yml`
+→ `deploy-backend.sh` → `ec2-rollout.sh` (salt fetched like the AI key, mounted as a Docker
+secret). **Order: `terraform apply` BEFORE pushing** (the CD reads the new outputs and fails
+fast without them).
+
+**Web** (`features/admin/**`, lazy-loaded): `AdminLayout` (nav Overview · Analytics · Users ·
+Feedback · System Health · Admin Access · Audit Logs; Today/7d/30d/Custom filter, IST;
+Refresh), pages in `pages/`, `TimeSeriesChart` (null gaps, crosshair tooltip via hover/arrow
+keys, legend ≥2 series, table view), `BarList`, `MetricCard` (shows "Unavailable" + reason).
+Series colours `--viz-1..3` validated (dataviz checker) light+dark; triage uses severity
+fills. `RequireAdmin` (groups claim, UX only). Mock data deleted; the dev harness
+`preview.html?admin=1&route=/admin` has QA fixtures (never built).
+
+**Tests:** backend `test_admin_auth.py` (14), `test_admin_invitations.py` (22),
+`test_admin_removal.py` (6), `test_analytics.py` (16), `test_audit.py` (6) with moto +
+RS256 test tokens (`tests/conftest.py`; analytics OFF by default in every test). Web
+`features/admin/admin.test.jsx` (13).
+
+**Known limits:** invite rate limit + recent-failures list are per process; two concurrent
+invites to one email can both be pending (both then single-use; benign); SES sandbox only
+delivers to verified addresses (request production access); a Gmail From address fails
+DMARC alignment via SES — prefer a domain sender; distinct sets cap ≈ 92k users/day
+(raise `SET_SHARDS`); deleted conversations are not in the backfill; the active-admin
+counter is authoritative — don't edit `admins` rows by hand.
+
+## 9f. Web auth: custom SRP login, no Hosted UI (2026-09-25)
+
+**Root cause of "site auto-redirects to Cognito on load":** `AuthProvider` ran
+`restoreSession()` on mount; with memory-only tokens it always did
+`window.location.assign(<Hosted UI>/oauth2/authorize)` (silent PKCE restore) — on every
+page, including `/`. Library: amazon-cognito-identity-js 6.3 + a hand-written PKCE client.
+
+**Now** (`services/auth/cognito.js`, amazon-cognito-identity-js only): `restoreSession()`
+reads the library's stored session and refreshes it if needed — never navigates.
+`AuthContext` status `loading | authed | guest` (old AUTH_STATUS names are aliases).
+`signIn` = SRP (`authenticateUser`, password never leaves the browser in clear, never to our
+backend) returning `nextStep` DONE | CONFIRM_SIGN_UP | NEW_PASSWORD | TOTP | SMS;
+`confirmSignIn`, `signUp` (email, name), `confirmSignUp`, `resendSignUpCode`,
+`resetPassword`/`confirmResetPassword`, `changePassword` (Cognito ChangePassword with the
+session; no USER_PASSWORD_AUTH on web), `signOut` (clears storage). Remember me → local vs
+session storage. `httpClient`: 401 → one `refreshSession()` + retry → else signOut +
+`sankatai:auth-expired` → `ProtectedRoute` sends to `/login?returnTo=…`.
+
+**Routes.** Public: `/`, `/login`, `/signup`, `/verify`, `/forgot-password` (`/auth/callback`
+→ `/`). Protected (`app/guards.jsx` `ProtectedRoute` → `/login?returnTo=` sanitised by
+`safeReturnTo`: same-origin relative only, never an auth page): `/app`, `/profile-setup`,
+`/dashboard/*`, `/documents/upload`, `/admin/*` (+`RequireAdmin`),
+`/admin/invite/accept` (signed-in only). `GuestOnly` on /login and /signup sends a signed-in
+user to the same sanitised returnTo (else `/app`) — avoids a race that overrode returnTo.
+Landing: guests see Sign in / Sign up; signed-in users an account menu.
+
+**UX/security:** field-level errors (aria-invalid), autocomplete username/email/
+current-password/new-password/one-time-code, live policy checklist (mirrors Terraform: 8+,
+upper, lower, number), terms checkbox, 60 s resend cooldown, 5 failures → 30 s client
+throttle, NotAuthorized/UserNotFound share one message (reset-password also proceeds on an
+unknown email), pending challenge cleared on unmount. No Google IdP exists → no Google
+button. No CSP exists today (if added: `connect-src https://cognito-idp.ap-south-1.amazonaws.com`).
+
+**Cognito (Terraform, in place):** account recovery `verified_email` only. App client
+unchanged: `ALLOW_USER_PASSWORD_AUTH` is KEPT because the client is shared with mobile, whose
+sign-in prefers it and whose change-password requires it (`apps/mobile/src/lib/cognito.js`).
+API GW authorizer unchanged (same `client_id`). Hosted UI domain/callbacks left in place but
+unused. **Existing web sessions (memory-only) end once on deploy; users sign in again.**
+
+**Tests:** `app/auth.test.jsx` (26), `services/api/httpClient.test.js` (4).
+
 ## 10. Changelog (most recent first)
+- **Admin console + real analytics + web custom login (2026-09-25):** see §9e/§9f.
+  Mock admin dashboard replaced by `/api/admin/*` (JWT re-verify + ADMIN group + admins
+  table), Gmail invitations (SES), safe removal, append-only audit, real aggregates only.
+  Web sign-in moved from Hosted UI redirects to in-app SRP (fixes the auto-redirect on load).
+  Terraform plan: 8 add, 3 in-place change (IAM policy, API GW integration headers, pool
+  account recovery), 0 destroy — **not applied yet**. New deps: backend PyJWT[crypto]; dev
+  moto[cognitoidp,dynamodb]. Backend 98 tests, web 88 tests, lint = 5 pre-existing errors.
 - **Auto language detection + same-language replies + read-aloud (2026-09-24):** see §9b–§9d.
   Transcribe LID replaces the manual selector; Comprehend + a prompt directive make replies
   follow the user's language; `POST /api/tts` (Polly) with a speaker button and an opt-in

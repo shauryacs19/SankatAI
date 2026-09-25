@@ -36,6 +36,18 @@ INSTANCE_NAME_TAG="${INSTANCE_NAME_TAG:-sankatai-backend}"
 : "${CHAT_BUCKET:?missing - expected from terraform output chat_bucket_name}"
 : "${DOCUMENTS_BUCKET:?missing - expected from terraform output documents_bucket_name}"
 : "${SECRET_ID:?missing - expected from terraform output ai_api_key_secret_name}"
+# Admin console + analytics.
+: "${COGNITO_USER_POOL_ID:?missing - expected from terraform output cognito_user_pool_id}"
+: "${COGNITO_APP_CLIENT_ID:?missing - expected from terraform output cognito_user_pool_client_id}"
+: "${ADMINS_TABLE:?missing - expected from terraform output admins_table_name}"
+: "${ADMIN_INVITATIONS_TABLE:?missing - expected from terraform output admin_invitations_table_name}"
+: "${ADMIN_AUDIT_TABLE:?missing - expected from terraform output admin_audit_table_name}"
+: "${ANALYTICS_EVENTS_TABLE:?missing - expected from terraform output analytics_events_table_name}"
+: "${ANALYTICS_AGG_TABLE:?missing - expected from terraform output analytics_agg_table_name}"
+: "${ANALYTICS_SALT_SECRET_ID:?missing - expected from terraform output analytics_salt_secret_name}"
+: "${API_GATEWAY_ID:?missing - expected from terraform output api_gateway_id}"
+: "${APP_URL:?missing - expected from terraform output app_url}"
+SES_SENDER_EMAIL="${SES_SENDER_EMAIL:-}"
 
 # ── Resolve the target instance ─────────────────────────────────────────────
 if [ -n "${INSTANCE_ID:-}" ]; then
@@ -123,6 +135,17 @@ export CHAT_HISTORY_TABLE='${CHAT_HISTORY_TABLE}'
 export ATTACHMENTS_TABLE='${ATTACHMENTS_TABLE}'
 export CHAT_BUCKET='${CHAT_BUCKET}'
 export DOCUMENTS_BUCKET='${DOCUMENTS_BUCKET}'
+export COGNITO_USER_POOL_ID='${COGNITO_USER_POOL_ID}'
+export COGNITO_APP_CLIENT_ID='${COGNITO_APP_CLIENT_ID}'
+export ADMINS_TABLE='${ADMINS_TABLE}'
+export ADMIN_INVITATIONS_TABLE='${ADMIN_INVITATIONS_TABLE}'
+export ADMIN_AUDIT_TABLE='${ADMIN_AUDIT_TABLE}'
+export ANALYTICS_EVENTS_TABLE='${ANALYTICS_EVENTS_TABLE}'
+export ANALYTICS_AGG_TABLE='${ANALYTICS_AGG_TABLE}'
+export ANALYTICS_SALT_SECRET_ID='${ANALYTICS_SALT_SECRET_ID}'
+export API_GATEWAY_ID='${API_GATEWAY_ID}'
+export APP_URL='${APP_URL}'
+export SES_SENDER_EMAIL='${SES_SENDER_EMAIL}'
 PRE
 )
 

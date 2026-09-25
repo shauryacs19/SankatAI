@@ -108,3 +108,14 @@ variable "create_github_oidc_provider" {
   type        = bool
   default     = true
 }
+variable "ses_sender_email" {
+  description = "Verified SES From address for admin invitation emails. Empty disables invitations (the API answers 503)."
+  type        = string
+  default     = ""
+}
+
+variable "app_url" {
+  description = "Public web origin used in invitation links. Empty = the CloudFront domain."
+  type        = string
+  default     = ""
+}

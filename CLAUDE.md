@@ -51,3 +51,10 @@
 - For fixes: provide the change and the verification command.
 - For errors: identify the root cause first, then give the fix.
 - Do not provide lengthy tutorials unless explicitly requested.
+### Security Invariants (admin + auth)
+
+- Admin access is decided server-side only: API Gateway JWT authorizer + backend JWT re-verification (`/api/admin/*` only) + `cognito:groups` contains `ADMIN` + an active `admins` table row. Never add email/ID allow-lists to the request path; the first admin comes from `backend/scripts/bootstrap_admin.py`.
+- Analytics events use the allow-listed metadata schema in `analytics_service.py`; never add free text, prompts, symptoms, diagnoses, documents, names or emails. No mock or fabricated metrics: unrecorded values are `null` / "Unavailable".
+- The admin audit table stays append-only (IAM PutItem + Query only).
+- The web app never redirects to the Cognito Hosted UI on load; sign-in is the in-app SRP form. `returnTo` must pass `safeReturnTo`.
+- Run `terraform apply` before pushing changes that add Terraform outputs the CD reads.

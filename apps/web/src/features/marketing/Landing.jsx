@@ -4,10 +4,11 @@ import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Activity, ShieldCheck, Siren, MessageSquare, Stethoscope, CloudOff, ArrowRight, Menu, X, ChevronDown, Phone, Ambulance, HeartPulse,
+  CircleUser, LayoutDashboard, LogOut, Shield,
 } from 'lucide-react'
 import { EMERGENCY_CALLOUT } from '@sankatai/shared'
 import { AUTH_STATUS, useAuth } from '../../context/AuthContext.jsx'
-import { Brand, Button, IconButton, SeverityBadge, SkipLink, listContainer, listItem } from '../../components/ui'
+import { Brand, Button, IconButton, Menu as AccountMenu, SeverityBadge, SkipLink, listContainer, listItem } from '../../components/ui'
 import { LANDING_CSS } from './landing.styles'
 
 const NAV = [
@@ -40,14 +41,21 @@ const FAQS = [
 
 function Landing() {
   const navigate = useNavigate()
-  const { status } = useAuth()
+  const { status, user, signOut } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const [openFaq, setOpenFaq] = useState(0)
+  const authed = status === AUTH_STATUS.AUTHED
 
-  // Login: straight to the app if the session is still valid, else sign-in.
-  const goLogin = () => navigate(status === AUTH_STATUS.AUTHENTICATED ? '/app' : '/login')
-  // Get started: open the login page in create-account mode.
-  const goSignup = () => navigate('/login', { state: { mode: 'signup' } })
+  // Public page: nothing here redirects. Guests get Sign in / Sign up;
+  // signed-in users get their menu. While the stored session is being read,
+  // neither is shown (no flash of the wrong state).
+  const goLogin = () => navigate('/login')
+  const goSignup = () => navigate(authed ? '/app' : '/signup')
+  const userItems = [
+    { key: 'app', label: 'Open SankatAI', icon: LayoutDashboard, onSelect: () => navigate('/app') },
+    ...(user?.groups?.includes('ADMIN') ? [{ key: 'admin', label: 'Admin console', icon: Shield, onSelect: () => navigate('/admin') }] : []),
+    { key: 'out', label: 'Sign out', icon: LogOut, onSelect: () => signOut(), tone: 'danger' },
+  ]
 
   const reveal = { initial: { opacity: 0, y: 8 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, margin: '-60px' }, transition: { duration: 0.24 } }
 
@@ -62,9 +70,19 @@ function Landing() {
           <nav className="lx-links" aria-label="Sections">
             {NAV.map((n) => <a key={n.href} href={n.href}>{n.label}</a>)}
           </nav>
-          <div className="lx-nav-cta">
-            <Button variant="ghost" onClick={goLogin}>Sign in</Button>
-            <Button variant="primary" onClick={goSignup}>Get started</Button>
+          <div className="lx-nav-cta" aria-busy={status === AUTH_STATUS.LOADING || undefined}>
+            {status === AUTH_STATUS.GUEST && (
+              <>
+                <Button variant="ghost" onClick={goLogin}>Sign in</Button>
+                <Button variant="primary" onClick={goSignup}>Sign up</Button>
+              </>
+            )}
+            {authed && (
+              <>
+                <Button variant="primary" onClick={() => navigate('/app')}>Open app</Button>
+                <AccountMenu label={`Account menu${user?.email ? ` for ${user.email}` : ''}`} icon={CircleUser} items={userItems} />
+              </>
+            )}
           </div>
           <IconButton
             className="lx-burger"
@@ -79,8 +97,18 @@ function Landing() {
         {menuOpen && (
           <div className="lx-mobile-menu" id="lx-mobile-menu">
             <nav aria-label="Sections">{NAV.map((n) => <a key={n.href} href={n.href} onClick={() => setMenuOpen(false)}>{n.label}</a>)}</nav>
-            <Button variant="secondary" block onClick={goLogin}>Sign in</Button>
-            <Button variant="primary" block onClick={goSignup}>Get started</Button>
+            {status === AUTH_STATUS.GUEST && (
+              <>
+                <Button variant="secondary" block onClick={goLogin}>Sign in</Button>
+                <Button variant="primary" block onClick={goSignup}>Sign up</Button>
+              </>
+            )}
+            {authed && (
+              <>
+                <Button variant="primary" block onClick={() => navigate('/app')}>Open app</Button>
+                <Button variant="secondary" block icon={LogOut} onClick={() => signOut()}>Sign out</Button>
+              </>
+            )}
           </div>
         )}
       </header>
@@ -188,7 +216,7 @@ function Landing() {
             <div>
               <h2 className="ui-overline">Product</h2>
               <a href="#features">Features</a><a href="#how">How it works</a><a href="#faq">FAQ</a>
-              <button type="button" className="lx-foot-link" onClick={goLogin}>Sign in</button>
+              <button type="button" className="lx-foot-link" onClick={authed ? () => navigate('/app') : goLogin}>{authed ? 'Open app' : 'Sign in'}</button>
             </div>
             <div>
               <h2 className="ui-overline">Emergency</h2>

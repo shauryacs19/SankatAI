@@ -9,6 +9,7 @@ repositories + the triage service, never on boto3 or the AI SDK directly.
 from __future__ import annotations
 
 import json
+import time
 from datetime import date, datetime
 from typing import Optional
 
@@ -16,7 +17,7 @@ from app.repositories import consultation_repository as repo
 from app.repositories import profile_repository
 from app.schemas.triage import Message as ChatMessage
 from app.schemas.triage import PatientProfile
-from app.services import language_service
+from app.services import analytics_service, language_service
 from app.services.triage_service import run_triage
 
 
@@ -73,7 +74,9 @@ def list_consultations(user_id: str) -> list[dict]:
 
 
 def create_consultation(user_id: str, title: Optional[str]) -> dict:
-    return repo.create_consultation(user_id, title or "New consultation")
+    consultation = repo.create_consultation(user_id, title or "New consultation")
+    analytics_service.emit("CHAT_CREATED", user_id)
+    return consultation
 
 
 def consultation_exists(user_id: str, consultation_id: str) -> bool:
@@ -97,7 +100,23 @@ def set_message_feedback(
 ) -> tuple[str, Optional[dict]]:
     """Record like/dislike on an AI message. Ownership is enforced by scoping to
     the caller's user_id partition in the repository."""
-    return repo.set_message_feedback(user_id, consultation_id, message_id, feedback)
+    outcome, view, (old, old_at) = repo.set_message_feedback(user_id, consultation_id, message_id, feedback)
+    if outcome == "ok" and old != feedback:
+        _emit_feedback_change(user_id, old, old_at, feedback)
+    return outcome, view
+
+
+_VOTE_EVENTS = {"like": "FEEDBACK_UPVOTE", "dislike": "FEEDBACK_DOWNVOTE"}
+
+
+def _emit_feedback_change(user_id: str, old: Optional[str], old_at: Optional[str], new: Optional[str]) -> None:
+    """Counters track standing votes: a changed or cleared vote is retracted
+    from the day it was cast, and the new vote counts today."""
+    if old in _VOTE_EVENTS and old_at:
+        vote_at = analytics_service.minute_key(analytics_service.to_local(old_at))
+        analytics_service.emit(_VOTE_EVENTS[old], user_id, action="retract", vote_at=vote_at)
+    if new in _VOTE_EVENTS:
+        analytics_service.emit(_VOTE_EVENTS[new], user_id, action="set")
 
 
 def post_message(user_id: str, consultation_id: str, content: str,
@@ -126,6 +145,7 @@ def post_message(user_id: str, consultation_id: str, content: str,
         lang=reply_lang, input_mode=input_mode,
     )
     history_items = [*earlier, user_msg]
+    analytics_service.touch_chat(consultation_id)
 
     # Attachment-only message: record it, no AI turn.
     if not text:
@@ -145,7 +165,16 @@ def post_message(user_id: str, consultation_id: str, content: str,
 
     patient_profile = _patient_profile_from_profile(profile_repository.get_profile(user_id))
 
+    input_type = "voice" if input_mode == "voice" else "text"
+    analytics_service.emit("AI_REQUEST", user_id, input_type=input_type, has_attachments=bool(attachment_ids))
+    started = time.perf_counter()
     text, is_offline = run_triage(history, patient_profile, lang=reply_lang)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    # An offline-fallback answer means the AI provider failed (or has no key).
+    analytics_service.emit(
+        "AI_RESPONSE_FAILED" if is_offline else "AI_RESPONSE", user_id,
+        input_type=input_type, response_time_ms=elapsed_ms, status="failed" if is_offline else "success",
+    )
 
     # Parse severity/risk out of the model's JSON, if present.
     severity = None
@@ -157,6 +186,12 @@ def post_message(user_id: str, consultation_id: str, content: str,
         risk_score = int(rs) if isinstance(rs, (int, float)) else None
     except (json.JSONDecodeError, TypeError, ValueError):
         pass
+    if severity in analytics_service.SEVERITIES:
+        # No user id: triage outcomes are never linked to a user, even by hash.
+        source = "offline" if is_offline else "ai"
+        analytics_service.emit("TRIAGE_COMPLETED", severity=severity, source=source)
+        if severity == "EMERGENCY":
+            analytics_service.emit("EMERGENCY_CASE", source=source)
 
     # The assistant message stores the raw JSON text so the frontend can render
     # severity/advice/follow-ups consistently with the stateless endpoint.

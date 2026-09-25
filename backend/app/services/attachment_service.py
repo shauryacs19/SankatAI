@@ -27,6 +27,7 @@ from typing import Callable, Optional
 
 from app.integrations.aws.s3_storage import ObjectStorage
 from app.repositories.attachment_repository import AttachmentRepository
+from app.services import analytics_service
 
 
 class AttachmentError(Exception):
@@ -115,9 +116,12 @@ class AttachmentService:
         }
 
     def mark_uploaded(self, user_id: str, attachment_id: str, size: Optional[int] = None) -> None:
-        if not self._repo.get(user_id, attachment_id):
+        item = self._repo.get(user_id, attachment_id)
+        if not item:
             raise NotFoundError("Attachment not found.")
         self._repo.update_status(user_id, attachment_id, "uploaded", size)
+        if item.get("status") != "uploaded":  # count each file once, on its first completion
+            analytics_service.emit("DOCUMENT_UPLOADED", user_id, scope=item.get("scope"), kind=item.get("kind"))
 
     def list(self, user_id: str, scope: str, chat_id: Optional[str] = None) -> list[dict]:
         views = []
