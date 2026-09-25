@@ -166,7 +166,9 @@ def _submit(fn: Callable, *args) -> None:
 
 # --- live-since / backfill markers (cached) ----------------------------------
 
-_markers: dict[str, Any] = {"live_since": None, "backfill_done": False, "backfill_checked": 0.0, "since": set()}
+# backfill_checked is None until the first check: time.monotonic() starts near 0
+# at boot on Linux, so 0.0 would read as "just checked" on a fresh instance.
+_markers: dict[str, Any] = {"live_since": None, "backfill_done": False, "backfill_checked": None, "since": set()}
 _markers_lock = threading.Lock()
 
 
@@ -184,7 +186,8 @@ def _live_since() -> str:
 
 def _backfill_done() -> bool:
     with _markers_lock:
-        if _markers["backfill_done"] or time.monotonic() - _markers["backfill_checked"] < 600:
+        checked = _markers["backfill_checked"]
+        if _markers["backfill_done"] or (checked is not None and time.monotonic() - checked < 600):
             return _markers["backfill_done"]
     done = (repo.get_meta("BACKFILL") or {}).get("status") == "done"
     with _markers_lock:
@@ -205,7 +208,7 @@ def _mark_since(metric: str, day: str) -> None:
 def reset_caches() -> None:
     """Tests only: forget cached markers and touched ids."""
     with _markers_lock:
-        _markers.update(live_since=None, backfill_done=False, backfill_checked=0.0, since=set())
+        _markers.update(live_since=None, backfill_done=False, backfill_checked=None, since=set())
     with _touch_lock:
         _touched.update(day=None, users=set(), chats=set(), bucket=None, bucket_users=set(), seen=set())
 

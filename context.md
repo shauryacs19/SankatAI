@@ -631,8 +631,14 @@ unused. **Existing web sessions (memory-only) end once on deploy; users sign in 
   Mock admin dashboard replaced by `/api/admin/*` (JWT re-verify + ADMIN group + admins
   table), Gmail invitations (SES), safe removal, append-only audit, real aggregates only.
   Web sign-in moved from Hosted UI redirects to in-app SRP (fixes the auto-redirect on load).
-  Terraform plan: 8 add, 3 in-place change (IAM policy, API GW integration headers, pool
-  account recovery), 0 destroy — **not applied yet**. New deps: backend PyJWT[crypto]; dev
+  Terraform: 8 add, 3 in-place change (IAM policy, API GW integration headers, pool
+  account recovery), 0 destroy — **applied 2026-09-25** (tables ACTIVE, ADMIN group
+  created). `analytics_salt` set (random 64-hex). `ses_sender_email` still EMPTY, so
+  invitations answer 503 until it is set and re-applied. Merged to main as 3213d29; its CI
+  failed on `test_registration_waits_for_backfill` (Linux `time.monotonic()` starts near 0
+  at boot, and the backfill-check cache used 0.0 as "never checked") — fixed with a None
+  sentinel + regression test. Trivy FS reports 2 HIGH in `image-size` (root lockfile, via
+  metro/mobile; not a deploy gate; known, see the npm audit entry). New deps: backend PyJWT[crypto]; dev
   moto[cognitoidp,dynamodb]. Backend 98 tests, web 88 tests, lint = 5 pre-existing errors.
 - **Auto language detection + same-language replies + read-aloud (2026-09-24):** see §9b–§9d.
   Transcribe LID replaces the manual selector; Comprehend + a prompt directive make replies

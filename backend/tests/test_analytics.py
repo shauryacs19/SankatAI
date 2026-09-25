@@ -163,6 +163,14 @@ def test_registration_waits_for_backfill(aws):
     assert a.get_analytics(rng(), ("users",))["users"]["newInRange"]["value"] == 1
 
 
+def test_backfill_check_works_right_after_boot(aws, monkeypatch):
+    # time.monotonic() starts near 0 at boot on Linux (CI runners, new EC2).
+    monkeypatch.setattr(a.time, "monotonic", lambda: 5.0)
+    repo.put_meta("BACKFILL", {"status": "done"})
+    a.touch_user("fresh-host-user")
+    assert a.get_analytics(rng(), ("users",))["users"]["newInRange"]["value"] == 1
+
+
 def test_range_validation():
     with pytest.raises(a.RangeError):
         a.parse_range("2026-09-10", "2026-09-01")
