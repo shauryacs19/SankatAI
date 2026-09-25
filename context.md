@@ -633,8 +633,18 @@ unused. **Existing web sessions (memory-only) end once on deploy; users sign in 
   Web sign-in moved from Hosted UI redirects to in-app SRP (fixes the auto-redirect on load).
   Terraform: 8 add, 3 in-place change (IAM policy, API GW integration headers, pool
   account recovery), 0 destroy — **applied 2026-09-25** (tables ACTIVE, ADMIN group
-  created). `analytics_salt` set (random 64-hex). `ses_sender_email` still EMPTY, so
-  invitations answer 503 until it is set and re-applied. Merged to main as 3213d29; its CI
+  created). `analytics_salt` set (random 64-hex). **Bootstrapped** admin
+  shauryacs19@gmail.com (active_count 1, audit `admin_bootstrap`). **Backfill done**
+  (cutoff 2026-09-25T17:17Z, platform start 2026-09-24, 1 Cognito user, 36 AI requests,
+  26 triage results). **SES sender = shauryacs19@gmail.com**, set in the gitignored
+  `infrastructure/terraform/terraform.tfvars` (apply from this machine keeps it; an apply
+  without it REMOVES the identity + grant). Identity was Pending verification; account is in
+  the SES sandbox (only verified recipients). The earlier tfvars was overwritten by mistake;
+  every value it could set equalled the variable defaults (recovered from the applied plan),
+  so effective config is unchanged.
+  ⚠️ On a flaky network a full `terraform plan` refresh reported the frontend bucket as
+  "deleted" (DNS failures) — never apply such a plan; `-refresh=false` was used for the SES
+  change. Merged to main as 3213d29; its CI
   failed on `test_registration_waits_for_backfill` (Linux `time.monotonic()` starts near 0
   at boot, and the backfill-check cache used 0.0 as "never checked") — fixed with a None
   sentinel + regression test. Trivy FS reports 2 HIGH in `image-size` (root lockfile, via
