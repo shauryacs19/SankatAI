@@ -45,6 +45,28 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
   signing_protocol                  = "sigv4"
 }
 
+# SPA fallback, scoped to the S3 (default) behavior only. Client-side routes
+# (/admin/invite/accept, /dashboard/chat, ...) have no file extension, while
+# every real object in the bucket does (index.html, assets/*.js, vite.svg), so
+# extension-less paths are served the app shell. /api/* never runs this, so
+# backend status codes and JSON bodies reach the client unchanged.
+resource "aws_cloudfront_function" "spa_routes" {
+  name    = "${var.project_name}-spa-routes"
+  runtime = "cloudfront-js-2.0"
+  comment = "Serve /index.html for client-side routes (S3 behavior only)"
+  publish = true
+  code    = <<-EOT
+    function handler(event) {
+      var request = event.request;
+      var last = request.uri.substring(request.uri.lastIndexOf('/') + 1);
+      if (last.indexOf('.') === -1) {
+        request.uri = '/index.html';
+      }
+      return request;
+    }
+  EOT
+}
+
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   is_ipv6_enabled     = true
@@ -91,6 +113,11 @@ resource "aws_cloudfront_distribution" "frontend" {
         forward = "none"
       }
     }
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_routes.arn
+    }
   }
 
   # Route /api/* to API Gateway. Never cached; forwards the Authorization
@@ -121,14 +148,10 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
-  # SPA fallback: with OAC + a private bucket, S3 returns 403 for unknown keys,
-  # so mapping 403 -> index.html covers client-side routes. We deliberately do
-  # NOT remap 404, so genuine API 404s from the backend pass through unchanged.
-  custom_error_response {
-    error_code         = 403
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
+  # No custom_error_response: it applies to EVERY behavior, /api/* included, so
+  # the old 403 -> /index.html (200) mapping turned API 403s ("Incorrect PIN.",
+  # admin denials, invite wrong_email) into HTML the web client failed to parse.
+  # The SPA fallback is the spa_routes function on the S3 behavior instead.
 
   restrictions {
     geo_restriction {
