@@ -49,24 +49,6 @@ variable "nat_instance_type" {
   default     = "t4g.nano"
 }
 
-variable "cognito_callback_urls" {
-  description = "Hosted UI redirect URIs (exact match, including scheme and path)."
-  type        = list(string)
-  default = [
-    "http://localhost:5173/auth/callback",
-    "sankatai://auth/callback",
-  ]
-}
-
-variable "cognito_logout_urls" {
-  description = "Allowed post-logout redirect targets."
-  type        = list(string)
-  default = [
-    "http://localhost:5173/",
-    "sankatai://",
-  ]
-}
-
 variable "terraform_state_bucket" {
   description = "S3 bucket holding this configuration's state. Must match backend.tf."
   type        = string
@@ -120,31 +102,3 @@ variable "app_url" {
   default     = ""
 }
 
-# Social sign-in (Cognito identity providers). Empty = provider not created.
-# Set in terraform.tfvars (local only). Redirect URI to register with each
-# provider: `terraform output cognito_social_redirect_uri`.
-variable "google_client_id" {
-  description = "Google OAuth client ID (Google Cloud Console > APIs & Services > Credentials)."
-  type        = string
-  default     = ""
-}
-
-variable "google_client_secret" {
-  description = "Google OAuth client secret."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "facebook_app_id" {
-  description = "Facebook app ID (Meta for Developers)."
-  type        = string
-  default     = ""
-}
-
-variable "facebook_app_secret" {
-  description = "Facebook app secret."
-  type        = string
-  default     = ""
-  sensitive   = true
-}

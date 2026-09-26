@@ -18,7 +18,6 @@ const MESSAGES = {
   UsernameExistsException: 'That username, email or phone number is already in use.',
   AliasExistsException: 'That username, email or phone number is already in use.',
   SmsSignInUnavailable: 'Text-message sign-in isn’t available for this number. Sign in with your password.',
-  SocialSignInFailed: 'Couldn’t finish signing in with that account. Try again.',
   InvalidPhoneNumber: 'Enter the phone number with its country code, like +91 98765 43210.',
   PasskeyUnavailable: 'No passkey is set up for that account. Sign in another way, then add one in Settings.',
   PasskeyCancelled: 'No passkey was used. Try again when you’re ready.',

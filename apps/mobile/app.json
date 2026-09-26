@@ -3,7 +3,6 @@
     "name": "Sankat.AI",
     "slug": "sankatai-mobile",
     "version": "1.0.0",
-    "scheme": "sankatai",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "splash": {

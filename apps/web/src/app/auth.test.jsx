@@ -22,9 +22,6 @@ const auth = vi.hoisted(() => ({
   changePassword: vi.fn(),
   startCodeSignIn: vi.fn(),
   confirmCodeSignIn: vi.fn(),
-  startSocialSignIn: vi.fn(),
-  completeSocialSignIn: vi.fn(),
-  socialProviders: vi.fn(() => []),
   updateUsername: vi.fn(),
   signInWithPasskey: vi.fn(),
   addPasskey: vi.fn(),
@@ -72,7 +69,6 @@ beforeEach(() => {
   auth.getValidAccessToken.mockResolvedValue('access-token')
   auth.getIdToken.mockReturnValue('id-token')
   auth.restoreSession.mockResolvedValue(null)
-  auth.socialProviders.mockReturnValue([])
   sessionStorage.clear()
   api.request.mockReset()
   api.request.mockImplementation(async (path) => (path.startsWith('/profile') ? PROFILE : []))
@@ -334,7 +330,7 @@ describe('session loss and logout', () => {
   })
 })
 
-describe('phone, code and social sign-in', () => {
+describe('phone and code sign-in', () => {
   it('signs up with a phone number and a username', async () => {
     auth.signUp.mockResolvedValue({ username: 'uuid-2' })
     renderAt('/signup')
@@ -387,36 +383,6 @@ describe('phone, code and social sign-in', () => {
     await waitFor(() => expect(auth.signIn).toHaveBeenCalledWith({ username: '+919876543210', password: 'Secret123', remember: true }))
   })
 
-  it('hides social buttons until providers are configured, then starts the chosen one', async () => {
-    renderAt('/login')
-    await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
-    expect(screen.queryByRole('button', { name: /Continue with Google/ })).toBeNull()
-    cleanup()
-    auth.socialProviders.mockReturnValue(['Google', 'Facebook'])
-    auth.startSocialSignIn.mockReturnValue(new Promise(() => {})) // leaves the page
-    renderAt(`/login?returnTo=${encodeURIComponent('/dashboard/chat')}`)
-    fireEvent.click(await screen.findByRole('button', { name: /Continue with Google/ }))
-    expect(screen.getByRole('button', { name: /Continue with Facebook/ })).toBeTruthy()
-    expect(auth.startSocialSignIn).toHaveBeenCalledWith('Google', { returnTo: '/dashboard/chat', remember: true })
-  })
-
-  it('finishes social sign-in on /auth/callback and honours a safe returnTo only', async () => {
-    auth.completeSocialSignIn.mockResolvedValue({ user: USER, returnTo: '/dashboard/files' })
-    renderAt('/auth/callback?code=abc&state=xyz')
-    await waitFor(() => expect(loc()).toBe('/dashboard/files'))
-    expect(auth.completeSocialSignIn).toHaveBeenCalledWith('?code=abc&state=xyz')
-    cleanup()
-    auth.completeSocialSignIn.mockResolvedValue({ user: USER, returnTo: 'https://evil.example' })
-    renderAt('/auth/callback?code=abc&state=xyz')
-    await waitFor(() => expect(loc()).toMatch(/^\/(app|dashboard|profile-setup)/))
-  })
-
-  it('explains a failed social sign-in', async () => {
-    auth.completeSocialSignIn.mockRejectedValue(cognitoError('UserLambdaValidationException'))
-    auth.completeSocialSignIn.mockRejectedValueOnce(Object.assign(new Error('PreSignUp failed with error An account with this email already exists. Sign in instead.'), { code: 'UserLambdaValidationException' }))
-    renderAt('/auth/callback?error=invalid_request')
-    expect((await screen.findByRole('alert')).textContent).toBe('An account with this email already exists. Sign in instead')
-  })
 })
 
 describe('passkeys', () => {

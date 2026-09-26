@@ -7,8 +7,6 @@
 //     called directly because the library doesn't implement it.
 //   - passkey: Cognito's USER_AUTH flow with WEB_AUTHN; the browser signs the
 //     challenge with a passkey bound to this site's domain.
-//   - Google / Facebook: only when the person presses the button, a redirect
-//     to Cognito's /oauth2/authorize naming that provider (code + PKCE).
 // Loading a page never redirects anywhere: it only reads the library's stored
 // session (refreshing it if needed), silently.
 //
@@ -27,19 +25,11 @@ import {
   CognitoUserPool,
   CognitoUserSession,
 } from 'amazon-cognito-identity-js'
-import {
-  buildAuthorizeUrl, createCognitoApi, exchangeAuthCode, isLinkedAccountRetry, normalizeUsername,
-  parseSocialProviders, pkceChallenge, randomUrlSafe,
-} from '@sankatai/shared'
+import { createCognitoApi, normalizeUsername } from '@sankatai/shared'
 import { authenticationJSON, registrationJSON, toCreationOptions, toRequestOptions } from './webauthn'
 
 const POOL_ID = import.meta.env.VITE_COGNITO_USER_POOL_ID
 const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID
-// Cognito OAuth origin (https://<prefix>.auth.<region>.amazoncognito.com) and
-// the providers enabled on the app client ("Google,Facebook"); both come from
-// Terraform outputs at build time.
-const OAUTH_DOMAIN = import.meta.env.VITE_COGNITO_DOMAIN
-const SOCIAL = parseSocialProviders(import.meta.env.VITE_SOCIAL_PROVIDERS)
 const REGION = (POOL_ID || '').split('_')[0]
 
 export const isCognitoConfigured = () => Boolean(POOL_ID && CLIENT_ID)
@@ -94,8 +84,6 @@ const userFromSession = (session) => {
     name: claims.name || null,
     // The person's handle (Cognito preferred_username); null until chosen.
     username: claims.preferred_username || null,
-    // Social-only accounts (google_… / facebook_…) have no password to change.
-    hasPassword: !/^(google|facebook)_/i.test(claims['cognito:username'] || ''),
     // Display/UX only. The backend decides admin access from the verified token.
     groups: Array.isArray(claims['cognito:groups']) ? claims['cognito:groups'] : [],
   }
@@ -166,8 +154,8 @@ export const signOut = () => {
 }
 
 /**
- * Store tokens obtained outside the library (text-message code, social
- * sign-in) exactly as an SRP sign-in would: in the library's own storage, so
+ * Store tokens obtained outside the library (text-message code, passkey)
+ * exactly as an SRP sign-in would: in the library's own storage, so
  * restoreSession and refresh work the same for every way in.
  */
 const adoptTokens = (tokens, kind) => {
@@ -320,57 +308,6 @@ export const addPasskey = async () => {
 export const listPasskeys = async () => api().listPasskeys(await accessToken())
 
 export const removePasskey = async (credentialId) => api().deletePasskey({ accessToken: await accessToken(), credentialId })
-
-// ── social sign-in (Google / Facebook through Cognito) ─────────────────────
-
-const OAUTH_KEY = 'sankatai_oauth'
-const redirectUri = () => `${window.location.origin}/auth/callback`
-const sha256 = async (text) => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
-
-/** Providers to offer on the sign-in pages (none until configured). */
-export const socialProviders = () => (isCognitoConfigured() && OAUTH_DOMAIN ? SOCIAL : [])
-
-/**
- * Leave for the provider. Only ever called from a button press. The PKCE
- * verifier and state live in sessionStorage for the round trip only.
- */
-export const startSocialSignIn = async (provider, { returnTo = null, remember = true, retried = false } = {}) => {
-  if (!socialProviders().includes(provider)) throw Object.assign(new Error('Unavailable'), { code: 'NotConfigured' })
-  const random = (bytes) => randomUrlSafe((a) => crypto.getRandomValues(a), bytes)
-  const verifier = random(48)
-  const state = random(24)
-  sessionStorage.setItem(OAUTH_KEY, JSON.stringify({ provider, verifier, state, returnTo, remember, retried }))
-  const codeChallenge = await pkceChallenge(verifier, sha256)
-  window.location.assign(buildAuthorizeUrl({
-    domain: OAUTH_DOMAIN, clientId: CLIENT_ID, redirectUri: redirectUri(), provider, state, codeChallenge,
-  }))
-}
-
-/**
- * Finish on /auth/callback. Resolves { user, returnTo }, or { restarted: true }
- * when Cognito asks for a second attempt right after linking an account.
- */
-export const completeSocialSignIn = async (search) => {
-  const params = new URLSearchParams(search)
-  let saved = null
-  try { saved = JSON.parse(sessionStorage.getItem(OAUTH_KEY) || 'null') } catch { saved = null }
-  sessionStorage.removeItem(OAUTH_KEY)
-  const error = params.get('error_description') || params.get('error')
-  if (error) {
-    if (saved && !saved.retried && isLinkedAccountRetry(error)) {
-      await startSocialSignIn(saved.provider, { returnTo: saved.returnTo, remember: saved.remember, retried: true })
-      return { restarted: true }
-    }
-    throw Object.assign(new Error(error), { code: /PreSignUp failed/i.test(error) ? 'UserLambdaValidationException' : 'SocialSignInFailed' })
-  }
-  if (!saved || !params.get('code') || params.get('state') !== saved.state) {
-    throw Object.assign(new Error('State mismatch'), { code: 'SocialSignInFailed' })
-  }
-  const tokens = await exchangeAuthCode({
-    domain: OAUTH_DOMAIN, clientId: CLIENT_ID, redirectUri: redirectUri(), code: params.get('code'), codeVerifier: saved.verifier,
-  })
-  return { user: adoptTokens(tokens, saved.remember ? 'local' : 'session'), returnTo: saved.returnTo }
-}
 
 // ── sign-up / verification / password reset ──────────────────────────────
 

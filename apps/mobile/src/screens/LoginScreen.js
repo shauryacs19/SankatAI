@@ -7,7 +7,7 @@ import { radius } from '../theme'
 import { useTheme } from '../context/ThemeContext'
 import {
   signUp, confirmSignUp, resendConfirmationCode, isCognitoConfigured,
-  startCodeSignIn, confirmCodeSignIn, cancelCodeSignIn, socialProviders, signInWithProvider,
+  startCodeSignIn, confirmCodeSignIn, cancelCodeSignIn,
 } from '../lib/cognito'
 import { useAuth } from '../context/AuthContext'
 
@@ -40,7 +40,6 @@ export default function LoginScreen({ route }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const providers = socialProviders()
 
   const set = (k) => (v) => { setForm((p) => ({ ...p, [k]: v })); if (error) setError('') }
   const switchMode = (m) => { setMode(m); setError(''); setNotice('') }
@@ -71,9 +70,6 @@ export default function LoginScreen({ route }) {
     if (form.code.trim().length !== 6) return setError('Enter the 6-digit code.')
     return run(async () => { await confirmCodeSignIn(form.code.trim()); await finishSignIn() }, 'Unable to sign in.')
   }
-  const doSocial = (provider) => run(async () => {
-    if (await signInWithProvider(provider)) await finishSignIn()
-  }, `Unable to sign in with ${provider}.`)
 
   const doSignUp = () => {
     const nameErr = !form.name.trim() ? 'Enter your name.' : ''
@@ -141,12 +137,6 @@ export default function LoginScreen({ route }) {
             <>
               <Segmented styles={styles} value={mode} onChange={switchMode}
                 options={[['signin', 'Sign In'], ['signup', 'Create Account']]} />
-              {providers.map((p) => (
-                <TouchableOpacity key={p} style={styles.socialBtn} disabled={busy} onPress={() => doSocial(p)} accessibilityRole="button">
-                  <Text style={styles.socialBtnText}>{mode === 'signup' ? 'Sign up' : 'Continue'} with {p}</Text>
-                </TouchableOpacity>
-              ))}
-              {providers.length > 0 && <Text style={styles.divider}>or</Text>}
             </>
           )}
 
@@ -234,9 +224,6 @@ const makeStyles = (colors) => StyleSheet.create({
   tabActive: { backgroundColor: colors.surface },
   tabText: { fontWeight: '600', color: colors.muted },
   tabTextActive: { color: colors.primary },
-  socialBtn: { borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radius.md, paddingVertical: 13, alignItems: 'center', marginTop: 14 },
-  socialBtnText: { color: colors.text, fontWeight: '700', fontSize: 15 },
-  divider: { textAlign: 'center', color: colors.muted, marginTop: 14, fontSize: 13 },
   field: { marginTop: 16 },
   label: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 6 },
   input: { borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: colors.text, backgroundColor: colors.surface },

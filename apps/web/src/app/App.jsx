@@ -6,7 +6,6 @@ import Login from '../features/auth/components/Login.jsx'
 import Signup from '../features/auth/components/Signup.jsx'
 import Verify from '../features/auth/components/Verify.jsx'
 import ForgotPassword from '../features/auth/components/ForgotPassword.jsx'
-import AuthCallback from '../features/auth/components/AuthCallback.jsx'
 import ProfileSetup from '../features/profile/pages/ProfileSetup.jsx'
 import DashboardLayout from '../features/dashboard/DashboardLayout.jsx'
 import ChatPage from '../features/dashboard/pages/ChatPage.jsx'
@@ -62,8 +61,8 @@ function AppRoutes() {
       <Route path="/signup" element={<GuestOnly><Signup /></GuestOnly>} />
       <Route path="/verify" element={<Verify />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
-      {/* Return from Google/Facebook (social sign-in, code + PKCE). */}
-      <Route path="/auth/callback" element={<AuthCallback />} />
+      {/* Old Hosted UI / social callback bookmarks. */}
+      <Route path="/auth/callback" element={<Navigate to="/" replace />} />
 
       {/* Protected: guests go to /login?returnTo=<path>. */}
       <Route path="/app" element={<ProtectedRoute><Gate /></ProtectedRoute>} />

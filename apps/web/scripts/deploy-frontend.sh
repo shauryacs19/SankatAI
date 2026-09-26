@@ -19,7 +19,6 @@ BUCKET=$(terraform -chdir=infrastructure/terraform output -raw frontend_bucket_n
 DIST_ID=$(terraform -chdir=infrastructure/terraform output -raw cloudfront_distribution_id)
 POOL_ID=$(terraform -chdir=infrastructure/terraform output -raw cognito_user_pool_id)
 CLIENT_ID=$(terraform -chdir=infrastructure/terraform output -raw cognito_user_pool_client_id)
-COGNITO_DOMAIN=$(terraform -chdir=infrastructure/terraform output -raw cognito_hosted_ui_domain)
 
 echo "==> Building frontend"
 (
@@ -27,7 +26,6 @@ echo "==> Building frontend"
   VITE_API_URL=/ \
   VITE_COGNITO_USER_POOL_ID="$POOL_ID" \
   VITE_COGNITO_CLIENT_ID="$CLIENT_ID" \
-  VITE_COGNITO_DOMAIN="$COGNITO_DOMAIN" \
   npm run build
 )
 echo "    bucket:       $BUCKET"

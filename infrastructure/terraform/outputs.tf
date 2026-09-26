@@ -21,21 +21,6 @@ output "cognito_user_pool_client_id" {
   value = module.cognito.user_pool_client_id
 }
 
-output "cognito_hosted_ui_domain" {
-  description = "VITE_COGNITO_DOMAIN / EXPO_PUBLIC_COGNITO_DOMAIN (social sign-in, PKCE)."
-  value       = module.cognito.hosted_ui_domain
-}
-
-output "cognito_social_providers" {
-  description = "VITE_SOCIAL_PROVIDERS / EXPO_PUBLIC_SOCIAL_PROVIDERS, e.g. \"Google,Facebook\". Empty until credentials are set."
-  value       = join(",", module.cognito.social_providers)
-}
-
-output "cognito_social_redirect_uri" {
-  description = "Authorized redirect URI to register with Google and Facebook."
-  value       = "${module.cognito.hosted_ui_domain}/oauth2/idpresponse"
-}
-
 # --- Network path ---
 output "api_gateway_endpoint" {
   description = "Public API entry point. CloudFront /api/* origin; EXPO_PUBLIC_API_URL for mobile."

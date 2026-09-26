@@ -13,13 +13,6 @@ PreSignUp_SignUp (email or phone sign-up in the apps)
     unconfirmed account in a pool where it is an alias, so it can't be a
     sign-up attribute.
 
-PreSignUp_ExternalProvider (Google / Facebook)
-  - Google, with a verified email that belongs to exactly one existing
-    email/password account: link the Google identity to that account
-    (AdminLinkProviderForUser), so both sign-ins reach the same user and data.
-  - Facebook does not assert that an email is verified, so it is never linked
-    automatically; linking on an unverified email would allow account takeover.
-
 PostConfirmation_ConfirmSignUp
   - set preferred_username from ConfirmSignUp's ClientMetadata, so the account
     can sign in with it immediately. If the name was taken in between, the
@@ -38,8 +31,6 @@ import boto3
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
-
-_PROVIDERS = {"google": "Google", "facebook": "Facebook"}
 
 # Same rules as usernameError() in packages/shared/auth.js.
 _USERNAME_RE = re.compile(r"^[a-z][a-z0-9_.]{2,19}$")
@@ -67,10 +58,6 @@ def _attr(user: dict, name: str):
     return next((a["Value"] for a in user.get("Attributes", []) if a["Name"] == name), None)
 
 
-def _is_external(user: dict) -> bool:
-    return user.get("UserStatus") == "EXTERNAL_PROVIDER"
-
-
 def _requested_username(event: dict):
     raw = (event.get("request", {}).get("clientMetadata") or {}).get("preferred_username")
     return None if raw is None else str(raw).strip().lower()
@@ -88,8 +75,7 @@ def _check_sign_up(event: dict) -> None:
     if not email and not phone:
         raise Exception("Add an email address or a phone number")
     if email:
-        # A social account's email came from the provider, so it counts as taken.
-        if any(_attr(u, "email_verified") == "true" or _is_external(u) for u in _users_with(pool_id, "email", email)):
+        if any(_attr(u, "email_verified") == "true" for u in _users_with(pool_id, "email", email)):
             raise Exception("An account with this email already exists. Sign in instead")
     if phone:
         if any(_attr(u, "phone_number_verified") == "true" for u in _users_with(pool_id, "phone_number", phone)):
@@ -100,29 +86,6 @@ def _check_sign_up(event: dict) -> None:
             raise Exception("Choose a username of 3 to 20 letters, numbers, dots or underscores, starting with a letter")
         if _users_with(pool_id, "preferred_username", handle):
             raise Exception("That username is taken. Choose another")
-
-
-def _link_external(event: dict) -> None:
-    pool_id = event["userPoolId"]
-    attrs = event.get("request", {}).get("userAttributes", {})
-    key, _, provider_sub = str(event.get("userName", "")).partition("_")
-    provider = _PROVIDERS.get(key.lower())
-    email = (attrs.get("email") or "").strip().lower()
-    verified = str(attrs.get("email_verified", "")).lower() == "true"
-    if provider != "Google" or not (email and verified and provider_sub):
-        return
-    matches = [
-        u for u in _users_with(pool_id, "email", email)
-        if not _is_external(u) and _attr(u, "email_verified") == "true"
-    ]
-    if len(matches) != 1:
-        return
-    _cognito().admin_link_provider_for_user(
-        UserPoolId=pool_id,
-        DestinationUser={"ProviderName": "Cognito", "ProviderAttributeValue": matches[0]["Username"]},
-        SourceUser={"ProviderName": provider, "ProviderAttributeName": "Cognito_Subject", "ProviderAttributeValue": provider_sub},
-    )
-    log.info("Linked a %s identity to an existing account", provider)
 
 
 def _set_username(event: dict) -> None:
@@ -142,8 +105,6 @@ def handler(event, context):
     source = event.get("triggerSource")
     if source == "PreSignUp_SignUp":
         _check_sign_up(event)
-    elif source == "PreSignUp_ExternalProvider":
-        _link_external(event)
     elif source == "PostConfirmation_ConfirmSignUp":
         _set_username(event)
     return event

@@ -25,7 +25,7 @@ export default function AuthSection() {
   )
   const [account, setAccount] = useState(getCurrentAccount)
   const email = account.email || profile?.email || ''
-  const method = !account.hasPassword ? 'Google or Facebook' : account.phone ? 'Password or texted code' : 'Password'
+  const method = account.phone ? 'Password or texted code' : 'Password'
 
   // Username (Cognito preferred_username; unique, usable to sign in).
   const [handle, setHandle] = useState(account.username || '')
@@ -106,7 +106,7 @@ export default function AuthSection() {
           </TouchableOpacity>
         </View>
 
-        {account.hasPassword && <View style={styles.card}>
+        <View style={styles.card}>
           <View style={styles.cardTitleRow}><KeyRound size={15} color={colors.primary} /><Text style={styles.cardTitle}>Change password</Text></View>
 
           <Text style={styles.label}>Current password</Text>
@@ -126,7 +126,7 @@ export default function AuthSection() {
           <TouchableOpacity style={[styles.primary, !canSave && { opacity: 0.5 }]} onPress={submit} disabled={!canSave}>
             {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Update password</Text>}
           </TouchableOpacity>
-        </View>}
+        </View>
 
         <View style={styles.card}>
           <View style={styles.cardTitleRow}><LogOut size={15} color={colors.primary} /><Text style={styles.cardTitle}>Session</Text></View>

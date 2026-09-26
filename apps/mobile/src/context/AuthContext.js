@@ -58,7 +58,7 @@ export function AuthProvider({ children }) {
     setStatus(AUTH_STATUS.AUTHENTICATED)
   }, [])
 
-  // After a texted-code or social sign-in has stored its tokens.
+  // After a texted-code sign-in has stored its tokens.
   const finishSignIn = useCallback(async () => {
     setInitialRoute(await resolveInitialRoute())
     setStatus(AUTH_STATUS.AUTHENTICATED)

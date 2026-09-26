@@ -9,27 +9,20 @@ import 'react-native-get-random-values'
 // fast reads and persist tokens to the platform secure keystore (iOS Keychain /
 // Android Keystore via expo-secure-store) — never AsyncStorage/localStorage/plain files.
 //
-// Ways in: password (username, email or phone — all Cognito aliases), a texted
-// one-time code (Cognito USER_AUTH / SMS_OTP), or Google/Facebook through
-// Cognito's OAuth endpoint in an in-app browser (code + PKCE).
+// Ways in: password (username, email or phone — all Cognito aliases) or a
+// texted one-time code (Cognito USER_AUTH / SMS_OTP).
 
 import * as SecureStore from 'expo-secure-store'
-import * as WebBrowser from 'expo-web-browser'
-import Constants from 'expo-constants'
-import { Sha256 } from '@aws-crypto/sha256-js'
 import {
   CognitoUserPool, CognitoUser, AuthenticationDetails, CognitoUserAttribute,
   CognitoRefreshToken,
 } from 'amazon-cognito-identity-js'
-import {
-  buildAuthorizeUrl, createCognitoApi, exchangeAuthCode, isLinkedAccountRetry, normalizeUsername,
-  parseSocialProviders, pkceChallenge, randomUrlSafe, uuidV4,
-} from '@sankatai/shared'
+import { createCognitoApi, normalizeUsername, uuidV4 } from '@sankatai/shared'
 import { COGNITO } from '../config'
 
 // Individual SecureStore entries (each token stays well under the 2KB limit).
 const K = {
-  username: 'sankatai_username', // the Cognito username (UUID or google_…)
+  username: 'sankatai_username', // the Cognito username (a UUID)
   idToken: 'sankatai_idToken',
   accessToken: 'sankatai_accessToken',
   refreshToken: 'sankatai_refreshToken',
@@ -37,8 +30,6 @@ const K = {
 }
 // Refresh a little before actual expiry to avoid racing a just-expired token.
 const EXPIRY_SKEW_MS = 60_000
-// Registered on the Cognito app client (callback_urls) and in app.json.
-const REDIRECT_URI = 'sankatai://auth/callback'
 
 // --- synchronous in-memory storage for the Cognito SDK itself ---
 class MemoryStorage {
@@ -118,7 +109,7 @@ function sessionToData(session, existingRefreshToken = null) {
   }
 }
 
-// Tokens from the texted-code or social flows (not the SDK).
+// Tokens from the texted-code flow (not the SDK).
 function tokensToData(tokens) {
   return {
     username: claimsOf(tokens.accessToken).username,
@@ -195,8 +186,6 @@ export const getCurrentAccount = () => {
     email: c.email || null,
     phone: c.phone_number || null,
     username: c.preferred_username || null,
-    // Social-only accounts (google_… / facebook_…) have no password to change.
-    hasPassword: !/^(google|facebook)_/i.test(c['cognito:username'] || currentSession?.username || ''),
   }
 }
 export const getCurrentEmail = () => getCurrentAccount().email
@@ -302,56 +291,6 @@ export const confirmCodeSignIn = async (code) => {
 }
 
 export const cancelCodeSignIn = () => { pendingCode = null }
-
-// ── social sign-in ──────────────────────────────────────────────────────────
-
-// Expo Go can't receive the sankatai:// redirect, so social sign-in needs a
-// development or store build of the app.
-export const socialProviders = () =>
-  (isCognitoConfigured() && COGNITO.domain && Constants.appOwnership !== 'expo'
-    ? parseSocialProviders(COGNITO.socialProviders)
-    : [])
-
-const sha256 = async (text) => {
-  const hash = new Sha256()
-  hash.update(text)
-  return hash.digest()
-}
-
-/**
- * Sign in with Google/Facebook in an in-app browser. Resolves true when signed
- * in, false when the person closed the browser.
- */
-export async function signInWithProvider(provider, retried = false) {
-  const random = (bytes) => randomUrlSafe((a) => crypto.getRandomValues(a), bytes)
-  const verifier = random(48)
-  const state = random(24)
-  const url = buildAuthorizeUrl({
-    domain: COGNITO.domain, clientId: COGNITO.clientId, redirectUri: REDIRECT_URI, provider, state,
-    codeChallenge: await pkceChallenge(verifier, sha256),
-  })
-  const result = await WebBrowser.openAuthSessionAsync(url, REDIRECT_URI)
-  if (result.type !== 'success' || !result.url) return false
-  const query = result.url.split('?')[1] || ''
-  const params = Object.fromEntries(query.split('#')[0].split('&').filter(Boolean).map((kv) => {
-    const [k, v = ''] = kv.split('=')
-    return [decodeURIComponent(k), decodeURIComponent(v.replace(/\+/g, ' '))]
-  }))
-  const error = params.error_description || params.error
-  if (error) {
-    // Right after the pre sign-up trigger links a Google identity to an
-    // existing account, Cognito fails once; the second attempt succeeds.
-    if (!retried && isLinkedAccountRetry(error)) return signInWithProvider(provider, true)
-    const m = /PreSignUp failed with error (.+?)\.?$/.exec(error)
-    throw new Error(m ? m[1] : 'Couldn’t finish signing in with that account. Try again.')
-  }
-  if (params.state !== state || !params.code) throw new Error('Couldn’t finish signing in with that account. Try again.')
-  const tokens = await exchangeAuthCode({
-    domain: COGNITO.domain, clientId: COGNITO.clientId, redirectUri: REDIRECT_URI, code: params.code, codeVerifier: verifier,
-  })
-  await writeSecure(tokensToData(tokens))
-  return true
-}
 
 // ── account ─────────────────────────────────────────────────────────────────
 

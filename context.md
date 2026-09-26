@@ -633,65 +633,47 @@ unused. **Existing web sessions (memory-only) end once on deploy; users sign in 
 
 **Tests:** `app/auth.test.jsx` (26), `services/api/httpClient.test.js` (4).
 
-## 9g. Sign-in: username / email / phone, texted codes, Google + Facebook (2026-09-26)
+## 9g. Sign-in: username / email / phone, texted codes, passkeys (2026-09-26)
 
 **Pool** (`modules/security/cognito`): new `sankatai-users` (Essentials tier, deletion
 protection ACTIVE). `alias_attributes = [email, phone_number, preferred_username]`, case-insensitive;
 Cognito `username` = client-generated UUID (never shown); the person's handle is
 `preferred_username` (unique via alias, changeable, rules in `@sankatai/shared` `usernameError`:
 3–20, starts with a letter, a-z0-9 . _, reserved names). `sign_in_policy` first factors
-`PASSWORD` + `SMS_OTP` (EMAIL_OTP off: needs SES as pool mailer, SES still sandbox; pool email =
-Cognito default, 50/day). MFA OFF. SMS via SNS role `sankatai-cognito-sms` (external id) —
+`PASSWORD`, `SMS_OTP`, `WEB_AUTHN` (EMAIL_OTP off: needs SES as pool mailer, SES still sandbox;
+pool email = Cognito default, 50/day). MFA OFF. SMS via SNS role `sankatai-cognito-sms` —
 **SNS SMS sandbox: only verified destination numbers get texts; India needs TRAI DLT** before
 real traffic. Old pool/client/domain/group kept by `removed { destroy = false }` (no user deleted).
-Domain `sankatai-signin` (`terraform output cognito_social_redirect_uri` for IdP consoles).
-Client `sankatai-app`: flows USER_AUTH, SRP, USER_PASSWORD (mobile), REFRESH; OAuth code+PKCE,
-scopes incl. `aws.cognito.signin.user.admin`; IdPs `COGNITO` + Google/Facebook **only when
-`google_client_id/secret`, `facebook_app_id/secret` are set in terraform.tfvars** (count 0 otherwise).
-**Pre sign-up Lambda** `sankatai-cognito-pre-sign-up` (py3.12, source `backend/lambdas/
-cognito_pre_sign_up.py`, tests `backend/tests/test_cognito_pre_sign_up.py`, zipped by the
-`hashicorp/archive` provider): sign-up needs email or phone; rejects an email/phone another
-account has VERIFIED (or a social account's email); Google with verified email → 
-`AdminLinkProviderForUser` onto the single matching verified native account. Facebook never
-auto-linked (no verified-email claim). Cognito fails the first sign-in right after linking
-("Already found an entry for username") — both clients retry once automatically.
-⚠️ **Cognito refuses `preferred_username` on an unconfirmed account in an alias pool**
-("Preferred username cannot be provided for unconfirmed account…", broke first sign-ups on
-2026-09-26). So the chosen username goes as **ClientMetadata** on SignUp (pre sign-up checks
-format + `ListUsers preferred_username` uniqueness) and again on ConfirmSignUp; the same Lambda
-is the **post confirmation** trigger and sets it with `AdminUpdateUserAttributes` (never fails the
-confirmation; a lost race leaves no username → Settings). ConfirmSignUp uses
+Client `sankatai-app`: flows USER_AUTH, SRP, USER_PASSWORD (mobile), REFRESH; **no OAuth, no
+Cognito domain, IdP `COGNITO` only** — Google/Facebook were built then REMOVED on 2026-09-26 at the
+user's request (too much setup); the `sankatai-signin` domain was destroyed.
+**Triggers Lambda** `sankatai-cognito-pre-sign-up` (py3.12, `backend/lambdas/cognito_pre_sign_up.py`,
+tests `backend/tests/test_cognito_pre_sign_up.py`, zipped by the `hashicorp/archive` provider):
+pre sign-up needs email or phone, rejects an email/phone another account has VERIFIED, and checks
+the requested username. ⚠️ **Cognito refuses `preferred_username` on an unconfirmed account in an
+alias pool** (broke first sign-ups on 2026-09-26): the username goes as **ClientMetadata** on
+SignUp and again on ConfirmSignUp; the same Lambda as **post confirmation** trigger sets it with
+`AdminUpdateUserAttributes` (never fails the confirmation). ConfirmSignUp uses
 `ForceAliasCreation=false` (true would move a verified email/phone off another account).
 
 **Shared** (`packages/shared/auth.js`): username/phone (`toE164`, default +91)/identifier parsing,
-`createCognitoApi` (USER_AUTH SMS_OTP start/answer, UpdateUserAttributes), OAuth helpers
-(`buildAuthorizeUrl` with identity_provider, `exchangeAuthCode`, PKCE), `uuidV4`. Tests:
-`apps/web/src/services/auth/sharedAuth.test.js`.
+`createCognitoApi` (USER_AUTH SMS_OTP + WEB_AUTHN, WebAuthn registration/list/delete,
+UpdateUserAttributes), `uuidV4`, `preSignUpMessage`. Tests: `apps/web/src/services/auth/
+sharedAuth.test.js`, `webauthn.test.js`.
 
-**Web**: Login = social buttons (only `VITE_SOCIAL_PROVIDERS`, from Terraform output via CD) +
-Password (email/phone/username, SRP) | "Text me a code". Social: button → `/oauth2/authorize?
-identity_provider=…` (never on load; invariant holds) → `/auth/callback` (`AuthCallback.jsx`,
-state check, PKCE exchange, `safeReturnTo`). OTP/social tokens adopted into the library's
-storage (`adoptTokens`), so restore/refresh are unchanged. Signup: name, username, Email|Phone,
-password; pending sign-up (Cognito UUID) in sessionStorage for `/verify`. Settings: username
-card, email/phone rows, password card hidden for social-only (`hasPassword`). Sign-out asks first
-(web `SignOutDialog`, mobile `Alert`).
-**Mobile**: same flows in `LoginScreen`; social via `expo-web-browser` `openAuthSessionAsync`,
-redirect `sankatai://auth/callback` (app.json `scheme`), **hidden in Expo Go** (needs a dev/store
-build); PKCE SHA-256 via `@aws-crypto/sha256-js`. SecureStore key `sankatai_username` (was email).
-**Passkeys (web only, 2026-09-26):** pool first factors now `PASSWORD, SMS_OTP, WEB_AUTHN`;
-`web_authn_configuration` relying party = the CloudFront domain (`module.frontend`), so passkeys
-work on the deployed site only (not localhost). Login tab "Passkey" (identifier + browser prompt,
-USER_AUTH `PREFERRED_CHALLENGE=WEB_AUTHN`); Settings `PasskeysCard` (Start/CompleteWebAuthnRegistration,
-List/DeleteWebAuthnCredential with the access token; hidden for social-only accounts).
-Hand-written base64url conversion in `apps/web/src/services/auth/webauthn.js` (no
-`parse*FromJSON`). Mobile passkeys not built (needs a native module + associated domains).
-**Status 2026-09-26:** root re-bootstrapped in the new pool (old rows retired). Google/Facebook
-still OFF — credentials go in local `terraform.tfvars` (placeholders added; see
-`terraform.tfvars.example`), then apply + re-run CD (`gh workflow run "SankatAI CD"`) so the web
-build picks up `VITE_SOCIAL_PROVIDERS`.
+**Web**: Login tabs Password (email/phone/username, SRP) | Text me a code | Passkey (only where
+the browser supports it). OTP/passkey tokens adopted into the library's storage (`adoptTokens`),
+so restore/refresh are unchanged. Signup: name, username, Email|Phone, password; pending sign-up
+(Cognito UUID + handle) in sessionStorage for `/verify`. Settings: username card, email/phone rows,
+passkeys card, change password. Sign-out asks first (web `SignOutDialog`, mobile `Alert`).
+`/auth/callback` just redirects to `/` (old bookmarks).
+**Passkeys (web only):** relying party = the CloudFront domain, so they work on the deployed
+site only (not localhost). Hand-written base64url conversion in `services/auth/webauthn.js`.
+Mobile passkeys not built (needs a native module + associated domains).
+**Mobile**: `LoginScreen` password or texted code; sign-up with username + email/phone.
+SecureStore key `sankatai_username` (was email). Pool/client defaults in `src/config.js`.
 **Backend**: unchanged request path. `bootstrap_admin.py` first retires admin rows whose Cognito
-user no longer exists (`retire_orphaned_admins`), so the old pool's root can't block the new one.
+user no longer exists (`retire_orphaned_admins`). Root re-bootstrapped in the new pool 2026-09-26.
 
 ## 10. Changelog (most recent first)
 - **Root admin (2026-09-26):** see §9e. Backend 105 tests, web 90 tests + build pass. Prod row

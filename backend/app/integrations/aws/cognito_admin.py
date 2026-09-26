@@ -1,8 +1,8 @@
 """Cognito user-pool administration: ADMIN group membership + pool metadata.
 
 Called as the backend instance role, whose policy allows exactly these actions
-on this one pool ARN. ``username`` is the Cognito username: an opaque UUID for
-email/phone sign-ups, ``google_<id>`` / ``facebook_<id>`` for social accounts.
+on this one pool ARN. ``username`` is the Cognito username: an opaque UUID chosen
+by the app at sign-up.
 """
 
 from __future__ import annotations

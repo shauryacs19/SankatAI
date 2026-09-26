@@ -8,7 +8,6 @@ import { passkeysSupported } from '../../../services/auth/webauthn'
 import { authErrorMessage, passwordOk, safeReturnTo } from '../../../services/auth/authErrors'
 import { Alert, Button, Field, Input, SegmentedControl } from '../../../components/ui'
 import { AuthLayout, CodeInput, PasswordChecklist, PasswordInput } from './AuthLayout.jsx'
-import { SocialButtons } from './SocialButtons.jsx'
 import { useCooldown, useFailureThrottle } from './authHooks'
 
 const RESEND_SECONDS = 60
@@ -182,7 +181,6 @@ export default function Login() {
 
       {step === 'signin' && (
         <>
-          <SocialButtons returnTo={returnTo} remember={remember} />
           <SegmentedControl label="Sign-in method" options={methodsHere()} value={method} block
             onChange={(m) => { setMethod(m); setError(''); setTouched({}) }} />
 

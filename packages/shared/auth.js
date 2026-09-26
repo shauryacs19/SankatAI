@@ -76,12 +76,6 @@ export const parseIdentifier = (raw) => {
 }
 
 // ── random values ────────────────────────────────────────────────────────────
-const base64Url = (bytes) => {
-  let s = ''
-  for (const b of bytes) s += String.fromCharCode(b)
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-}
-
 /** RFC 4122 v4 UUID from a getRandomValues implementation (Cognito username). */
 export const uuidV4 = (getRandomValues) => {
   const b = getRandomValues(new Uint8Array(16))
@@ -90,8 +84,6 @@ export const uuidV4 = (getRandomValues) => {
   const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
 }
-
-export const randomUrlSafe = (getRandomValues, bytes = 32) => base64Url(getRandomValues(new Uint8Array(bytes)))
 
 // ── Cognito public API ───────────────────────────────────────────────────────
 // amazon-cognito-identity-js doesn't implement the USER_AUTH flow, so these
@@ -192,56 +184,6 @@ export const createCognitoApi = ({ region, clientId, fetchImpl }) => {
     },
   }
 }
-
-// ── social sign-in (authorization code + PKCE, via Cognito) ──────────────────
-// The authorize URL names the provider (identity_provider=Google), so Cognito
-// forwards straight to Google/Facebook without showing its own page. Only
-// started by a button press, never on page load.
-export const SOCIAL_PROVIDERS = ['Google', 'Facebook']
-export const OAUTH_SCOPES = ['openid', 'email', 'phone', 'profile', 'aws.cognito.signin.user.admin']
-
-/** "Google,Facebook" (from the build config) -> ['Google', 'Facebook'], unknown names dropped. */
-export const parseSocialProviders = (raw) =>
-  String(raw || '').split(',').map((s) => s.trim()).filter((p) => SOCIAL_PROVIDERS.includes(p))
-
-const formEncode = (params) =>
-  Object.entries(params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
-
-/** S256 PKCE challenge. `sha256(string)` resolves the digest bytes. */
-export const pkceChallenge = async (verifier, sha256) => base64Url(await sha256(verifier))
-
-export const buildAuthorizeUrl = ({ domain, clientId, redirectUri, provider, state, codeChallenge }) =>
-  `${String(domain).replace(/\/$/, '')}/oauth2/authorize?${formEncode({
-    identity_provider: provider,
-    redirect_uri: redirectUri,
-    response_type: 'code',
-    client_id: clientId,
-    scope: OAUTH_SCOPES.join(' '),
-    state,
-    code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
-  })}`
-
-export const exchangeAuthCode = async ({ domain, clientId, redirectUri, code, codeVerifier, fetchImpl }) => {
-  const doFetch = fetchImpl || ((...args) => fetch(...args))
-  let res
-  try {
-    res = await doFetch(`${String(domain).replace(/\/$/, '')}/oauth2/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formEncode({ grant_type: 'authorization_code', client_id: clientId, code, redirect_uri: redirectUri, code_verifier: codeVerifier }),
-    })
-  } catch {
-    throw cognitoError('NetworkError', 'Network error')
-  }
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok || !data.id_token) throw cognitoError('SocialSignInFailed', data.error_description || data.error)
-  return { idToken: data.id_token, accessToken: data.access_token, refreshToken: data.refresh_token, expiresIn: data.expires_in }
-}
-
-// Cognito answers the very first social sign-in after the pre-sign-up trigger
-// links it to an existing account with this error; the next attempt succeeds.
-export const isLinkedAccountRetry = (description) => /already found an entry for username/i.test(String(description || ''))
 
 // Errors the pre-sign-up Lambda raises come back wrapped as
 // "PreSignUp failed with error <message>." Unwrap for display.

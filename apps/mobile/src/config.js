@@ -35,7 +35,4 @@ export const COGNITO = {
   region: process.env.EXPO_PUBLIC_COGNITO_REGION || 'ap-south-1',
   userPoolId: process.env.EXPO_PUBLIC_COGNITO_USER_POOL_ID || 'ap-south-1_EPTUiHy4S',
   clientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID || '537tap6mvpbnvutqfbhptq431l',
-  // Social sign-in (terraform output cognito_hosted_ui_domain / cognito_social_providers).
-  domain: process.env.EXPO_PUBLIC_COGNITO_DOMAIN || 'https://sankatai-signin.auth.ap-south-1.amazoncognito.com',
-  socialProviders: process.env.EXPO_PUBLIC_SOCIAL_PROVIDERS || '',
 }

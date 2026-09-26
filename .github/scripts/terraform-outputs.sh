@@ -36,7 +36,6 @@ ecr_repository_url:ecr_repository_url
 api_gateway_endpoint:api_gateway_endpoint
 cognito_user_pool_id:cognito_user_pool_id
 cognito_user_pool_client_id:cognito_user_pool_client_id
-cognito_hosted_ui_domain:cognito_hosted_ui_domain
 users_table_name:users_table_name
 chat_history_table_name:chat_history_table_name
 attachments_table_name:attachments_table_name
@@ -56,7 +55,6 @@ app_url:app_url
 # May legitimately be empty (invitations then answer 503 until it is set).
 OPTIONAL_MAPPINGS="
 ses_sender_email:ses_sender_email
-cognito_social_providers:cognito_social_providers
 "
 
 missing=0

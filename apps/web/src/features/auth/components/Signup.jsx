@@ -5,7 +5,6 @@ import { signUp } from '../../../services/auth/cognito'
 import { authErrorMessage, passwordOk, safeReturnTo } from '../../../services/auth/authErrors'
 import { Alert, Button, Field, Input, SegmentedControl } from '../../../components/ui'
 import { AuthLayout, PasswordChecklist, PasswordInput } from './AuthLayout.jsx'
-import { SocialButtons } from './SocialButtons.jsx'
 import { savePendingSignUp } from './authHooks'
 
 const VIA = [
@@ -77,7 +76,6 @@ export default function Signup() {
       footer={<p>Already have an account? <Link className="auth-link" to="/login">Sign in</Link></p>}
     >
       {error && <Alert tone="danger">{error}</Alert>}
-      <SocialButtons returnTo={returnTo} verb="Sign up" />
       <form className="ui-form" onSubmit={submit} noValidate>
         <Field label="Full name" required error={err('name')}>
           <Input ref={first} autoComplete="name" value={form.name} onChange={set('name')} onBlur={touch('name')} />

@@ -1,4 +1,4 @@
-"""Cognito triggers Lambda: duplicate checks, usernames, Google account linking."""
+"""Cognito triggers Lambda: duplicate email/phone checks and usernames."""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ def user(username, status="CONFIRMED", **attrs):
 class FakeCognito:
     def __init__(self, users):
         self.users = users
-        self.links = []
         self.updates = []
         self.fail_update = False
 
@@ -30,9 +29,6 @@ class FakeCognito:
         name, value = Filter.split(" = ")
         value = value.strip('"')
         return {"Users": [u for u in self.users if trigger._attr(u, name) == value]}
-
-    def admin_link_provider_for_user(self, **kwargs):
-        self.links.append(kwargs)
 
     def admin_update_user_attributes(self, UserPoolId, Username, UserAttributes):
         if self.fail_update:
@@ -59,11 +55,6 @@ def confirmed(metadata):
             "request": {"userAttributes": {}, "clientMetadata": metadata}}
 
 
-def social(username, **attrs):
-    return {"triggerSource": "PreSignUp_ExternalProvider", "userPoolId": POOL, "userName": username,
-            "request": {"userAttributes": attrs}}
-
-
 def test_sign_up_needs_email_or_phone(cognito):
     cognito()
     with pytest.raises(Exception, match="email address or a phone number"):
@@ -82,51 +73,16 @@ def test_unverified_duplicate_does_not_block(cognito):
     assert trigger.handler(event, None) is event
 
 
-def test_google_account_email_counts_as_taken(cognito):
-    cognito([user("google_1", status="EXTERNAL_PROVIDER", email="asha@gmail.com")])
-    with pytest.raises(Exception, match="email already exists"):
-        trigger.handler(sign_up(email="asha@gmail.com"), None)
-
-
 def test_verified_phone_is_taken(cognito):
     cognito([user("u1", phone_number="+919876543210", phone_number_verified="true")])
     with pytest.raises(Exception, match="phone number already exists"):
         trigger.handler(sign_up(phone_number="+919876543210"), None)
 
 
-def test_google_links_to_the_verified_email_account(cognito):
-    fake = cognito([user("native-uuid", email="asha@gmail.com", email_verified="true")])
-    trigger.handler(social("google_1234", email="asha@gmail.com", email_verified="true"), None)
-    assert fake.links == [{
-        "UserPoolId": POOL,
-        "DestinationUser": {"ProviderName": "Cognito", "ProviderAttributeValue": "native-uuid"},
-        "SourceUser": {"ProviderName": "Google", "ProviderAttributeName": "Cognito_Subject", "ProviderAttributeValue": "1234"},
-    }]
-
-
-@pytest.mark.parametrize("username,attrs", [
-    ("google_1234", {"email": "asha@gmail.com", "email_verified": "false"}),   # Google says unverified
-    ("facebook_99", {"email": "asha@gmail.com"}),                              # Facebook: never auto-linked
-])
-def test_no_link_without_a_verified_provider_email(cognito, username, attrs):
-    fake = cognito([user("native-uuid", email="asha@gmail.com", email_verified="true")])
-    trigger.handler(social(username, **attrs), None)
-    assert fake.links == []
-
-
-def test_no_link_to_an_unverified_or_social_account(cognito):
-    fake = cognito([
-        user("native-uuid", email="asha@gmail.com", email_verified="false"),
-        user("facebook_1", status="EXTERNAL_PROVIDER", email="asha@gmail.com"),
-    ])
-    trigger.handler(social("google_1234", email="asha@gmail.com", email_verified="true"), None)
-    assert fake.links == []
-
-
 def test_admin_created_users_pass_through(cognito):
     fake = cognito()
     event = {"triggerSource": "PreSignUp_AdminCreateUser", "userPoolId": POOL, "userName": "x", "request": {"userAttributes": {}}}
-    assert trigger.handler(event, None) is event and fake.links == []
+    assert trigger.handler(event, None) is event and fake.updates == []
 
 
 # --- usernames (preferred_username arrives as ClientMetadata) ----------------

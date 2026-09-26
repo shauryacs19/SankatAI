@@ -12,18 +12,9 @@ module "cognito" {
 
   project_name = var.project_name
 
-  # The deployed web origin is derived from the distribution, never hardcoded.
-  # No cycle: the graph is per-output, and the distribution depends only on the
-  # API's domain, not on the authorizer that consumes this client id.
-  callback_urls = concat(var.cognito_callback_urls, ["https://${module.frontend.cloudfront_domain_name}/auth/callback"])
-  logout_urls   = concat(var.cognito_logout_urls, ["https://${module.frontend.cloudfront_domain_name}/"])
-
+  # Passkeys are bound to the web app's own domain. No cycle: the distribution
+  # depends only on the API's domain, not on the authorizer using this pool.
   passkey_relying_party_id = module.frontend.cloudfront_domain_name
-
-  google_client_id     = var.google_client_id
-  google_client_secret = var.google_client_secret
-  facebook_app_id      = var.facebook_app_id
-  facebook_app_secret  = var.facebook_app_secret
 }
 
 module "frontend" {

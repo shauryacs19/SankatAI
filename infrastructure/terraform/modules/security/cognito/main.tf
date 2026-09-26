@@ -1,8 +1,8 @@
 # Sign-in for web and mobile (one pool, one public app client).
 #
 # People sign in with a username, a verified email or a verified phone number
-# (all Cognito aliases), with a password or a texted one-time code, or with
-# Google / Facebook when those are configured. The Cognito `username` is an
+# (all Cognito aliases), with a password, a texted one-time code or a passkey.
+# The Cognito `username` is an
 # opaque UUID the client picks at sign-up; the person's handle is
 # `preferred_username`, which Cognito keeps unique and lets them change.
 #
@@ -42,6 +42,7 @@ removed {
 }
 
 data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
 
 locals {
   sms_external_id = "${var.project_name}-cognito-sms"
@@ -147,23 +148,16 @@ resource "aws_cognito_user_pool_client" "app" {
     "ALLOW_REFRESH_TOKEN_AUTH",
   ]
 
-  # Social sign-in only: the apps send people to /oauth2/authorize with
-  # identity_provider=Google|Facebook, which skips Cognito's own page. Code
-  # flow with PKCE; the implicit flow stays off. aws.cognito.signin.user.admin
-  # lets social users set their username with their own access token.
-  allowed_oauth_flows                  = ["code"]
-  allowed_oauth_flows_user_pool_client = true
-  allowed_oauth_scopes                 = ["openid", "email", "phone", "profile", "aws.cognito.signin.user.admin"]
-  supported_identity_providers = concat(
-    ["COGNITO"],
-    aws_cognito_identity_provider.google[*].provider_name,
-    aws_cognito_identity_provider.facebook[*].provider_name,
-  )
+  # No OAuth / hosted pages: every sign-in is the apps' own forms calling the
+  # Cognito API. (Google/Facebook sign-in was removed on 2026-09-26.)
+  allowed_oauth_flows_user_pool_client = false
+  allowed_oauth_flows                  = []
+  allowed_oauth_scopes                 = []
+  callback_urls                        = []
+  logout_urls                          = []
+  supported_identity_providers         = ["COGNITO"]
 
-  callback_urls = var.callback_urls
-  logout_urls   = var.logout_urls
-
-  # Runs in browsers and on phones, where a secret can't be kept; PKCE instead.
+  # Runs in browsers and on phones, where a secret can't be kept.
   generate_secret = false
 
   prevent_user_existence_errors = "ENABLED"
@@ -180,86 +174,12 @@ resource "aws_cognito_user_pool_client" "app" {
   }
 }
 
-resource "aws_cognito_user_pool_domain" "signin" {
-  domain       = "${var.project_name}-signin"
-  user_pool_id = aws_cognito_user_pool.users.id
-}
-
 # Admin RBAC. Membership is managed only by the backend (invitation accept /
 # admin removal) and by scripts/bootstrap_admin.py.
 resource "aws_cognito_user_group" "admins" {
   name         = "ADMIN"
   user_pool_id = aws_cognito_user_pool.users.id
   description  = "Sankat.AI administrators (admin console)."
-}
-
-# ── Social identity providers ───────────────────────────────────────────────
-# Created only when their credentials are set (terraform.tfvars, local only).
-# Redirect URI to register with Google/Facebook:
-#   https://<project>-signin.auth.<region>.amazoncognito.com/oauth2/idpresponse
-# Cognito fills in the provider endpoint URLs itself; ignoring those keys
-# keeps them from showing as a diff on every plan.
-resource "aws_cognito_identity_provider" "google" {
-  count = var.google_client_id == "" ? 0 : 1
-
-  user_pool_id  = aws_cognito_user_pool.users.id
-  provider_name = "Google"
-  provider_type = "Google"
-
-  provider_details = {
-    client_id        = var.google_client_id
-    client_secret    = var.google_client_secret
-    authorize_scopes = "openid email profile"
-  }
-
-  attribute_mapping = {
-    email          = "email"
-    email_verified = "email_verified"
-    name           = "name"
-    username       = "sub"
-  }
-
-  lifecycle {
-    ignore_changes = [
-      provider_details["attributes_url"],
-      provider_details["attributes_url_add_attributes"],
-      provider_details["authorize_url"],
-      provider_details["oidc_issuer"],
-      provider_details["token_request_method"],
-      provider_details["token_url"],
-    ]
-  }
-}
-
-resource "aws_cognito_identity_provider" "facebook" {
-  count = var.facebook_app_id == "" ? 0 : 1
-
-  user_pool_id  = aws_cognito_user_pool.users.id
-  provider_name = "Facebook"
-  provider_type = "Facebook"
-
-  provider_details = {
-    client_id        = var.facebook_app_id
-    client_secret    = var.facebook_app_secret
-    authorize_scopes = "public_profile,email"
-  }
-
-  attribute_mapping = {
-    email    = "email"
-    name     = "name"
-    username = "id"
-  }
-
-  lifecycle {
-    ignore_changes = [
-      provider_details["api_version"],
-      provider_details["attributes_url"],
-      provider_details["attributes_url_add_attributes"],
-      provider_details["authorize_url"],
-      provider_details["token_request_method"],
-      provider_details["token_url"],
-    ]
-  }
 }
 
 # ── SMS: role Cognito assumes to publish texts through SNS ──────────────────
@@ -298,7 +218,7 @@ resource "aws_iam_role_policy" "cognito_sms" {
   })
 }
 
-# ── Sign-up triggers: duplicate/username checks, Google linking, username ───
+# ── Sign-up triggers: duplicate/username checks, then set the username ────
 # Source: backend/lambdas/cognito_pre_sign_up.py (tested in backend/tests).
 data "archive_file" "pre_sign_up" {
   type        = "zip"
@@ -333,7 +253,7 @@ resource "aws_iam_role_policy" "pre_sign_up" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = ["cognito-idp:ListUsers", "cognito-idp:AdminLinkProviderForUser", "cognito-idp:AdminUpdateUserAttributes"]
+        Action   = ["cognito-idp:ListUsers", "cognito-idp:AdminUpdateUserAttributes"]
         Resource = aws_cognito_user_pool.users.arn
       },
       {
@@ -347,7 +267,7 @@ resource "aws_iam_role_policy" "pre_sign_up" {
 
 resource "aws_lambda_function" "pre_sign_up" {
   function_name    = local.pre_sign_up
-  description      = "Cognito pre sign-up + post confirmation: duplicate/username checks, Google linking, username"
+  description      = "Cognito pre sign-up + post confirmation: duplicate/username checks, set username"
   role             = aws_iam_role.pre_sign_up.arn
   runtime          = "python3.12"
   handler          = "cognito_pre_sign_up.handler"

@@ -76,7 +76,7 @@ export function AuthProvider({ children }) {
   /** Passkey sign-in (WebAuthn). */
   const signInWithPasskey = useCallback(async (opts) => finish(await cognitoSignInWithPasskey(opts)), [finish])
 
-  /** Adopt a user whose tokens were stored elsewhere (social callback, new username). */
+  /** Adopt refreshed user details (e.g. after a username change). */
   const setSignedIn = useCallback((next) => {
     setUser(next)
     setStatus(AUTH_STATUS.AUTHED)

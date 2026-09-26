@@ -17,9 +17,7 @@ export default function AuthSection({ profile, onSignOut }) {
   const { user } = useAuth() || {}
   const email = profile?.email || user?.email || ''
   const phone = user?.phone || ''
-  // Social-only accounts (Google/Facebook) have no Cognito password.
-  const hasPassword = user?.hasPassword !== false
-  const method = !hasPassword ? 'Google or Facebook' : phone ? 'Password or a texted code' : 'Password'
+  const method = phone ? 'Password, texted code or passkey' : 'Password or passkey'
 
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -63,10 +61,9 @@ export default function AuthSection({ profile, onSignOut }) {
 
       <UsernameCard />
 
-      {/* Passkey sign-in needs a username/email/phone, which social-only accounts don't sign in with. */}
-      {hasPassword && <PasskeysCard />}
+      <PasskeysCard />
 
-      {hasPassword && <Card title="Change password" icon={KeyRound}>
+      <Card title="Change password" icon={KeyRound}>
         <form className="ui-form" onSubmit={submit} noValidate>
           <Field label="Current password" required error={touched.current && !current ? 'Enter your current password.' : undefined}>
             <Input type="password" autoComplete="current-password" value={current} onChange={edit(setCurrent)} onBlur={touch('current')} />
@@ -85,7 +82,7 @@ export default function AuthSection({ profile, onSignOut }) {
             <Button type="submit" variant="primary" loading={busy} loadingText="Updating password…" disabled={!canSave} hint={busy ? undefined : why}>Update password</Button>
           </div>
         </form>
-      </Card>}
+      </Card>
 
       <Card title="Session" icon={LogOut} description="Signing out ends the session on this device. Your data stays in your account.">
         <Button variant="secondary" icon={LogOut} onClick={() => setConfirmSignOut(true)}>
