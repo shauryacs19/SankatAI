@@ -35,3 +35,20 @@ export function useCooldown() {
   }, [left])
   return [left, setLeft]
 }
+
+// A sign-up waiting for its code: { username (Cognito UUID), destination, via }.
+// Kept in sessionStorage so /verify survives a reload; the UUID is the only way
+// to confirm or resend before the email/phone is verified.
+const PENDING_SIGN_UP = 'sankatai_pending_signup'
+
+export const savePendingSignUp = (pending) => {
+  try { sessionStorage.setItem(PENDING_SIGN_UP, JSON.stringify(pending)) } catch { /* private mode */ }
+}
+
+export const readPendingSignUp = () => {
+  try { return JSON.parse(sessionStorage.getItem(PENDING_SIGN_UP) || 'null') } catch { return null }
+}
+
+export const clearPendingSignUp = () => {
+  try { sessionStorage.removeItem(PENDING_SIGN_UP) } catch { /* private mode */ }
+}

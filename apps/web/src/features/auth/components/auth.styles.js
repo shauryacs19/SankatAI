@@ -25,6 +25,11 @@ export const AUTH_CSS = `
 .auth-rules li { display: flex; align-items: center; gap: var(--space-1); }
 .auth-rules li.ok { color: var(--success); }
 .auth-code { letter-spacing: 0.4em; font-variant-numeric: tabular-nums; text-align: center; font-size: var(--fs-lg); }
+.auth-social { display: flex; flex-direction: column; gap: var(--space-3); }
+.auth-social-mark { display: inline-grid; place-items: center; width: 1.25rem; height: 1.25rem; }
+.auth-divider { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-1) 0 0; font-size: var(--fs-sm); color: var(--text-muted); }
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-subtle); }
+.auth-hint { font-size: var(--fs-xs); line-height: var(--lh-xs); color: var(--text-muted); margin: 0; }
 .auth-foot { max-width: 26rem; font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-muted); }
 .auth-foot a { color: var(--sev-emergency-ink); font-weight: var(--fw-semibold); text-decoration: underline; text-underline-offset: 2px; }
 .auth code { font-size: var(--fs-xs); }

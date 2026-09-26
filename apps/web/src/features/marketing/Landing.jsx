@@ -10,6 +10,7 @@ import { EMERGENCY_CALLOUT } from '@sankatai/shared'
 import { AUTH_STATUS, useAuth } from '../../context/AuthContext.jsx'
 import { Brand, Button, IconButton, Menu as AccountMenu, SeverityBadge, SkipLink, listContainer, listItem } from '../../components/ui'
 import { LANDING_CSS } from './landing.styles'
+import { SignOutDialog } from '../auth/components/SignOutDialog.jsx'
 
 const NAV = [
   { label: 'Features', href: '#features' },
@@ -44,6 +45,7 @@ function Landing() {
   const { status, user, signOut } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const [openFaq, setOpenFaq] = useState(0)
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
   const authed = status === AUTH_STATUS.AUTHED
 
   // Public page: nothing here redirects. Guests get Sign in / Sign up;
@@ -54,7 +56,7 @@ function Landing() {
   const userItems = [
     { key: 'app', label: 'Open SankatAI', icon: LayoutDashboard, onSelect: () => navigate('/app') },
     ...(user?.groups?.includes('ADMIN') ? [{ key: 'admin', label: 'Admin console', icon: Shield, onSelect: () => navigate('/admin') }] : []),
-    { key: 'out', label: 'Sign out', icon: LogOut, onSelect: () => signOut(), tone: 'danger' },
+    { key: 'out', label: 'Sign out', icon: LogOut, onSelect: () => setConfirmSignOut(true), tone: 'danger' },
   ]
 
   const reveal = { initial: { opacity: 0, y: 8 }, whileInView: { opacity: 1, y: 0 }, viewport: { once: true, margin: '-60px' }, transition: { duration: 0.24 } }
@@ -106,12 +108,13 @@ function Landing() {
             {authed && (
               <>
                 <Button variant="primary" block onClick={() => navigate('/app')}>Open app</Button>
-                <Button variant="secondary" block icon={LogOut} onClick={() => signOut()}>Sign out</Button>
+                <Button variant="secondary" block icon={LogOut} onClick={() => { setMenuOpen(false); setConfirmSignOut(true) }}>Sign out</Button>
               </>
             )}
           </div>
         )}
       </header>
+      <SignOutDialog open={confirmSignOut} onClose={() => setConfirmSignOut(false)} onConfirm={() => signOut()} />
 
       <main id="main" tabIndex={-1}>
         <section className="lx-hero" aria-labelledby="lx-title">

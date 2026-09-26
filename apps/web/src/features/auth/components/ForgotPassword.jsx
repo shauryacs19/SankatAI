@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { isEmail } from '@sankatai/shared'
+import { parseIdentifier } from '@sankatai/shared'
 import { confirmResetPassword, resetPassword } from '../../../services/auth/cognito'
 import { authErrorMessage, passwordOk } from '../../../services/auth/authErrors'
 import { Alert, Button, Field, Input, useToast } from '../../../components/ui'
@@ -11,7 +11,7 @@ export default function ForgotPassword() {
   const location = useLocation()
   const toast = useToast()
   const [step, setStep] = useState('request') // 'request' | 'reset'
-  const [email, setEmail] = useState(location.state?.email || '')
+  const [identifier, setIdentifier] = useState(location.state?.identifier || location.state?.email || '')
   const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -23,23 +23,24 @@ export default function ForgotPassword() {
   useEffect(() => { first.current?.focus() }, [step])
   useEffect(() => () => { setPassword(''); setConfirm(''); setCode('') }, [])
 
-  const emailErr = !isEmail(email.trim()) ? 'Enter the email for your account.' : ''
-  const codeErr = code.length !== 6 ? 'Enter the 6-digit code from the email.' : ''
+  const parsed = parseIdentifier(identifier)
+  const idErr = !parsed ? 'Enter your username, email or phone number.' : ''
+  const codeErr = code.length !== 6 ? 'Enter the 6-digit code.' : ''
   const pwErr = !passwordOk(password) ? 'Choose a password that meets every requirement.' : ''
   const confirmErr = confirm !== password || !confirm ? 'The passwords don’t match.' : ''
 
   const request = async (e) => {
     e.preventDefault()
-    setTouched({ email: true })
-    if (emailErr) return
+    setTouched({ identifier: true })
+    if (idErr) return
     setSubmitting(true)
     setError('')
     try {
-      await resetPassword(email)
+      await resetPassword(parsed.value)
       setTouched({})
       setStep('reset')
     } catch (err) {
-      // Enumeration-safe: an unknown email proceeds like a known one.
+      // Enumeration-safe: an unknown account proceeds like a known one.
       if (err?.code === 'UserNotFoundException') { setTouched({}); setStep('reset') } else {
         setError(authErrorMessage(err, 'Couldn’t start the reset. Try again.'))
       }
@@ -55,9 +56,9 @@ export default function ForgotPassword() {
     setSubmitting(true)
     setError('')
     try {
-      await confirmResetPassword(email, code, password)
+      await confirmResetPassword(parsed.value, code, password)
       toast.success('Password reset. Sign in with your new password.')
-      navigate('/login', { replace: true, state: { email: email.trim().toLowerCase() } })
+      navigate('/login', { replace: true, state: { identifier: identifier.trim() } })
     } catch (err) {
       setError(authErrorMessage(err, 'Couldn’t reset your password. Try again.'))
     } finally {
@@ -69,16 +70,16 @@ export default function ForgotPassword() {
     <AuthLayout
       title={step === 'request' ? 'Reset your password' : 'Choose a new password'}
       lead={step === 'request'
-        ? 'Enter your account email and we’ll send you a 6-digit code.'
-        : `If an account exists for ${email.trim()}, we sent it a 6-digit code.`}
+        ? 'Enter your username, email or phone number. We’ll send a 6-digit code to the email or phone on the account.'
+        : 'If that account exists, we sent a 6-digit code to its email or phone.'}
       footer={<p><Link className="auth-link" to="/login">Back to sign in</Link></p>}
     >
       {error && <Alert tone="danger">{error}</Alert>}
       {step === 'request' ? (
         <form className="ui-form" onSubmit={request} noValidate>
-          <Field label="Email" required error={touched.email ? emailErr || undefined : undefined}>
-            <Input ref={first} type="email" autoComplete="email" inputMode="email" value={email}
-              onChange={(e) => { setEmail(e.target.value); setError('') }} onBlur={() => setTouched({ email: true })} />
+          <Field label="Email, phone or username" required error={touched.identifier ? idErr || undefined : undefined}>
+            <Input ref={first} autoComplete="username" autoCapitalize="none" spellCheck={false} value={identifier}
+              onChange={(e) => { setIdentifier(e.target.value); setError('') }} onBlur={() => setTouched({ identifier: true })} />
           </Field>
           <Button type="submit" variant="primary" block loading={submitting} loadingText="Sending code…">Send code</Button>
         </form>
@@ -96,7 +97,7 @@ export default function ForgotPassword() {
             <PasswordInput autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
           </Field>
           <Button type="submit" variant="primary" block loading={submitting} loadingText="Resetting…">Reset password</Button>
-          <Button variant="ghost" block onClick={() => { setStep('request'); setError('') }}>Use a different email</Button>
+          <Button variant="ghost" block onClick={() => { setStep('request'); setError('') }}>Use a different account</Button>
         </form>
       )}
     </AuthLayout>

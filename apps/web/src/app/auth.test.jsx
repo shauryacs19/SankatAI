@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Public/protected routing and every sign-in / sign-up / reset flow, with the
 // Cognito library mocked. Nothing here may navigate to a Hosted UI.
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
@@ -20,6 +20,12 @@ const auth = vi.hoisted(() => ({
   getValidAccessToken: vi.fn(async () => 'access-token'),
   getIdToken: vi.fn(() => 'id-token'),
   changePassword: vi.fn(),
+  startCodeSignIn: vi.fn(),
+  confirmCodeSignIn: vi.fn(),
+  startSocialSignIn: vi.fn(),
+  completeSocialSignIn: vi.fn(),
+  socialProviders: vi.fn(() => []),
+  updateUsername: vi.fn(),
 }))
 vi.mock('../services/auth/cognito', () => ({
   ...auth,
@@ -62,6 +68,8 @@ beforeEach(() => {
   auth.getValidAccessToken.mockResolvedValue('access-token')
   auth.getIdToken.mockReturnValue('id-token')
   auth.restoreSession.mockResolvedValue(null)
+  auth.socialProviders.mockReturnValue([])
+  sessionStorage.clear()
   api.request.mockReset()
   api.request.mockImplementation(async (path) => (path.startsWith('/profile') ? PROFILE : []))
   Element.prototype.scrollTo = () => {}
@@ -115,7 +123,7 @@ describe('returnTo sanitising', () => {
 
 describe('login', () => {
   const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
-  const fill = () => { type('Email', 'Asha@Gmail.com'); type('Password', 'Secret123') }
+  const fill = () => { type('Email, phone or username', 'Asha@Gmail.com'); type('Password', 'Secret123') }
 
   it('signs in with SRP and returns to returnTo', async () => {
     auth.signIn.mockResolvedValue({ nextStep: 'DONE', user: USER })
@@ -124,7 +132,7 @@ describe('login', () => {
     fill()
     submit()
     await waitFor(() => expect(loc()).toBe('/dashboard/files'))
-    expect(auth.signIn).toHaveBeenCalledWith({ username: 'Asha@Gmail.com', password: 'Secret123', remember: true })
+    expect(auth.signIn).toHaveBeenCalledWith({ username: 'asha@gmail.com', password: 'Secret123', remember: true })
   })
 
   it('ignores an external returnTo', async () => {
@@ -147,10 +155,11 @@ describe('login', () => {
     submit()
     await waitFor(() => expect(auth.signIn).toHaveBeenCalledTimes(2))
     expect(screen.getByRole('alert').textContent).toBe(first)
-    expect(first).toBe('Incorrect email or password.')
+    expect(first).toBe('Those sign-in details don’t match an account.')
   })
 
   it('sends an unconfirmed user to /verify', async () => {
+    sessionStorage.setItem('sankatai_pending_signup', JSON.stringify({ username: 'uuid-1', destination: 'asha@gmail.com', via: 'email' }))
     auth.signIn.mockResolvedValue({ nextStep: 'CONFIRM_SIGN_UP' })
     auth.resendSignUpCode.mockResolvedValue({})
     renderAt('/login')
@@ -158,7 +167,7 @@ describe('login', () => {
     fill()
     submit()
     await waitFor(() => expect(loc()).toBe('/verify'))
-    await waitFor(() => expect(auth.resendSignUpCode).toHaveBeenCalledWith('asha@gmail.com'))
+    await waitFor(() => expect(auth.resendSignUpCode).toHaveBeenCalledWith('uuid-1'))
   })
 
   it('renders the new-password challenge', async () => {
@@ -203,22 +212,25 @@ describe('login', () => {
 
 describe('sign-up and verification', () => {
   it('signs up, then verifies, then returns to login', async () => {
-    auth.signUp.mockResolvedValue({})
+    auth.signUp.mockResolvedValue({ username: 'uuid-1' })
     auth.confirmSignUp.mockResolvedValue('SUCCESS')
     renderAt('/signup')
     await screen.findByRole('heading', { name: 'Create your account' })
     type('Full name', 'Asha')
+    type('Username', 'Asha.K')
     type('Email', 'asha@gmail.com')
     type('Password', 'Secret123')
     type('Confirm password', 'Secret123')
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
     await waitFor(() => expect(loc()).toBe('/verify'))
-    expect(auth.signUp).toHaveBeenCalledWith({ email: 'asha@gmail.com', password: 'Secret123', name: 'Asha' })
+    expect(auth.signUp).toHaveBeenCalledWith({ name: 'Asha', username: 'Asha.K', password: 'Secret123', email: 'asha@gmail.com' })
     type('Verification code', '123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
     await waitFor(() => expect(loc()).toBe('/login'))
-    expect(auth.confirmSignUp).toHaveBeenCalledWith('asha@gmail.com', '123456')
+    expect(auth.confirmSignUp).toHaveBeenCalledWith('uuid-1', '123456')
+    // The sign-in form is pre-filled with the new username.
+    expect(screen.getByLabelText(/^Email, phone or username/, { selector: 'input' }).value).toBe('asha.k')
   })
 
   it('shows the live password checklist and blocks weak passwords', async () => {
@@ -233,9 +245,9 @@ describe('sign-up and verification', () => {
   it('rate-limits resending the code for 60 s', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     auth.resendSignUpCode.mockResolvedValue({})
+    sessionStorage.setItem('sankatai_pending_signup', JSON.stringify({ username: 'uuid-1', destination: 'asha@gmail.com', via: 'email' }))
     renderAt('/verify')
     await screen.findByRole('heading', { name: 'Verify your email' })
-    type('Email', 'asha@gmail.com')
     fireEvent.click(screen.getByRole('button', { name: 'Resend code' }))
     await waitFor(() => expect(auth.resendSignUpCode).toHaveBeenCalledTimes(1))
     expect(await screen.findByRole('button', { name: /Resend code \(60s\)/ })).toBeTruthy()
@@ -256,7 +268,7 @@ describe('forgot password', () => {
     auth.confirmResetPassword.mockResolvedValue('SUCCESS')
     renderAt('/forgot-password')
     await screen.findByRole('heading', { name: 'Reset your password' })
-    type('Email', 'asha@gmail.com')
+    type('Email, phone or username', 'asha@gmail.com')
     fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
     expect(await screen.findByRole('heading', { name: 'Choose a new password' })).toBeTruthy()
     type('Verification code', '654321')
@@ -272,7 +284,7 @@ describe('forgot password', () => {
     auth.confirmResetPassword.mockRejectedValue(cognitoError('CodeMismatchException'))
     renderAt('/forgot-password')
     await screen.findByRole('heading', { name: 'Reset your password' })
-    type('Email', 'asha@gmail.com')
+    type('Email, phone or username', 'asha@gmail.com')
     fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
     await screen.findByRole('heading', { name: 'Choose a new password' })
     type('Verification code', '000000')
@@ -290,8 +302,23 @@ describe('session loss and logout', () => {
     renderAt('/')
     fireEvent.click(await screen.findByRole('button', { name: /Account menu/ }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Sign out' }))
-    expect(auth.signOut).toHaveBeenCalled()
+    // Nothing happens until the confirmation is accepted.
+    expect(auth.signOut).not.toHaveBeenCalled()
+    const dialog = await screen.findByRole('dialog', { name: 'Sign out?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out' }))
+    await waitFor(() => expect(auth.signOut).toHaveBeenCalled())
     expect((await screen.findAllByRole('button', { name: 'Sign in' })).length).toBeGreaterThan(0)
+  })
+
+  it('keeps the session when sign-out is cancelled', async () => {
+    auth.restoreSession.mockResolvedValue(USER)
+    renderAt('/')
+    fireEvent.click(await screen.findByRole('button', { name: /Account menu/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Sign out' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Sign out?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Sign out?' })).toBeNull())
+    expect(auth.signOut).not.toHaveBeenCalled()
   })
 
   it('sends the user to /login when the API reports the session expired', async () => {
@@ -300,5 +327,90 @@ describe('session loss and logout', () => {
     await waitFor(() => expect(loc()).toBe('/profile-setup'))
     act(() => { window.dispatchEvent(new CustomEvent('sankatai:auth-expired')) })
     await waitFor(() => expect(loc()).toBe(`/login?returnTo=${encodeURIComponent('/profile-setup')}`))
+  })
+})
+
+describe('phone, code and social sign-in', () => {
+  it('signs up with a phone number and a username', async () => {
+    auth.signUp.mockResolvedValue({ username: 'uuid-2' })
+    renderAt('/signup')
+    await screen.findByRole('heading', { name: 'Create your account' })
+    type('Full name', 'Ravi')
+    type('Username', 'ravi_k')
+    fireEvent.click(screen.getByRole('radio', { name: 'Phone' }))
+    type('Phone number', '98765 43210')
+    type('Password', 'Secret123')
+    type('Confirm password', 'Secret123')
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+    await waitFor(() => expect(loc()).toBe('/verify'))
+    expect(auth.signUp).toHaveBeenCalledWith({ name: 'Ravi', username: 'ravi_k', password: 'Secret123', phone: '+919876543210' })
+    expect(await screen.findByRole('heading', { name: 'Verify your phone number' })).toBeTruthy()
+  })
+
+  it('rejects a username that looks wrong before calling Cognito', async () => {
+    renderAt('/signup')
+    await screen.findByRole('heading', { name: 'Create your account' })
+    type('Username', '9lives')
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+    expect(await screen.findByText(/Start with a letter/)).toBeTruthy()
+    expect(auth.signUp).not.toHaveBeenCalled()
+  })
+
+  it('signs in with a texted code', async () => {
+    auth.startCodeSignIn.mockResolvedValue({ destination: '+91******3210' })
+    auth.confirmCodeSignIn.mockResolvedValue({ nextStep: 'DONE', user: USER })
+    renderAt(`/login?returnTo=${encodeURIComponent('/dashboard/files')}`)
+    await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
+    fireEvent.click(screen.getByRole('radio', { name: 'Text me a code' }))
+    type('Phone number', '+91 98765 43210')
+    fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
+    expect(await screen.findByRole('heading', { name: 'Enter the code' })).toBeTruthy()
+    expect(auth.startCodeSignIn).toHaveBeenCalledWith('+919876543210')
+    type('6-digit code', '123456')
+    fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
+    await waitFor(() => expect(loc()).toBe('/dashboard/files'))
+    expect(auth.confirmCodeSignIn).toHaveBeenCalledWith({ code: '123456', remember: true })
+  })
+
+  it('accepts a phone number or username in the password form', async () => {
+    auth.signIn.mockResolvedValue({ nextStep: 'DONE', user: USER })
+    renderAt('/login')
+    await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
+    type('Email, phone or username', '098765 43210')
+    type('Password', 'Secret123')
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await waitFor(() => expect(auth.signIn).toHaveBeenCalledWith({ username: '+919876543210', password: 'Secret123', remember: true }))
+  })
+
+  it('hides social buttons until providers are configured, then starts the chosen one', async () => {
+    renderAt('/login')
+    await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
+    expect(screen.queryByRole('button', { name: /Continue with Google/ })).toBeNull()
+    cleanup()
+    auth.socialProviders.mockReturnValue(['Google', 'Facebook'])
+    auth.startSocialSignIn.mockReturnValue(new Promise(() => {})) // leaves the page
+    renderAt(`/login?returnTo=${encodeURIComponent('/dashboard/chat')}`)
+    fireEvent.click(await screen.findByRole('button', { name: /Continue with Google/ }))
+    expect(screen.getByRole('button', { name: /Continue with Facebook/ })).toBeTruthy()
+    expect(auth.startSocialSignIn).toHaveBeenCalledWith('Google', { returnTo: '/dashboard/chat', remember: true })
+  })
+
+  it('finishes social sign-in on /auth/callback and honours a safe returnTo only', async () => {
+    auth.completeSocialSignIn.mockResolvedValue({ user: USER, returnTo: '/dashboard/files' })
+    renderAt('/auth/callback?code=abc&state=xyz')
+    await waitFor(() => expect(loc()).toBe('/dashboard/files'))
+    expect(auth.completeSocialSignIn).toHaveBeenCalledWith('?code=abc&state=xyz')
+    cleanup()
+    auth.completeSocialSignIn.mockResolvedValue({ user: USER, returnTo: 'https://evil.example' })
+    renderAt('/auth/callback?code=abc&state=xyz')
+    await waitFor(() => expect(loc()).toMatch(/^\/(app|dashboard|profile-setup)/))
+  })
+
+  it('explains a failed social sign-in', async () => {
+    auth.completeSocialSignIn.mockRejectedValue(cognitoError('UserLambdaValidationException'))
+    auth.completeSocialSignIn.mockRejectedValueOnce(Object.assign(new Error('PreSignUp failed with error An account with this email already exists. Sign in instead.'), { code: 'UserLambdaValidationException' }))
+    renderAt('/auth/callback?error=invalid_request')
+    expect((await screen.findByRole('alert')).textContent).toBe('An account with this email already exists. Sign in instead')
   })
 })

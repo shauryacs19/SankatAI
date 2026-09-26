@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  confirmCodeSignIn as cognitoConfirmCodeSignIn,
   confirmSignIn as cognitoConfirmSignIn,
   NEXT_STEP,
   refreshSession,
@@ -68,6 +69,14 @@ export function AuthProvider({ children }) {
   /** SRP sign-in. Resolves {nextStep}; DONE also updates the session state. */
   const signIn = useCallback(async (credentials) => finish(await cognitoSignIn(credentials)), [finish])
   const confirmSignIn = useCallback(async (answer) => finish(await cognitoConfirmSignIn(answer)), [finish])
+  /** Passwordless: answer the texted code. */
+  const confirmCodeSignIn = useCallback(async (answer) => finish(await cognitoConfirmCodeSignIn(answer)), [finish])
+
+  /** Adopt a user whose tokens were stored elsewhere (social callback, new username). */
+  const setSignedIn = useCallback((next) => {
+    setUser(next)
+    setStatus(AUTH_STATUS.AUTHED)
+  }, [])
 
   const signOut = useCallback(async () => {
     cognitoSignOut()
@@ -83,8 +92,8 @@ export function AuthProvider({ children }) {
   }, [])
 
   const value = useMemo(
-    () => ({ status, user, signIn, confirmSignIn, signOut, restore, refreshUser }),
-    [status, user, signIn, confirmSignIn, signOut, restore, refreshUser],
+    () => ({ status, user, signIn, confirmSignIn, confirmCodeSignIn, setSignedIn, signOut, restore, refreshUser }),
+    [status, user, signIn, confirmSignIn, confirmCodeSignIn, setSignedIn, signOut, restore, refreshUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

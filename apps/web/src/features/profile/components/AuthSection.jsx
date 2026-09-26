@@ -1,18 +1,24 @@
-// Account details, password change and sign out (inside Settings). Password
-// changes go straight to Cognito from the client.
+// Account details, username, password change and sign out (inside Settings).
+// Username and password changes go straight to Cognito from the client.
 
 import { useState } from 'react'
-import { KeyRound, Mail, ShieldCheck, LogOut, Lock } from 'lucide-react'
+import { KeyRound, Mail, ShieldCheck, LogOut, Lock, Phone } from 'lucide-react'
 import { changePassword } from '../../../services/auth/cognito'
 import { useAuth } from '../../../context/AuthContext.jsx'
 import { Alert, Button, Card, Field, InfoRow, Input } from '../../../components/ui'
 import { errText } from '../../../utils/errText'
+import { SignOutDialog } from '../../auth/components/SignOutDialog.jsx'
+import UsernameCard from './UsernameCard.jsx'
 
 const MIN_LEN = 8
 
 export default function AuthSection({ profile, onSignOut }) {
   const { user } = useAuth() || {}
   const email = profile?.email || user?.email || ''
+  const phone = user?.phone || ''
+  // Social-only accounts (Google/Facebook) have no Cognito password.
+  const hasPassword = user?.hasPassword !== false
+  const method = !hasPassword ? 'Google or Facebook' : phone ? 'Password or a texted code' : 'Password'
 
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -21,12 +27,12 @@ export default function AuthSection({ profile, onSignOut }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
-  const [signingOut, setSigningOut] = useState(false)
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
 
   const tooShort = next.length > 0 && next.length < MIN_LEN
   const mismatch = confirm.length > 0 && next !== confirm
-  const canSave = Boolean(email) && current && next.length >= MIN_LEN && next === confirm && !busy
-  const why = !email ? 'Your account email is still loading.' : !current ? 'Enter your current password.' : next.length < MIN_LEN ? `Choose a new password of at least ${MIN_LEN} characters.` : next !== confirm ? 'Confirm the new password.' : undefined
+  const canSave = Boolean(current) && next.length >= MIN_LEN && next === confirm && !busy
+  const why = !current ? 'Enter your current password.' : next.length < MIN_LEN ? `Choose a new password of at least ${MIN_LEN} characters.` : next !== confirm ? 'Confirm the new password.' : undefined
   const touch = (k) => () => setTouched((t) => ({ ...t, [k]: true }))
   const edit = (setter) => (e) => { setter(e.target.value); setError(''); setDone(false) }
 
@@ -47,13 +53,16 @@ export default function AuthSection({ profile, onSignOut }) {
     <>
       <Card title="Account" icon={ShieldCheck}>
         <div className="ui-rows">
-          <InfoRow icon={Mail} label="Email" value={email} />
-          <InfoRow icon={Lock} label="Sign-in method" value="Email and password" />
+          {email && <InfoRow icon={Mail} label="Email" value={email} />}
+          {phone && <InfoRow icon={Phone} label="Phone" value={phone} />}
+          <InfoRow icon={Lock} label="Sign-in method" value={method} />
         </div>
-        <p className="ui-hint">Your password is managed by Amazon Cognito. SankatAI never stores it.</p>
+        <p className="ui-hint">Sign-in is handled by Amazon Cognito. SankatAI never stores your password.</p>
       </Card>
 
-      <Card title="Change password" icon={KeyRound}>
+      <UsernameCard />
+
+      {hasPassword && <Card title="Change password" icon={KeyRound}>
         <form className="ui-form" onSubmit={submit} noValidate>
           <Field label="Current password" required error={touched.current && !current ? 'Enter your current password.' : undefined}>
             <Input type="password" autoComplete="current-password" value={current} onChange={edit(setCurrent)} onBlur={touch('current')} />
@@ -72,19 +81,14 @@ export default function AuthSection({ profile, onSignOut }) {
             <Button type="submit" variant="primary" loading={busy} loadingText="Updating password…" disabled={!canSave} hint={busy ? undefined : why}>Update password</Button>
           </div>
         </form>
-      </Card>
+      </Card>}
 
       <Card title="Session" icon={LogOut} description="Signing out ends the session on this device. Your data stays in your account.">
-        <Button
-          variant="secondary"
-          icon={LogOut}
-          loading={signingOut}
-          loadingText="Signing out…"
-          onClick={async () => { setSigningOut(true); await onSignOut() }}
-        >
+        <Button variant="secondary" icon={LogOut} onClick={() => setConfirmSignOut(true)}>
           Sign out
         </Button>
       </Card>
+      <SignOutDialog open={confirmSignOut} onClose={() => setConfirmSignOut(false)} onConfirm={onSignOut} />
     </>
   )
 }

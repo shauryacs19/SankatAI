@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./index.js",
+    "./auth": "./auth.js",
     "./chat": "./chat.js",
     "./countries": "./countries.js",
     "./documents": "./documents.js",

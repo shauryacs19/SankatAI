@@ -5,21 +5,31 @@ import 'react-native-get-random-values'
 // Cognito auth for React Native.
 //
 // Token lifecycle is AWS Cognito's own: sign-in yields id/access/refresh tokens;
-// the ID token (1h) is what the backend verifies; the refresh token mints new
-// ones. We keep a synchronous in-memory cache for fast reads and persist tokens
-// to the platform secure keystore (iOS Keychain / Android Keystore via
-// expo-secure-store) — never AsyncStorage/localStorage/plain files.
+// the refresh token mints new ones. We keep a synchronous in-memory cache for
+// fast reads and persist tokens to the platform secure keystore (iOS Keychain /
+// Android Keystore via expo-secure-store) — never AsyncStorage/localStorage/plain files.
+//
+// Ways in: password (username, email or phone — all Cognito aliases), a texted
+// one-time code (Cognito USER_AUTH / SMS_OTP), or Google/Facebook through
+// Cognito's OAuth endpoint in an in-app browser (code + PKCE).
 
 import * as SecureStore from 'expo-secure-store'
+import * as WebBrowser from 'expo-web-browser'
+import Constants from 'expo-constants'
+import { Sha256 } from '@aws-crypto/sha256-js'
 import {
   CognitoUserPool, CognitoUser, AuthenticationDetails, CognitoUserAttribute,
   CognitoRefreshToken,
 } from 'amazon-cognito-identity-js'
+import {
+  buildAuthorizeUrl, createCognitoApi, exchangeAuthCode, isLinkedAccountRetry, normalizeUsername,
+  parseSocialProviders, pkceChallenge, randomUrlSafe, uuidV4,
+} from '@sankatai/shared'
 import { COGNITO } from '../config'
 
 // Individual SecureStore entries (each token stays well under the 2KB limit).
 const K = {
-  email: 'sankatai_email',
+  username: 'sankatai_username', // the Cognito username (UUID or google_…)
   idToken: 'sankatai_idToken',
   accessToken: 'sankatai_accessToken',
   refreshToken: 'sankatai_refreshToken',
@@ -27,6 +37,8 @@ const K = {
 }
 // Refresh a little before actual expiry to avoid racing a just-expired token.
 const EXPIRY_SKEW_MS = 60_000
+// Registered on the Cognito app client (callback_urls) and in app.json.
+const REDIRECT_URI = 'sankatai://auth/callback'
 
 // --- synchronous in-memory storage for the Cognito SDK itself ---
 class MemoryStorage {
@@ -44,6 +56,8 @@ const userPool = new CognitoUserPool({
   Storage: memoryStore,
 })
 
+const api = () => createCognitoApi({ region: COGNITO.region, clientId: COGNITO.clientId })
+
 // --- in-memory session cache (synchronous reads) ---
 let currentSession = null
 let refreshInFlight = null
@@ -56,6 +70,19 @@ const emitSignOut = () => { signOutListeners.forEach((fn) => { try { fn() } catc
 
 const isExpired = (s, skew = 0) => !s || !s.expiresAt || Date.now() >= s.expiresAt - skew
 
+// Display-only JWT claims (the backend verifies tokens, not this).
+const claimsOf = (jwt) => {
+  try {
+    const part = String(jwt).split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const raw = atob(part.padEnd(part.length + ((4 - (part.length % 4)) % 4), '='))
+    let text = raw
+    try { text = decodeURIComponent(escape(raw)) } catch { /* ASCII-only fallback */ }
+    return JSON.parse(text)
+  } catch {
+    return {}
+  }
+}
+
 async function writeSecure(data) {
   // SecureStore is the durable source of truth. Keep the in-memory cache only
   // after every required keystore write succeeds; do not silently downgrade to
@@ -64,7 +91,7 @@ async function writeSecure(data) {
     throw new Error('Cognito did not return a complete authentication session.')
   }
   await Promise.all([
-    SecureStore.setItemAsync(K.email, data.email || ''),
+    SecureStore.setItemAsync(K.username, data.username || ''),
     SecureStore.setItemAsync(K.idToken, data.idToken),
     SecureStore.setItemAsync(K.accessToken, data.accessToken || ''),
     SecureStore.setItemAsync(K.refreshToken, data.refreshToken),
@@ -75,19 +102,30 @@ async function writeSecure(data) {
 
 async function clearSecure() {
   currentSession = null
-  await Promise.allSettled(Object.values(K).map((k) => SecureStore.deleteItemAsync(k)))
+  await Promise.allSettled([...Object.values(K), 'sankatai_email'].map((k) => SecureStore.deleteItemAsync(k)))
   memoryStore.clear()
   emitSignOut()
 }
 
-function sessionToData(session, email, existingRefreshToken = null) {
-  const refreshToken = session.getRefreshToken?.()?.getToken?.() || existingRefreshToken
+function sessionToData(session, existingRefreshToken = null) {
+  const accessToken = session.getAccessToken().getJwtToken()
   return {
-    email,
+    username: claimsOf(accessToken).username,
     idToken: session.getIdToken().getJwtToken(),
-    accessToken: session.getAccessToken().getJwtToken(),
-    refreshToken,
+    accessToken,
+    refreshToken: session.getRefreshToken?.()?.getToken?.() || existingRefreshToken,
     expiresAt: session.getIdToken().getExpiration() * 1000,
+  }
+}
+
+// Tokens from the texted-code or social flows (not the SDK).
+function tokensToData(tokens) {
+  return {
+    username: claimsOf(tokens.accessToken).username,
+    idToken: tokens.idToken,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    expiresAt: (claimsOf(tokens.idToken).exp || 0) * 1000,
   }
 }
 
@@ -95,15 +133,15 @@ function sessionToData(session, email, existingRefreshToken = null) {
 // refresh token exists, silently refresh so the user stays signed in.
 export async function initAuth() {
   try {
-    const [email, idToken, accessToken, refreshToken, expiresAt] = await Promise.all([
-      SecureStore.getItemAsync(K.email),
+    const [username, idToken, accessToken, refreshToken, expiresAt] = await Promise.all([
+      SecureStore.getItemAsync(K.username),
       SecureStore.getItemAsync(K.idToken),
       SecureStore.getItemAsync(K.accessToken),
       SecureStore.getItemAsync(K.refreshToken),
       SecureStore.getItemAsync(K.expiresAt),
     ])
     if (!refreshToken) { currentSession = null; return null }
-    currentSession = { email, idToken, accessToken, refreshToken, expiresAt: Number(expiresAt) || 0 }
+    currentSession = { username, idToken, accessToken, refreshToken, expiresAt: Number(expiresAt) || 0 }
     if (isExpired(currentSession, EXPIRY_SKEW_MS)) {
       const token = await refreshSession()
       return token ? currentSession : null
@@ -120,11 +158,11 @@ export async function initAuth() {
 export function refreshSession() {
   if (refreshInFlight) return refreshInFlight
   const refreshToken = currentSession?.refreshToken
-  const email = currentSession?.email
+  const username = currentSession?.username
   if (!refreshToken) return Promise.resolve(null)
 
   refreshInFlight = new Promise((resolve) => {
-    const user = new CognitoUser({ Username: email || 'user', Pool: userPool, Storage: memoryStore })
+    const user = new CognitoUser({ Username: username || 'user', Pool: userPool, Storage: memoryStore })
     user.refreshSession(new CognitoRefreshToken({ RefreshToken: refreshToken }), async (err, session) => {
       if (err || !session) {
         await clearSecure()
@@ -132,7 +170,7 @@ export function refreshSession() {
         return
       }
       // Cognito may not re-issue a refresh token; keep the existing one.
-      const data = sessionToData(session, email, refreshToken)
+      const data = sessionToData(session, refreshToken)
       try {
         await writeSecure(data)
         resolve(data.idToken)
@@ -148,8 +186,20 @@ export function refreshSession() {
 
 export const isCognitoConfigured = () => Boolean(COGNITO.userPoolId && COGNITO.clientId)
 export const getStoredSession = () => currentSession
-export const getCurrentEmail = () => currentSession?.email || null
 export const isAuthenticated = () => Boolean(currentSession?.idToken && currentSession?.refreshToken)
+
+/** Who is signed in, from the ID token (display only). */
+export const getCurrentAccount = () => {
+  const c = claimsOf(currentSession?.idToken)
+  return {
+    email: c.email || null,
+    phone: c.phone_number || null,
+    username: c.preferred_username || null,
+    // Social-only accounts (google_… / facebook_…) have no password to change.
+    hasPassword: !/^(google|facebook)_/i.test(c['cognito:username'] || currentSession?.username || ''),
+  }
+}
+export const getCurrentEmail = () => getCurrentAccount().email
 
 // Async token for API calls: refreshes first if the ID token is expired/near-expiry.
 export async function getValidIdToken() {
@@ -158,30 +208,44 @@ export async function getValidIdToken() {
   return refreshSession()
 }
 
-export const signUp = (email, password) =>
+// ── sign-up ─────────────────────────────────────────────────────────────────
+
+/**
+ * Create an account with an email or a phone (E.164). The Cognito username is
+ * a fresh UUID; people sign in with their chosen username, email or phone.
+ * @returns {Promise<{username: string}>} the Cognito username, needed to confirm.
+ */
+export const signUp = ({ username, email, phone, name, password }) =>
   new Promise((resolve, reject) => {
-    const attrs = [new CognitoUserAttribute({ Name: 'email', Value: email })]
-    userPool.signUp(email, password, attrs, null, (err, res) => (err ? reject(err) : resolve(res)))
+    const cognitoUsername = uuidV4((a) => crypto.getRandomValues(a))
+    const attrs = [new CognitoUserAttribute({ Name: 'preferred_username', Value: normalizeUsername(username) })]
+    if (email) attrs.push(new CognitoUserAttribute({ Name: 'email', Value: email.trim().toLowerCase() }))
+    if (phone) attrs.push(new CognitoUserAttribute({ Name: 'phone_number', Value: phone }))
+    if (name?.trim()) attrs.push(new CognitoUserAttribute({ Name: 'name', Value: name.trim() }))
+    userPool.signUp(cognitoUsername, password, attrs, null, (err) => (err ? reject(err) : resolve({ username: cognitoUsername })))
   })
 
-export const confirmSignUp = (email, code) =>
+export const confirmSignUp = (cognitoUsername, code) =>
   new Promise((resolve, reject) => {
-    const user = new CognitoUser({ Username: email, Pool: userPool, Storage: memoryStore })
+    const user = new CognitoUser({ Username: cognitoUsername, Pool: userPool, Storage: memoryStore })
     user.confirmRegistration(code, true, (err, res) => (err ? reject(err) : resolve(res)))
   })
 
-export const resendConfirmationCode = (email) =>
+export const resendConfirmationCode = (cognitoUsername) =>
   new Promise((resolve, reject) => {
-    const user = new CognitoUser({ Username: email, Pool: userPool, Storage: memoryStore })
+    const user = new CognitoUser({ Username: cognitoUsername, Pool: userPool, Storage: memoryStore })
     user.resendConfirmationCode((err, res) => (err ? reject(err) : resolve(res)))
   })
 
-export const signIn = (email, password) =>
+// ── password sign-in ────────────────────────────────────────────────────────
+
+/** `identifier`: username, verified email, or verified phone (E.164). */
+export const signIn = (identifier, password) =>
   new Promise((resolve, reject) => {
-    const details = new AuthenticationDetails({ Username: email, Password: password })
+    const details = new AuthenticationDetails({ Username: identifier, Password: password })
     const onSuccess = async (session) => {
       try {
-        await writeSecure(sessionToData(session, email))
+        await writeSecure(sessionToData(session))
         resolve(session)
       } catch (err) {
         await clearSecure()
@@ -189,7 +253,7 @@ export const signIn = (email, password) =>
       }
     }
     const attempt = (flow, onFailure) => {
-      const user = new CognitoUser({ Username: email, Pool: userPool, Storage: memoryStore })
+      const user = new CognitoUser({ Username: identifier, Pool: userPool, Storage: memoryStore })
       user.setAuthenticationFlowType(flow)
       // Provide every callback so the promise always settles (a challenge the app
       // doesn't support otherwise leaves the SDK — and the sign-in button — hanging).
@@ -212,19 +276,105 @@ export const signIn = (email, password) =>
     })
   })
 
+// ── texted-code sign-in (passwordless) ──────────────────────────────────────
+
+let pendingCode = null // { phone, session }
+
+/** Text a sign-in code to the account's verified phone (E.164). */
+export const startCodeSignIn = async (phone) => {
+  const { session, destination } = await api().startSmsSignIn(phone)
+  pendingCode = { phone, session }
+  return { destination }
+}
+
+export const confirmCodeSignIn = async (code) => {
+  if (!pendingCode) throw new Error('That sign-in expired. Request a new code.')
+  const tokens = await api().answerSmsCode({ ...pendingCode, code })
+  pendingCode = null
+  await writeSecure(tokensToData(tokens))
+}
+
+export const cancelCodeSignIn = () => { pendingCode = null }
+
+// ── social sign-in ──────────────────────────────────────────────────────────
+
+// Expo Go can't receive the sankatai:// redirect, so social sign-in needs a
+// development or store build of the app.
+export const socialProviders = () =>
+  (isCognitoConfigured() && COGNITO.domain && Constants.appOwnership !== 'expo'
+    ? parseSocialProviders(COGNITO.socialProviders)
+    : [])
+
+const sha256 = async (text) => {
+  const hash = new Sha256()
+  hash.update(text)
+  return hash.digest()
+}
+
+/**
+ * Sign in with Google/Facebook in an in-app browser. Resolves true when signed
+ * in, false when the person closed the browser.
+ */
+export async function signInWithProvider(provider, retried = false) {
+  const random = (bytes) => randomUrlSafe((a) => crypto.getRandomValues(a), bytes)
+  const verifier = random(48)
+  const state = random(24)
+  const url = buildAuthorizeUrl({
+    domain: COGNITO.domain, clientId: COGNITO.clientId, redirectUri: REDIRECT_URI, provider, state,
+    codeChallenge: await pkceChallenge(verifier, sha256),
+  })
+  const result = await WebBrowser.openAuthSessionAsync(url, REDIRECT_URI)
+  if (result.type !== 'success' || !result.url) return false
+  const query = result.url.split('?')[1] || ''
+  const params = Object.fromEntries(query.split('#')[0].split('&').filter(Boolean).map((kv) => {
+    const [k, v = ''] = kv.split('=')
+    return [decodeURIComponent(k), decodeURIComponent(v.replace(/\+/g, ' '))]
+  }))
+  const error = params.error_description || params.error
+  if (error) {
+    // Right after the pre sign-up trigger links a Google identity to an
+    // existing account, Cognito fails once; the second attempt succeeds.
+    if (!retried && isLinkedAccountRetry(error)) return signInWithProvider(provider, true)
+    const m = /PreSignUp failed with error (.+?)\.?$/.exec(error)
+    throw new Error(m ? m[1] : 'Couldn’t finish signing in with that account. Try again.')
+  }
+  if (params.state !== state || !params.code) throw new Error('Couldn’t finish signing in with that account. Try again.')
+  const tokens = await exchangeAuthCode({
+    domain: COGNITO.domain, clientId: COGNITO.clientId, redirectUri: REDIRECT_URI, code: params.code, codeVerifier: verifier,
+  })
+  await writeSecure(tokensToData(tokens))
+  return true
+}
+
+// ── account ─────────────────────────────────────────────────────────────────
+
 export const signOut = async () => {
   const user = userPool.getCurrentUser()
   if (user) user.signOut()
+  pendingCode = null
   await clearSecure()
+}
+
+/**
+ * Set or change the username (preferred_username). Cognito rejects a taken one
+ * with AliasExistsException. Refreshes tokens so the new name shows at once.
+ */
+export async function updateUsername(username) {
+  if (!currentSession?.accessToken) throw new Error('Sign in again to change your username.')
+  await api().updateAttributes({ accessToken: currentSession.accessToken, attributes: { preferred_username: normalizeUsername(username) } })
+  await refreshSession()
+  return getCurrentAccount()
 }
 
 // Change the account password. Re-authenticates with the current password first
 // (the SDK storage is in-memory), then calls Cognito's changePassword. The
 // stored keystore tokens and the app session are left untouched.
-export const changePassword = (email, currentPassword, newPassword) =>
+export const changePassword = (currentPassword, newPassword) =>
   new Promise((resolve, reject) => {
-    const user = new CognitoUser({ Username: email, Pool: userPool, Storage: memoryStore })
-    const details = new AuthenticationDetails({ Username: email, Password: currentPassword })
+    const username = currentSession?.username
+    if (!username) { reject(new Error('Sign in again to change your password.')); return }
+    const user = new CognitoUser({ Username: username, Pool: userPool, Storage: memoryStore })
+    const details = new AuthenticationDetails({ Username: username, Password: currentPassword })
     user.setAuthenticationFlowType('USER_PASSWORD_AUTH')
     user.authenticateUser(details, {
       onSuccess: () => {

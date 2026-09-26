@@ -1,19 +1,25 @@
 // Cognito error -> friendly message. Never echoes the raw message for
 // credential failures, and NotAuthorized/UserNotFound share ONE message so the
-// form cannot be used to discover which emails have accounts.
+// form cannot be used to discover which accounts exist.
 
-export const GENERIC_SIGN_IN_ERROR = 'Incorrect email or password.'
+import { preSignUpMessage } from '@sankatai/shared'
+
+export const GENERIC_SIGN_IN_ERROR = 'Those sign-in details don’t match an account.'
 
 const MESSAGES = {
   NotAuthorizedException: GENERIC_SIGN_IN_ERROR,
   UserNotFoundException: GENERIC_SIGN_IN_ERROR,
-  CodeMismatchException: 'That code is incorrect. Check the latest email and try again.',
+  CodeMismatchException: 'That code is incorrect. Check the latest message and try again.',
   ExpiredCodeException: 'That code has expired. Request a new one.',
   LimitExceededException: 'Too many attempts. Wait a few minutes, then try again.',
   TooManyRequestsException: 'Too many requests. Wait a moment, then try again.',
   TooManyFailedAttemptsException: 'Too many failed attempts. Wait a few minutes, then try again.',
   InvalidPasswordException: 'That password doesn’t meet the requirements below.',
-  UsernameExistsException: 'An account with this email already exists. Sign in instead.',
+  UsernameExistsException: 'That username, email or phone number is already in use.',
+  AliasExistsException: 'That username, email or phone number is already in use.',
+  SmsSignInUnavailable: 'Text-message sign-in isn’t available for this number. Sign in with your password.',
+  SocialSignInFailed: 'Couldn’t finish signing in with that account. Try again.',
+  InvalidPhoneNumber: 'Enter the phone number with its country code, like +91 98765 43210.',
   PasswordResetRequiredException: 'You need to reset your password. Use “Forgot password?”.',
   MFASetupRequired: 'This account needs multi-factor setup, which the web app doesn’t support yet.',
   UnsupportedChallenge: 'This sign-in method isn’t supported.',
@@ -24,6 +30,9 @@ const MESSAGES = {
 
 export const authErrorMessage = (err, fallback = 'Something went wrong. Try again.') => {
   const code = err?.code || err?.name
+  // Our pre sign-up check (duplicate email/phone) explains itself.
+  if (code === 'UserLambdaValidationException') return preSignUpMessage(err) || fallback
+  if (code === 'InvalidParameterException' && /phone/i.test(err?.message || '')) return MESSAGES.InvalidPhoneNumber
   if (code && MESSAGES[code]) {
     // Cognito reports a disabled account and the lockout as NotAuthorized too.
     if (code === 'NotAuthorizedException' && /attempts exceeded/i.test(err?.message || '')) {

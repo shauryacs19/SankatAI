@@ -51,8 +51,15 @@ export function AuthProvider({ children }) {
   // Out-of-band sign-out (refresh failure / hard 401 in the API client).
   useEffect(() => onSignOut(() => { if (mounted.current) setStatus(AUTH_STATUS.UNAUTHENTICATED) }), [])
 
-  const signIn = useCallback(async (email, password) => {
-    await cognitoSignIn(email, password)
+  // Password sign-in. `identifier`: username, email or phone (E.164).
+  const signIn = useCallback(async (identifier, password) => {
+    await cognitoSignIn(identifier, password)
+    setInitialRoute(await resolveInitialRoute())
+    setStatus(AUTH_STATUS.AUTHENTICATED)
+  }, [])
+
+  // After a texted-code or social sign-in has stored its tokens.
+  const finishSignIn = useCallback(async () => {
     setInitialRoute(await resolveInitialRoute())
     setStatus(AUTH_STATUS.AUTHENTICATED)
   }, [])
@@ -62,7 +69,7 @@ export function AuthProvider({ children }) {
     setStatus(AUTH_STATUS.UNAUTHENTICATED)
   }, [])
 
-  const value = useMemo(() => ({ status, initialRoute, signIn, signOut }), [status, initialRoute, signIn, signOut])
+  const value = useMemo(() => ({ status, initialRoute, signIn, finishSignIn, signOut }), [status, initialRoute, signIn, finishSignIn, signOut])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
