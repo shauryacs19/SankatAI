@@ -62,18 +62,14 @@ Names (Terraform `project_name=sankatai`; also in `backend/.env.aws.example`):
   `aws_s3_bucket_cors_configuration` (methods PUT/GET/HEAD, origins from
   `var.cors_allowed_origins`, default `["*"]`) — defined in
   `infrastructure/terraform/modules/storage/{chat_uploads,file_storage}.tf`.
-- Cognito pool: **always take it from `terraform output cognito_user_pool_id`**. Terraform
-  state on 2026-09-25 shows `ap-south-1_FXxRCpE9K`; the `gxKpxpsyl` id below is stale.
-  Group **`ADMIN`** (Terraform `aws_cognito_user_group.admin`; membership managed only by the
-  backend and `scripts/bootstrap_admin.py`). Account recovery: `verified_email` only.
-- (historical) Cognito pool `ap-south-1_gxKpxpsyl`, client `tm62pjk48amoj3c3l6i9m135e`.
-  (⚠️ `ap-south-1_4pBYOQiu7` / `7829g8n7319m34te0bkmu9h3sq` and `ap-south-1_nUPGx5F7B` /
-  `1ltbkvsnt6bk0kst5dkpeub6j9` are STALE — do not use.)
-  **The pool ID is duplicated in 7 places** — `apps/mobile/src/config.js`,
-  `docker-compose.yml` (×2: backend env + frontend build args), `docker-compose.dev.yml`
-  (×2: backend + frontend), `apps/web/scripts/deploy-frontend.sh`,
-  `apps/web/scripts/ec2-setup.sh`, and `backend/.env` (unused at runtime).
-  Change all of them together or sign-in breaks with "Invalid authentication token".
+- Cognito pool: **always take it from `terraform output cognito_user_pool_id`** (pool
+  `sankatai-users`, since 2026-09-26, see §9g). Group **`ADMIN`** (`aws_cognito_user_group.admins`;
+  membership managed only by the backend and `scripts/bootstrap_admin.py`). Recovery:
+  verified email, then verified phone. The only hard-coded copy is the default in
+  `apps/mobile/src/config.js` (EXPO_PUBLIC_* override it); web, CD and backend read Terraform outputs.
+- (historical, all unmanaged/stale) `ap-south-1_FXxRCpE9K` (`sankatai-user-pool`, email-only,
+  left in AWS by `removed` blocks on 2026-09-26 — delete from the console when sure),
+  `gxKpxpsyl`, `4pBYOQiu7`, `nUPGx5F7B`.
 - DynamoDB `sankatai-web-sessions` — hash `session_id`, TTL attr `ttl`; holds the
   Fernet-encrypted web `id_token`/`refresh_token`.
 - Admin/analytics DynamoDB (on-demand, SSE, PITR), see §9e: `sankatai-admins` (pk/sk),
@@ -636,6 +632,48 @@ API GW authorizer unchanged (same `client_id`). Hosted UI domain/callbacks left 
 unused. **Existing web sessions (memory-only) end once on deploy; users sign in again.**
 
 **Tests:** `app/auth.test.jsx` (26), `services/api/httpClient.test.js` (4).
+
+## 9g. Sign-in: username / email / phone, texted codes, Google + Facebook (2026-09-26)
+
+**Pool** (`modules/security/cognito`): new `sankatai-users` (Essentials tier, deletion
+protection ACTIVE). `alias_attributes = [email, phone_number, preferred_username]`, case-insensitive;
+Cognito `username` = client-generated UUID (never shown); the person's handle is
+`preferred_username` (unique via alias, changeable, rules in `@sankatai/shared` `usernameError`:
+3–20, starts with a letter, a-z0-9 . _, reserved names). `sign_in_policy` first factors
+`PASSWORD` + `SMS_OTP` (EMAIL_OTP off: needs SES as pool mailer, SES still sandbox; pool email =
+Cognito default, 50/day). MFA OFF. SMS via SNS role `sankatai-cognito-sms` (external id) —
+**SNS SMS sandbox: only verified destination numbers get texts; India needs TRAI DLT** before
+real traffic. Old pool/client/domain/group kept by `removed { destroy = false }` (no user deleted).
+Domain `sankatai-signin` (`terraform output cognito_social_redirect_uri` for IdP consoles).
+Client `sankatai-app`: flows USER_AUTH, SRP, USER_PASSWORD (mobile), REFRESH; OAuth code+PKCE,
+scopes incl. `aws.cognito.signin.user.admin`; IdPs `COGNITO` + Google/Facebook **only when
+`google_client_id/secret`, `facebook_app_id/secret` are set in terraform.tfvars** (count 0 otherwise).
+**Pre sign-up Lambda** `sankatai-cognito-pre-sign-up` (py3.12, source `backend/lambdas/
+cognito_pre_sign_up.py`, tests `backend/tests/test_cognito_pre_sign_up.py`, zipped by the
+`hashicorp/archive` provider): sign-up needs email or phone; rejects an email/phone another
+account has VERIFIED (or a social account's email); Google with verified email → 
+`AdminLinkProviderForUser` onto the single matching verified native account. Facebook never
+auto-linked (no verified-email claim). Cognito fails the first sign-in right after linking
+("Already found an entry for username") — both clients retry once automatically.
+
+**Shared** (`packages/shared/auth.js`): username/phone (`toE164`, default +91)/identifier parsing,
+`createCognitoApi` (USER_AUTH SMS_OTP start/answer, UpdateUserAttributes), OAuth helpers
+(`buildAuthorizeUrl` with identity_provider, `exchangeAuthCode`, PKCE), `uuidV4`. Tests:
+`apps/web/src/services/auth/sharedAuth.test.js`.
+
+**Web**: Login = social buttons (only `VITE_SOCIAL_PROVIDERS`, from Terraform output via CD) +
+Password (email/phone/username, SRP) | "Text me a code". Social: button → `/oauth2/authorize?
+identity_provider=…` (never on load; invariant holds) → `/auth/callback` (`AuthCallback.jsx`,
+state check, PKCE exchange, `safeReturnTo`). OTP/social tokens adopted into the library's
+storage (`adoptTokens`), so restore/refresh are unchanged. Signup: name, username, Email|Phone,
+password; pending sign-up (Cognito UUID) in sessionStorage for `/verify`. Settings: username
+card, email/phone rows, password card hidden for social-only (`hasPassword`). Sign-out asks first
+(web `SignOutDialog`, mobile `Alert`).
+**Mobile**: same flows in `LoginScreen`; social via `expo-web-browser` `openAuthSessionAsync`,
+redirect `sankatai://auth/callback` (app.json `scheme`), **hidden in Expo Go** (needs a dev/store
+build); PKCE SHA-256 via `@aws-crypto/sha256-js`. SecureStore key `sankatai_username` (was email).
+**Backend**: unchanged request path. `bootstrap_admin.py` first retires admin rows whose Cognito
+user no longer exists (`retire_orphaned_admins`), so the old pool's root can't block the new one.
 
 ## 10. Changelog (most recent first)
 - **Root admin (2026-09-26):** see §9e. Backend 105 tests, web 90 tests + build pass. Prod row
