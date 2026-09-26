@@ -186,6 +186,11 @@ dev. `@react-native-async-storage/async-storage` remains installed only because 
 - Claude's sandbox can't run a full Metro bundle / on-device test / AWS CLI — code is
   validated by JSX + `py_compile` only. Watch for red-screen import errors on first load.
 - New native modules need `npm install` + `expo start -c`.
+- **Root `overrides` pins `image-size@^2.0.3`** (Trivy CVE-2025-71329/71330; only user is
+  `metro@0.83.3` via expo 54, and no metro release uses image-size 2). image-size 2 rejects
+  file paths, so `patches/metro+0.83.3.patch` (applied by root `postinstall: patch-package`)
+  makes `metro/src/Assets.js` pass a buffer. On an Expo/metro bump: regenerate or drop the
+  patch (`npx patch-package metro`), then verify with `npx expo export --platform android`.
 - WhatsApp deep links can't auto-send and can't foreground with a call → Shake-SOS opens
   WhatsApp (message+location ready) then calls; contact numbers need country code.
 
@@ -510,6 +515,12 @@ admin row active, counter +1] = single use; on failure the group add is compensa
 Codes: invalid 400, expired/revoked 410, accepted/already_admin 409, wrong_email/
 email_unverified 403. Web then refreshes tokens to get the group claim.
 
+**Root admin (2026-09-26).** One admin row carries `role=root` (currently shauryacs19@gmail.com),
+set ONLY by `BOOTSTRAP_ROOT=true python -m scripts.bootstrap_admin` (refuses if another root
+exists; no API can grant it). Root can't be removed by anyone via the app (`root_protected` 403,
+also enforced in the revoke transaction condition); only an active root may remove OTHER admins
+(`root_only` 403); any non-root admin may still leave. `GET /admins` returns `isRoot` per row and
+`canRemoveOthers`; web hides Remove accordingly. Data-driven role, not an email allow-list.
 **Removal.** Transaction [row active→revoked, `META/ACTIVE_COUNT` −1 with
 `active_count > 1`] → last admin is blocked atomically (409). THEN
 `AdminRemoveUserFromGroup` + `AdminUserGlobalSignOut` (DB first = fail-closed; retrying a
@@ -627,6 +638,31 @@ unused. **Existing web sessions (memory-only) end once on deploy; users sign in 
 **Tests:** `app/auth.test.jsx` (26), `services/api/httpClient.test.js` (4).
 
 ## 10. Changelog (most recent first)
+- **Root admin (2026-09-26):** see §9e. Backend 105 tests, web 90 tests + build pass. Prod row
+  already set to root; protection takes effect when the backend is deployed (push to main).
+- **H1 fixed + APPLIED (2026-09-26, targeted apply, distribution Deployed; verified: 0 custom
+  error responses, SPA routes 200 html, missing asset 403, /api/* JSON status passthrough):** web showed `Unexpected token '<'` on invite accept — audit log
+  showed `invite_accept denied wrong_email` (link opened while signed in as a different account),
+  and CloudFront's distribution-wide 403→/index.html turned that 403 into HTML. Replaced
+  `custom_error_response` with CloudFront Function `sankatai-spa-routes` (viewer-request, S3
+  default behavior only): extension-less paths → /index.html. `/api/*` untouched. Targeted plan:
+  1 add, 1 change, 0 destroy. Apply with `terraform apply -target=module.frontend` (a full
+  apply may also replace EC2 via the `most_recent` AMI data sources).
+- **Invite "saved but email could not be sent" (2026-09-26):** SES account in ap-south-1 is still
+  **sandbox** (`ProductionAccessEnabled=false`, 200/day, 1/s); only the sender identity is verified
+  (DKIM not started). Any unverified recipient → `MessageRejected` → `email_failed` 502. Fix:
+  verify each test recipient (`aws ses verify-email-identity`) or request production access
+  (ideally with a domain sender + DKIM; a gmail.com From fails DMARC). No code change.
+- **AWS architecture review (2026-09-26):** https://claude.ai/artifact/JaMdN8edaapdtohgp9NtEW
+  (private). Open findings: **H1** CloudFront `custom_error_response` 403→/index.html 200 is
+  distribution-wide, so web gets HTML for API 403s (Incorrect PIN, admin denied); fix with a
+  CloudFront Function on the S3 behavior. **H2** `ec2-rollout.sh` rm -f → run = 502s, no rollback.
+  **H3** `deploy` needs only backend+frontend; Sonar/Trivy don't gate, CD rebuilds unscanned image.
+  **M1** single AZ (EC2+NAT in 1a), no alarms. **M2** container logs not shipped (CW agent
+  unconfigured). **M3** `file-storage` bucket unversioned. **M4** `cors_allowed_origins` = `*`
+  (API GW + S3). **M5** `use_lockfile=false`. **M6** Cognito MFA/deletion protection off.
+- **image-size CVE fix (2026-09-26):** override → 2.0.4 + metro patch (see §8). Mobile
+  `expo export` bundles (17 assets), web tests 88/88 + build OK, npm audit: no high/critical.
 - **Admin console + real analytics + web custom login (2026-09-25):** see §9e/§9f.
   Mock admin dashboard replaced by `/api/admin/*` (JWT re-verify + ADMIN group + admins
   table), Gmail invitations (SES), safe removal, append-only audit, real aggregates only.
