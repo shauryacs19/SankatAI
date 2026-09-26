@@ -136,12 +136,12 @@ def groups_of(aws_ctx, username: str) -> list[str]:
     return [g["GroupName"] for g in resp["Groups"]]
 
 
-def make_admin(aws_ctx, email: str) -> dict:
+def make_admin(aws_ctx, email: str, root: bool = False) -> dict:
     """A bootstrapped admin: Cognito group + active row. Returns ids + headers."""
     from app.services import admin_access_service
 
     sub, username = create_user(aws_ctx, email)
-    admin_access_service.bootstrap(email, sub, username)
+    admin_access_service.bootstrap(email, sub, username, root=root)
     return {"sub": sub, "username": username, "email": email,
             "headers": headers_for(sub, username=username, groups=["ADMIN"])}
 

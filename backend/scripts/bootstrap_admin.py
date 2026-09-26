@@ -9,8 +9,12 @@ AWS credentials that can call cognito-idp:ListUsers/AdminAddUserToGroup and
 write the admin tables — i.e. an operator, never the app. There is no
 email-based check anywhere in the request path.
 
+BOOTSTRAP_ROOT=true also makes this admin the ROOT admin: permanent (no one can
+remove them through the app) and the only admin who can remove other admins.
+There is exactly one root; the script refuses if another account already is.
+
 Usage (from backend/, values from `terraform output`):
-    BOOTSTRAP_ADMIN_EMAIL=you@gmail.com \\
+    BOOTSTRAP_ADMIN_EMAIL=you@gmail.com BOOTSTRAP_ROOT=true \\
     COGNITO_USER_POOL_ID=$(terraform -chdir=../infrastructure/terraform output -raw cognito_user_pool_id) \\
     ADMINS_TABLE=$(terraform -chdir=../infrastructure/terraform output -raw admins_table_name) \\
     ADMIN_AUDIT_TABLE=$(terraform -chdir=../infrastructure/terraform output -raw admin_audit_table_name) \\
@@ -52,8 +56,15 @@ def main() -> int:
         print("That user's email is not verified. Verify it first.", file=sys.stderr)
         return 1
 
-    created = admin_access_service.bootstrap(email, attrs["sub"], user["Username"])
+    root = os.getenv("BOOTSTRAP_ROOT", "").strip().lower() in {"1", "true", "yes"}
+    try:
+        created = admin_access_service.bootstrap(email, attrs["sub"], user["Username"], root=root)
+    except admin_access_service.AdminError as error:
+        print(error.message, file=sys.stderr)
+        return 1
     print("Admin granted." if created else "Already an active admin; nothing changed (group membership re-applied).")
+    if root:
+        print("Root admin: permanent, and the only admin who can remove other admins.")
     print("The user must sign out and in again (or wait for a token refresh) to get the ADMIN group claim.")
     return 0
 

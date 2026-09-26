@@ -105,12 +105,13 @@ export default function AccessPage() {
             <tbody>
               {data.admins.map((a) => (
                 <tr key={a.sub}>
-                  <th scope="row">{a.email || '—'}{a.isSelf && <Badge className="ac-you">You</Badge>}</th>
+                  <th scope="row">{a.email || '—'}{a.isRoot && <Badge tone="brand" className="ac-you">Root</Badge>}{a.isSelf && <Badge className="ac-you">You</Badge>}</th>
                   <td><Badge tone={TONES[a.status]}>{a.status}</Badge>{a.cognitoCleanup === 'failed' && <Badge tone="danger">Cognito cleanup failed</Badge>}</td>
                   <td>{fmtTime(a.grantedAt)}</td>
                   <td>{a.grantedVia === 'bootstrap' ? 'Bootstrap' : 'Invitation'}</td>
                   <td className="ac-actions">
-                    {(a.status === 'active' || a.cognitoCleanup === 'failed') && (
+                    {/* The root admin is permanent; only root removes others, anyone may leave. The server enforces both. */}
+                    {!a.isRoot && (a.isSelf || data.canRemoveOthers) && (a.status === 'active' || a.cognitoCleanup === 'failed') && (
                       <Button variant="ghost" size="sm" icon={UserMinus}
                         disabled={a.status === 'active' && lastAdmin}
                         hint={a.status === 'active' && lastAdmin ? 'The last active admin can’t be removed. Invite another admin first.' : undefined}

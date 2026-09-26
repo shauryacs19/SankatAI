@@ -24,7 +24,7 @@ def quiet_mail(monkeypatch):
 
 
 def test_each_admin_action_writes_a_record(client, aws):
-    admin = make_admin(aws, "boss@gmail.com")
+    admin = make_admin(aws, "boss@gmail.com", root=True)
     other = make_admin(aws, "other@gmail.com")
     h = admin["headers"]
     inv = client.post("/api/admin/invitations", json={"email": "new@gmail.com"}, headers=h).json()

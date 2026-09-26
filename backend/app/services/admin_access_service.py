@@ -277,6 +277,11 @@ def accept_invitation(ctx: AuditContext, sub: str, username: str, token: str, id
     return {"status": "accepted", "refreshRequired": True}
 
 
+def _is_root(record: Optional[dict]) -> bool:
+    """The root admin: set only by scripts/bootstrap_admin.py, never via the API."""
+    return bool(record) and record.get("role") == repo.ROOT_ROLE
+
+
 def list_admins(current_sub: str) -> dict:
     items = repo.list_admins()
     admins = [
@@ -284,12 +289,13 @@ def list_admins(current_sub: str) -> dict:
             "sub": a["sk"], "email": a.get("email_lower"), "status": a.get("status"),
             "grantedAt": a.get("granted_at"), "grantedBy": a.get("granted_by"), "grantedVia": a.get("granted_via"),
             "revokedAt": a.get("revoked_at"), "revokedBy": a.get("revoked_by"),
-            "cognitoCleanup": a.get("cognito_cleanup"), "isSelf": a["sk"] == current_sub,
+            "cognitoCleanup": a.get("cognito_cleanup"), "isSelf": a["sk"] == current_sub, "isRoot": _is_root(a),
         }
         for a in items
     ]
-    admins.sort(key=lambda a: (a["status"] != "active", a.get("grantedAt") or ""))
-    return {"admins": admins, "activeCount": repo.active_count()}
+    admins.sort(key=lambda a: (not a["isRoot"], a["status"] != "active", a.get("grantedAt") or ""))
+    can_remove_others = any(a["sk"] == current_sub and a.get("status") == "active" and _is_root(a) for a in items)
+    return {"admins": admins, "activeCount": repo.active_count(), "canRemoveOthers": can_remove_others}
 
 
 def _cognito_cleanup(username: str) -> str:
@@ -314,6 +320,17 @@ def remove_admin(ctx: AuditContext, target_sub: str, confirm_self: bool) -> dict
     record = repo.get_admin(target_sub)
     if not record:
         raise AdminError(404, "not_found", "Admin not found.")
+    # The root admin is permanent, and only the root admin removes OTHER
+    # admins; anyone may still leave. Root is a role stored in the admins row
+    # (set by the operator bootstrap script), not an email/id allow-list.
+    if _is_root(record):
+        audit_service.record(ctx, "admin_remove", resource, "denied", "root_protected")
+        raise AdminError(403, "root_protected", "The root admin can't be removed.")
+    if target_sub != ctx.actor_sub:
+        actor = repo.get_admin(ctx.actor_sub)
+        if not (_is_root(actor) and actor.get("status") == "active"):
+            audit_service.record(ctx, "admin_remove", resource, "denied", "root_only")
+            raise AdminError(403, "root_only", "Only the root admin can remove other admins.")
 
     if record.get("status") == "active":
         try:
@@ -321,6 +338,9 @@ def remove_admin(ctx: AuditContext, target_sub: str, confirm_self: bool) -> dict
         except TransactionFailed as failed:
             # reasons = [admin row, counter]
             if failed.reasons[0] == "ConditionalCheckFailed":
+                if _is_root(repo.get_admin(target_sub)):
+                    audit_service.record(ctx, "admin_remove", resource, "denied", "root_protected")
+                    raise AdminError(403, "root_protected", "The root admin can't be removed.") from failed
                 audit_service.record(ctx, "admin_remove", resource, "denied", "not_active")
                 raise AdminError(409, "not_active", "That admin is no longer active.") from failed
             if failed.reasons[1] == "ConditionalCheckFailed":
@@ -337,11 +357,17 @@ def remove_admin(ctx: AuditContext, target_sub: str, confirm_self: bool) -> dict
     return {"status": "revoked", "cognitoCleanup": cleanup, "self": target_sub == ctx.actor_sub}
 
 
-def bootstrap(email_lower: str, sub: str, username: str) -> bool:
-    """Operator bootstrap/recovery (scripts/bootstrap_admin.py). Idempotent."""
+def bootstrap(email_lower: str, sub: str, username: str, root: bool = False) -> bool:
+    """Operator bootstrap/recovery (scripts/bootstrap_admin.py). Idempotent.
+    ``root=True`` also makes this admin the single, permanent root admin."""
+    if root and any(_is_root(a) and a["sk"] != sub for a in repo.list_admins()):
+        raise AdminError(409, "root_exists", "Another account is already the root admin.")
     now = _iso(_now())
     cognito_admin.add_to_admin_group(username)
     created = repo.grant_admin(sub, username, email_lower, "system:bootstrap", "bootstrap", now)
-    audit_service.record(AuditContext(actor_sub="system:bootstrap"), "admin_bootstrap", f"admin:{sub}",
-                         "success" if created else "noop")
+    system = AuditContext(actor_sub="system:bootstrap")
+    audit_service.record(system, "admin_bootstrap", f"admin:{sub}", "success" if created else "noop")
+    if root and not _is_root(repo.get_admin(sub)):
+        repo.set_admin_attrs(sub, {"role": repo.ROOT_ROLE})
+        audit_service.record(system, "permission_change", f"admin:{sub} root", "success")
     return created

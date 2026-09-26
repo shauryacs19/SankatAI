@@ -1,7 +1,9 @@
 """Admin access persistence: ``admins`` + ``admin-invitations`` tables.
 
 ``admins`` (hash ``pk``, range ``sk``):
-  pk=ADMIN  sk=<cognito sub>     one row per admin ever granted; status active|revoked
+  pk=ADMIN  sk=<cognito sub>     one row per admin ever granted; status active|revoked;
+                                 role=root on the single root admin (set only by the
+                                 operator bootstrap script; absent = regular admin)
   pk=META   sk=ACTIVE_COUNT      active_count (N)
 
 Every grant/revoke changes the row and the counter in ONE TransactWriteItems,
@@ -26,6 +28,7 @@ from app.integrations.aws.dynamo_client import get_admins_table, get_invitations
 ADMIN_PK = "ADMIN"
 META_PK = "META"
 COUNTER_SK = "ACTIVE_COUNT"
+ROOT_ROLE = "root"
 
 
 class TransactionFailed(Exception):
@@ -111,8 +114,10 @@ def grant_admin(sub: str, username: str, email_lower: str, granted_by: str, via:
 
 
 def revoke_admin(sub: str, revoked_by: str, now: str) -> None:
-    """Revoke an active admin. Raises TransactionFailed with reasons
-    [row, counter]: row failed = not active, counter failed = last admin."""
+    """Revoke an active, non-root admin. Raises TransactionFailed with reasons
+    [row, counter]: row failed = not active or root, counter failed = last admin.
+    The root check is in the condition, so the root row can never be revoked
+    through the app even if a caller skipped the service-level check."""
     table = get_admins_table().name
     _transact([
         {
@@ -120,9 +125,11 @@ def revoke_admin(sub: str, revoked_by: str, now: str) -> None:
                 "TableName": table,
                 "Key": {"pk": ADMIN_PK, "sk": sub},
                 "UpdateExpression": "SET #s = :revoked, revoked_at = :now, revoked_by = :by",
-                "ConditionExpression": "#s = :active",
-                "ExpressionAttributeNames": {"#s": "status"},
-                "ExpressionAttributeValues": {":revoked": "revoked", ":active": "active", ":now": now, ":by": revoked_by},
+                "ConditionExpression": "#s = :active AND (attribute_not_exists(#r) OR #r <> :root)",
+                "ExpressionAttributeNames": {"#s": "status", "#r": "role"},
+                "ExpressionAttributeValues": {
+                    ":revoked": "revoked", ":active": "active", ":now": now, ":by": revoked_by, ":root": ROOT_ROLE,
+                },
             }
         },
         {

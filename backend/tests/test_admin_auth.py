@@ -84,7 +84,7 @@ def test_missing_gateway_identity_or_token(client, aws):
 
 
 def test_revoked_admin_with_valid_token_gets_403(client, aws):
-    admin = make_admin(aws, "boss@gmail.com")
+    admin = make_admin(aws, "boss@gmail.com", root=True)
     other = make_admin(aws, "second@gmail.com")
     assert client.get(URL, headers=other["headers"]).status_code == 200
     res = client.delete(f"/api/admin/admins/{other['sub']}", headers=admin["headers"])

@@ -180,6 +180,34 @@ describe('admin access', () => {
     const leave = await screen.findByRole('button', { name: 'Leave' })
     expect(leave.getAttribute('aria-disabled')).toBe('true')
   })
+
+  const TEAM = (canRemoveOthers, selfSub) => ({
+    ...ACCESS,
+    '/admin/admins': () => ({
+      activeCount: 3,
+      canRemoveOthers,
+      admins: [
+        { sub: 'root-sub', email: 'root@gmail.com', status: 'active', isRoot: true, isSelf: selfSub === 'root-sub', grantedVia: 'bootstrap' },
+        { sub: 'a-sub', email: 'a@gmail.com', status: 'active', isSelf: selfSub === 'a-sub', grantedVia: 'invitation:x' },
+        { sub: 'b-sub', email: 'b@gmail.com', status: 'active', isSelf: selfSub === 'b-sub', grantedVia: 'invitation:y' },
+      ],
+    }),
+  })
+
+  it('lets the root admin remove others but never themselves', async () => {
+    routeApi(TEAM(true, 'root-sub'))
+    renderAt('/admin/access')
+    expect(await screen.findByText('Root')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Leave' })).toBeNull()
+  })
+
+  it('lets a regular admin leave but not remove anyone else', async () => {
+    routeApi(TEAM(false, 'a-sub'))
+    renderAt('/admin/access')
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull()
+  })
 })
 
 describe('invitation acceptance', () => {
