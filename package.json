@@ -14,10 +14,12 @@
     "dev:mobile": "npm run start --workspace=@sankatai/mobile",
     "android": "npm run android --workspace=@sankatai/mobile",
     "ios": "npm run ios --workspace=@sankatai/mobile",
-    "web:preview": "npm run preview --workspace=@sankatai/web"
+    "web:preview": "npm run preview --workspace=@sankatai/web",
+    "postinstall": "patch-package"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.1",
+    "patch-package": "^8.0.1"
   },
   "dependencies": {
     "cookie": "^1.1.1",
@@ -26,6 +28,7 @@
     "set-cookie-parser": "^3.1.2"
   },
   "overrides": {
+    "image-size": "^2.0.3",
     "postcss": "^8.5.18",
     "uuid": "^11.1.1"
   }
