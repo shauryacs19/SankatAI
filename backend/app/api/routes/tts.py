@@ -27,7 +27,7 @@ _NO_STORE = {"Cache-Control": "private, no-store"}
 )
 def read_aloud(body: TtsRequest, user: CurrentUser = Depends(get_current_user)):
     try:
-        kind, payload = tts_service.synthesize_message(user.user_id, body.consultationId, body.messageId)
+        kind, payload = tts_service.synthesize_message(user.user_id, body.consultationId, body.messageId, body.variant)
     except TtsNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except TtsNotSpeakable as e:

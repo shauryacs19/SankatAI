@@ -135,6 +135,9 @@ def _json_env(name: str, default: dict) -> dict:
 TTS_VOICE_MAP = _json_env("TTS_VOICE_MAP", _DEFAULT_TTS_VOICE_MAP)
 TTS_DEFAULT_LANGUAGE = "en-IN"
 TTS_REQUESTS_PER_MINUTE = int(os.getenv("TTS_REQUESTS_PER_MINUTE", "20"))  # per user
+# Reply translation (English/Hindi/Hinglish cycle). Cached per message, so only
+# the first switch to each language calls the model.
+TRANSLATIONS_PER_MINUTE = int(os.getenv("TRANSLATIONS_PER_MINUTE", "20"))  # per user
 # Optional cache of synthesized MP3s, keyed by sha256(text+voice), under tts/ in
 # a private bucket (default: the chat-uploads bucket, which has a 7-day tts/
 # lifecycle rule). Served back via a short-lived presigned GET.

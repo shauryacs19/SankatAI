@@ -56,3 +56,15 @@ class PostMessageResponse(BaseModel):
 class FeedbackRequest(BaseModel):
     # None clears any existing feedback for the message.
     feedback: Optional[Literal["like", "dislike"]] = None
+
+
+class TranslateRequest(BaseModel):
+    # The reply's English -> Hindi -> Hinglish cycle in the chat.
+    target: Literal["en", "hi", "hinglish"]
+
+
+class TranslateResponse(BaseModel):
+    messageId: str
+    target: str
+    content: str  # same shape as MessageView.content (the reply JSON)
+    lang: str  # locale read-aloud uses for this version

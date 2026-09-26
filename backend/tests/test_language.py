@@ -133,3 +133,43 @@ def test_attachment_only_message_skips_language_detection(chat, monkeypatch):
     repo, seen = chat()
     consultation_service.post_message("u", "c", "", attachment_ids=["a1"])
     assert calls == [] and "lang" not in seen and repo.added[0]["lang"] is None
+
+
+# --- the reply language survives a history in another language -------------
+
+def test_latest_user_turn_carries_the_reply_language():
+    from app.schemas.triage import Message
+
+    history = [
+        Message(role="user", content="मुझे बुखार है"),
+        Message(role="assistant", content='{"advice": "आराम करें"}'),
+        Message(role="user", content="I also have a headache"),
+    ]
+    sent = openai_provider.build_messages(history, None, "en-IN")
+    assert sent[0]["role"] == "system" and "even if earlier messages" in sent[0]["content"]
+    assert sent[1]["content"] == "मुझे बुखार है"  # earlier turns untouched
+    assert sent[-1]["content"].startswith("I also have a headache")
+    assert "Reply language for this answer: English (en-IN)" in sent[-1]["content"]
+    assert history[-1].content == "I also have a headache"  # never stored
+
+
+def test_no_reminder_without_a_language():
+    from app.schemas.triage import Message
+
+    sent = openai_provider.build_messages([Message(role="user", content="hi")], None, None)
+    assert sent[-1]["content"] == "hi"
+
+
+def test_english_directive_has_no_hindi_script_rule():
+    assert "Devanagari" not in language_service.language_directive("en-IN")
+    assert "Devanagari" in language_service.language_directive("hi-IN")
+
+
+@pytest.mark.parametrize("lang,content,expected", [
+    ("en-IN", "Rest and drink water.", "en"),
+    ("hi-IN", "आराम करें", "hi"),
+    ("hi-IN", "Aaram karein aur paani piyein", "hinglish"),
+    (None, "anything", "en"),
+])
+def test_which_language_a_reply_already_is(lang, content, expected):
+    assert language_service.target_of(lang, content) == expected

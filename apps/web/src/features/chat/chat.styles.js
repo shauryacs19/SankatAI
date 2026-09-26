@@ -72,6 +72,7 @@ export const CHAT_CSS = `
 .msg-ai-call .ui-btn { align-self: flex-start; }
 .msg-ai-disclaimer { display: flex; gap: var(--space-2); font-size: var(--fs-xs); line-height: var(--lh-xs); color: var(--text-muted); }
 .msg-ai-disclaimer svg { margin-top: 0.125rem; }
+.msg-ai-translated { font-size: var(--fs-xs); line-height: var(--lh-xs); color: var(--text-muted); font-style: italic; }
 .msg-ai-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
 .msg-ai-foot-label { font-size: var(--fs-xs); line-height: var(--lh-xs); color: var(--text-muted); margin-right: var(--space-1); }
 .msg-ai-foot .ui-btn[aria-pressed="true"] { background: var(--surface-hover); color: var(--text-primary); border-color: var(--border-strong); }

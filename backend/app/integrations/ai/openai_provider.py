@@ -18,7 +18,7 @@ from openai import OpenAI
 
 from app.core import config
 from app.schemas.triage import Message, PatientProfile
-from app.services.language_service import language_directive
+from app.services.language_service import TRANSLATION_TARGETS, language_directive, language_reminder
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
@@ -101,6 +101,29 @@ def build_prompt(profile: Optional[PatientProfile], lang: Optional[str] = None) 
     return prompt
 
 
+def build_messages(messages: list[Message], profile: Optional[PatientProfile], lang: Optional[str] = None) -> list[dict]:
+    """The chat sent to the model. With a reply language, the latest user turn
+    also carries a short reminder: the system prompt alone lost to a Hindi
+    history, so an English question after Hindi turns got a Hindi answer."""
+    full = [{"role": "system", "content": build_prompt(profile, lang)}]
+    full.extend({"role": m.role, "content": m.content} for m in messages)
+    if lang:
+        last_user = next((i for i in range(len(full) - 1, 0, -1) if full[i]["role"] == "user"), None)
+        if last_user is not None:
+            full[last_user] = {**full[last_user], "content": f"{full[last_user]['content']}\n\n{language_reminder(lang)}"}
+    return full
+
+
+def build_translation_prompt(target: str) -> str:
+    return (
+        "You translate a medical triage reply written for a patient. The input is JSON. Translate the text "
+        'values of "reasoning", "advice", "disclaimer", "text" and every item of "followUpQuestions" into '
+        f"{TRANSLATION_TARGETS[target]}. Keep every key. Keep \"severity\" and \"riskScore\" exactly as they are. "
+        "Keep medical terms accurate and drug names in English. Do not add, remove or soften any advice. "
+        "Return only the JSON."
+    )
+
+
 class AIProvider(ABC):
     """Abstraction the triage service depends on."""
 
@@ -108,6 +131,11 @@ class AIProvider(ABC):
     def analyze(self, messages: list[Message], patient_profile: Optional[PatientProfile], lang: Optional[str] = None) -> str:
         """Return a JSON string assessment, written in `lang` when given. Raise
         on failure so the caller can trigger the offline fallback."""
+
+    @abstractmethod
+    def translate(self, payload: str, target: str) -> str:
+        """Translate the text values of a reply JSON into `target` (a key of
+        TRANSLATION_TARGETS). Returns the model's JSON string; raises on failure."""
 
 
 class OpenAIProvider(AIProvider):
@@ -126,19 +154,25 @@ class OpenAIProvider(AIProvider):
         return OpenAI(api_key=api_key, base_url=config.AI_BASE_URL or None, timeout=config.AI_TIMEOUT)
 
     def analyze(self, messages: list[Message], patient_profile: Optional[PatientProfile], lang: Optional[str] = None) -> str:
-        client = self._client()
-
-        full_messages = [{"role": "system", "content": build_prompt(patient_profile, lang)}]
-        full_messages.extend({"role": m.role, "content": m.content} for m in messages)
-
-        response = client.chat.completions.create(
+        response = self._client().chat.completions.create(
             model=config.AI_MODEL,
-            messages=full_messages,
+            messages=build_messages(messages, patient_profile, lang),
             temperature=0.1,
             response_format={"type": "json_object"},
         )
-        content = response.choices[0].message.content
-        return _extract_json(content)
+        return _extract_json(response.choices[0].message.content)
+
+    def translate(self, payload: str, target: str) -> str:
+        response = self._client().chat.completions.create(
+            model=config.AI_MODEL,
+            messages=[
+                {"role": "system", "content": build_translation_prompt(target)},
+                {"role": "user", "content": payload},
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"},
+        )
+        return _extract_json(response.choices[0].message.content)
 
 
 @lru_cache(maxsize=1)

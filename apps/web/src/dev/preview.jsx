@@ -82,6 +82,16 @@ const route_ = async (method, path, body) => {
   if (path === '/api/profile' && method === 'GET') return json(200, profile)
   if (path === '/api/profile' && method === 'PUT') return json(200, body)
   if (path.startsWith('/api/consultations')) {
+    // Reply translation (English/Hindi/Hinglish cycle): a fixed sample per language.
+    if (path.endsWith('/translate') && method === 'POST') {
+      await wait(700)
+      const sample = {
+        en: 'Please see a doctor **today**. If symptoms get worse, call 108.',
+        hi: 'कृपया **आज ही** डॉक्टर को दिखाएं। लक्षण बढ़ें तो 108 पर कॉल करें।',
+        hinglish: 'Please **aaj hi** doctor ko dikhayein. Symptoms badhein to 108 par call karein.',
+      }[body.target]
+      return json(200, { messageId: 'x', target: body.target, lang: body.target === 'hi' ? 'hi-IN' : 'en-IN', content: ai({ severity: 'EMERGENCY', riskScore: 95, advice: sample }) })
+    }
     const m = path.match(/^\/api\/consultations(?:\/([^/?]+))?(?:\/messages(?:\/([^/]+))?(\/feedback)?)?(\?.*)?$/)
     const [, cid, mid, fb, qs] = m || []
     if (!cid && method === 'GET') {

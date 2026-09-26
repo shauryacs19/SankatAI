@@ -431,6 +431,22 @@ The assistant message stores `lang` (an offline keyword fallback is marked `en-I
 engine writes English). The stateless `/api/analyze` is unchanged (no language directive).
 ⚠️ The AI key is still the placeholder, so replies are offline English estimates until the real
 key is set.
+**Fix (2026-09-26): English voice after Hindi turns got a Hindi reply** — `lang` was resolved and
+stored correctly (`en-IN`), but the model followed the Hindi history over the system prompt.
+`openai_provider.build_messages` now also appends `language_reminder(lang)` to the **latest user
+turn in the prompt only** (never stored), and the directive says "even if earlier messages used
+another language"; the Devanagari rule applies to Hindi only.
+**Translate a reply (web; mobile not yet):** `POST /api/consultations/{cid}/messages/{mid}/translate
+{target: en|hi|hinglish}` → `{content, target, lang}` (`services/translation_service.py`). Only the
+caller's assistant replies; only text values (`reasoning`, `advice`, `disclaimer`,
+`followUpQuestions`) are translated — `severity`/`riskScore` always copied from the original.
+Cached on the message item as `translation_<target>`; the reply's own language returns the
+original with no model call (`language_service.target_of`: en, hi = Devanagari, hinglish = Latin
+Hindi). `TRANSLATIONS_PER_MINUTE` (20/user, in-process). Model/parse failure → 503, nothing cached.
+Web reply footer button cycles English → हिन्दी → Hinglish from the reply's own language
+(`@sankatai/shared` `replyLanguageOf`/`nextTranslation`), shows "Translated to …"; read-aloud
+passes `variant` so Polly reads the shown version (Hinglish uses the en-IN voice). Tests:
+`backend/tests/test_translation.py`, `test_language.py`, `test_tts.py`; web `features/chat/translate.test.jsx`.
 
 ## 9d. Text-to-Speech (Amazon Polly, 2026-09-24)
 

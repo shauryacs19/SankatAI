@@ -40,3 +40,18 @@ export const CHAT_SUGGESTIONS = [
   { key: 'breathe', label: 'Breathing exercises', prompt: 'Show me breathing exercises to calm down.' },
   { key: 'hospital', label: 'Find nearby hospital', action: 'hospital' },
 ]
+
+// ── Reply translation cycle (English -> Hindi -> Hinglish -> English) ─────────
+// Mirrors backend language_service.target_of / TRANSLATION_TARGETS.
+export const TRANSLATION_CYCLE = ['en', 'hi', 'hinglish']
+export const TRANSLATION_LABELS = { en: 'English', hi: 'हिन्दी', hinglish: 'Hinglish' }
+export const TRANSLATION_NAMES = { en: 'English', hi: 'Hindi', hinglish: 'Hinglish' }
+
+/** The language a reply is already in: English, Hindi (Devanagari) or Hinglish (Hindi in Latin letters). */
+export const replyLanguageOf = (lang, content) => {
+  if (!String(lang || '').toLowerCase().startsWith('hi')) return 'en'
+  return /[ऀ-ॿ]/.test(String(content || '')) ? 'hi' : 'hinglish'
+}
+
+export const nextTranslation = (target) =>
+  TRANSLATION_CYCLE[(TRANSLATION_CYCLE.indexOf(target) + 1) % TRANSLATION_CYCLE.length]

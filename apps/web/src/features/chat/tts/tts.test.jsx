@@ -89,7 +89,7 @@ describe('speaker button', () => {
     play.focus()
     fireEvent.click(play) // Enter/Space on a <button> dispatch click
     await waitFor(() => expect(screen.getByRole('button', { name: 'Pause reply' })).toBeTruthy())
-    expect(fetchTts).toHaveBeenCalledWith('c1', 'm1')
+    expect(fetchTts).toHaveBeenCalledWith('c1', 'm1', undefined)
     fireEvent.click(screen.getByRole('button', { name: 'Pause reply' }))
     expect(screen.getByRole('button', { name: 'Play reply' })).toBeTruthy()
   })

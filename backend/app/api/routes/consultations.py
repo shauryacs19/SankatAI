@@ -13,8 +13,10 @@ from app.schemas.consultation import (
     PostMessageRequest,
     PostMessageResponse,
     RenameConsultationRequest,
+    TranslateRequest,
+    TranslateResponse,
 )
-from app.services import consultation_service
+from app.services import consultation_service, translation_service
 
 router = APIRouter(prefix="/api", tags=["Consultations"])
 
@@ -149,3 +151,23 @@ def set_message_feedback(
             detail="Feedback can only be given on AI responses.",
         )
     return view
+
+
+@router.post(
+    "/consultations/{consultation_id}/messages/{message_id}/translate",
+    response_model=TranslateResponse,
+    summary="An AI reply in English, Hindi or Hinglish",
+)
+def translate_message(
+    consultation_id: str,
+    message_id: str,
+    body: TranslateRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """The reply translated for display (and read-aloud). Only the caller's own
+    assistant messages; severity and risk score never change. Cached per
+    message, so each language is translated at most once."""
+    try:
+        return translation_service.translate_message(user.user_id, consultation_id, message_id, body.target)
+    except translation_service.TranslationError as err:
+        raise HTTPException(status_code=err.status, detail=str(err)) from err

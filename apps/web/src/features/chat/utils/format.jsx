@@ -26,7 +26,7 @@ export const toBubble = (m) => {
   // User messages loaded from history are persisted -> delivered ("received").
   if (m.role === 'user') return { id: m.id, sender: 'user', text: m.content, createdAt: m.createdAt, status: 'received', attachmentIds: m.attachmentIds || [] }
   const n = normalizeAssistant(m.content)
-  return { id: m.id, sender: 'bot', text: n.text, severity: n.severity, riskScore: n.riskScore, raw: m.content, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
+  return { id: m.id, sender: 'bot', text: n.text, severity: n.severity, riskScore: n.riskScore, raw: m.content, lang: m.lang || null, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
 }
 
 export const relTime = (iso) => {

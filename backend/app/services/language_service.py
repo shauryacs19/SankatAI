@@ -50,11 +50,47 @@ def last_language(messages: list[dict]) -> Optional[str]:
     return next((m["lang"] for m in reversed(messages) if m.get("lang")), None)
 
 
+def _script_rule(lang: str) -> str:
+    if lang.startswith("hi"):
+        return "Use Devanagari script, or Latin script only if the user wrote Hindi in Latin letters (Hinglish). "
+    return ""
+
+
 def language_directive(lang: str) -> str:
     name = LANGUAGE_NAMES.get(lang, lang)
     return (
-        f"Respond ONLY in {name} ({lang}). Match the user's script (Devanagari for Hindi, "
-        "or Latin if the user wrote Hinglish). Keep medical terms accurate; keep drug names in English. "
+        f"Respond ONLY in {name} ({lang}), even if earlier messages in the conversation used another language. "
+        f"{_script_rule(lang)}Keep medical terms accurate; keep drug names in English. "
         'Write the values of "reasoning", "followUpQuestions" and "advice" in that language; keep the '
         'JSON keys and the "severity" values exactly as specified above.'
     )
+
+
+def language_reminder(lang: str) -> str:
+    """Appended to the latest user turn in the prompt (never stored). After a
+    Hindi exchange the model tends to keep replying in Hindi despite the system
+    prompt; the last thing it reads settles the reply language."""
+    name = LANGUAGE_NAMES.get(lang, lang)
+    return f"[Reply language for this answer: {name} ({lang}). Write the whole reply in {name} only.]"
+
+
+# --- translating a reply on request ----------------------------------------
+# The reply bubble cycles English -> Hindi -> Hinglish. Hinglish is Hindi in
+# the Latin alphabet, so it is read aloud with the Indian English voice.
+TRANSLATION_TARGETS = {
+    "en": "English",
+    "hi": "Hindi in Devanagari script",
+    "hinglish": (
+        "Hinglish: Hindi written in the Latin alphabet, mixing in everyday English words the way "
+        "people in India write messages (for example: 'Aapko turant doctor ko dikhana chahiye.')"
+    ),
+}
+TARGET_LOCALE = {"en": "en-IN", "hi": "hi-IN", "hinglish": "en-IN"}
+
+
+def target_of(lang: Optional[str], content: str) -> str:
+    """Which translation target a reply already is: English, Hindi in
+    Devanagari, or Hindi in Latin letters (Hinglish)."""
+    if not (lang or "").lower().startswith("hi"):
+        return "en"
+    return "hi" if any("ऀ" <= ch <= "ॿ" for ch in content or "") else "hinglish"

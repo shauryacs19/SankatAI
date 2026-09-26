@@ -4,14 +4,19 @@
 
 // eslint-disable-next-line no-unused-vars -- `motion` is used via motion.* JSX
 import { motion } from 'framer-motion'
+import { useRef, useState } from 'react'
 import {
   HeartPulse, CloudOff, FileText, ShieldCheck, ThumbsUp, ThumbsDown, Share2, MoreVertical, Trash2,
-  CheckCheck, AlertTriangle, Ambulance, RotateCw,
+  CheckCheck, AlertTriangle, Ambulance, RotateCw, Languages,
 } from 'lucide-react'
 import SpeakerButton from '../tts/SpeakerButton.jsx'
-import { AI_DISCLAIMER, EMERGENCY_CALLOUT } from '@sankatai/shared'
-import { Alert, Button, IconButton, Menu, SeverityBadge, severityUi, messageEnter } from '../../../components/ui'
-import { formatBold, fmtTime } from '../utils/format.jsx'
+import {
+  AI_DISCLAIMER, EMERGENCY_CALLOUT, TRANSLATION_LABELS, TRANSLATION_NAMES, nextTranslation, replyLanguageOf,
+} from '@sankatai/shared'
+import { Alert, Button, IconButton, Menu, SeverityBadge, severityUi, messageEnter, useToast } from '../../../components/ui'
+import { errText } from '../../../utils/errText'
+import { translateMessage } from '../services/chatApi'
+import { formatBold, fmtTime, normalizeAssistant } from '../utils/format.jsx'
 
 export function UserMessage({ m, attachments, onOpenAtt, onUnsend }) {
   const canUnsend = m.status !== 'sent' && m.status !== 'failed' && !String(m.id).startsWith('tmp-')
@@ -55,7 +60,38 @@ function MessageMeta({ m }) {
   )
 }
 
+// Each click shows the reply in the next language of the cycle
+// English -> Hindi -> Hinglish -> English, starting from the reply's own.
+// Translations are fetched once (and cached server-side); severity never changes.
+function useTranslationCycle(m, consultationId) {
+  const toast = useToast()
+  const original = replyLanguageOf(m.lang, m.raw)
+  const [shown, setShown] = useState(original)
+  const [busy, setBusy] = useState(false)
+  const texts = useRef({ [original]: m.text })
+  const next = nextTranslation(shown)
+  const advance = async () => {
+    if (busy) return
+    if (texts.current[next] === undefined) {
+      setBusy(true)
+      try {
+        const res = await translateMessage(consultationId, m.id, next)
+        texts.current[next] = normalizeAssistant(res.content).text
+      } catch (e) {
+        toast.error(errText(e, 'Couldn’t translate this reply. Try again.'))
+        return
+      } finally {
+        setBusy(false)
+      }
+    }
+    setShown(next)
+  }
+  const translated = shown !== original
+  return { text: translated ? texts.current[shown] : m.text, shown, next, busy, advance, translated }
+}
+
 export function AssistantMessage({ m, onFeedback, onShare, consultationId }) {
+  const tr = useTranslationCycle(m, consultationId)
   const sev = m.severity ? severityUi(m.severity) : null
   const offline = Boolean(m.offline)
   const cls = ['msg-ai', sev && !offline ? `msg-ai--sev msg-ai--${sev.cls}` : '', offline ? 'msg-ai--offline' : ''].join(' ')
@@ -79,7 +115,8 @@ export function AssistantMessage({ m, onFeedback, onShare, consultationId }) {
         </Alert>
       )}
 
-      {m.text && <p className="msg-ai-body">{formatBold(m.text)}</p>}
+      {tr.text && <p className="msg-ai-body" lang={tr.shown === 'hi' ? 'hi' : 'en'}>{formatBold(tr.text)}</p>}
+      {tr.translated && <p className="msg-ai-translated">Translated to {TRANSLATION_NAMES[tr.shown]}</p>}
 
       {m.severity === 'EMERGENCY' && (
         <div className="msg-ai-call">
@@ -107,7 +144,12 @@ export function AssistantMessage({ m, onFeedback, onShare, consultationId }) {
             <Button size="sm" variant="ghost" icon={ThumbsUp} aria-pressed={m.feedback === 'like'} onClick={() => onFeedback(m.id, 'like')}>Yes</Button>
             <Button size="sm" variant="ghost" icon={ThumbsDown} aria-pressed={m.feedback === 'dislike'} onClick={() => onFeedback(m.id, 'dislike')}>No</Button>
           </div>
-          <SpeakerButton consultationId={consultationId} messageId={m.id} />
+          <Button size="sm" variant="ghost" icon={Languages} className="msg-ai-translate" onClick={tr.advance}
+            loading={tr.busy} loadingText="Translating…" aria-label={`Show this reply in ${TRANSLATION_NAMES[tr.next]}`}
+            hint={`Show this reply in ${TRANSLATION_NAMES[tr.next]}`}>
+            {TRANSLATION_LABELS[tr.next]}
+          </Button>
+          <SpeakerButton consultationId={consultationId} messageId={m.id} variant={tr.translated ? tr.shown : undefined} />
           <IconButton className="msg-ai-share" label="Share this response" icon={Share2} size={16} onClick={() => onShare(m)} tooltipAlign="end" />
         </footer>
       )}

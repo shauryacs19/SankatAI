@@ -316,3 +316,15 @@ def get_message(user_id: str, consultation_id: str, message_id: str) -> Optional
     or unsent)."""
     item = _find_message_item(user_id, consultation_id, message_id)
     return None if not item or item.get("deleted") else item
+
+
+def save_translation(user_id: str, chat_id: str, target: str, content: str) -> None:
+    """Cache a translated assistant reply on its own item (``translation_<target>``)
+    so cycling languages again costs no model call."""
+    get_chat_table().update_item(
+        Key={"user_id": user_id, "chat_id": chat_id},
+        UpdateExpression="SET #t = :c",
+        ConditionExpression="attribute_exists(chat_id)",
+        ExpressionAttributeNames={"#t": f"translation_{target}"},
+        ExpressionAttributeValues={":c": content},
+    )

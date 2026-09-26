@@ -23,6 +23,7 @@ from app.core import config
 from app.core.rate_limit import SlidingWindowLimiter
 from app.integrations.aws import polly_tts
 from app.repositories import consultation_repository as repo
+from app.services import language_service
 
 logger = logging.getLogger("sankatai.tts")
 
@@ -117,7 +118,22 @@ def voice_for(lang: Optional[str]) -> dict:
 
 # --- use case --------------------------------------------------------------
 
-def synthesize_message(user_id: str, consultation_id: str, message_id: str) -> tuple[str, object]:
+def _version(item: dict, variant: Optional[str]) -> tuple[str, Optional[str]]:
+    """(content, lang) to speak: the translation shown in the chat when it is
+    cached on the message (or the reply already is that language), else the
+    original reply in its own language."""
+    content = item.get("content", "")
+    if variant in language_service.TARGET_LOCALE:
+        if language_service.target_of(item.get("lang"), content) == variant:
+            return content, item.get("lang")
+        cached = item.get(f"translation_{variant}")
+        if cached:
+            return cached, language_service.TARGET_LOCALE[variant]
+    return content, item.get("lang")
+
+
+def synthesize_message(user_id: str, consultation_id: str, message_id: str,
+                       variant: Optional[str] = None) -> tuple[str, object]:
     """Returns ("audio", iterator of MP3 bytes) or, with the cache on,
     ("redirect", presigned GET URL)."""
     if not limiter.allow(user_id):
@@ -127,10 +143,11 @@ def synthesize_message(user_id: str, consultation_id: str, message_id: str) -> t
         raise TtsNotFound("Message not found.")
     if item.get("role") != "assistant":
         raise TtsNotSpeakable("Only assistant replies can be read aloud.")
-    text = clean_text(speakable_text(item.get("content", "")))
+    content, lang = _version(item, variant)
+    text = clean_text(speakable_text(content))
     if not text:
         raise TtsNotSpeakable("This reply has no text to read.")
-    voice = voice_for(item.get("lang"))
+    voice = voice_for(lang)
     chunks = chunk_text(text)
     logger.info("TTS requested (lang=%s, chunks=%d, chars=%d, cache=%s).", voice.get("LanguageCode"), len(chunks), len(text), config.TTS_CACHE_ENABLED)
 

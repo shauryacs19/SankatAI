@@ -143,3 +143,20 @@ def test_logs_no_message_text(env, caplog):
     caplog.set_level(logging.INFO, logger="sankatai.tts")
     client.post("/api/tts", json=BODY, headers=AUTH)
     assert "TTS requested" in caplog.text and "ER now" not in caplog.text
+
+
+def test_reads_the_translation_shown_in_the_chat(env):
+    client, messages, calls = env
+    messages[("owner", "c1", "m1")]["lang"] = "en-IN"  # an English reply, shown in Hinglish
+    messages[("owner", "c1", "m1")]["translation_hinglish"] = json.dumps({"severity": "HIGH", "riskScore": 80, "advice": "Turant ER jaiye."})
+    res = client.post("/api/tts", json={**BODY, "variant": "hinglish"}, headers=AUTH)
+    assert res.status_code == 200
+    text, voice = calls[0]
+    assert text == "Turant ER jaiye." and voice["LanguageCode"] == "en-IN"
+
+
+def test_uncached_variant_falls_back_to_the_original(env):
+    client, _, calls = env
+    client.post("/api/tts", json={**BODY, "variant": "en"}, headers=AUTH)
+    text, voice = calls[0]
+    assert text == "Go to the ER now. See" and voice["LanguageCode"] == "hi-IN"

@@ -24,8 +24,12 @@ export const sendMessage = (id, content, attachmentIds = [], { inputMode, lang }
     body: { content, attachmentIds, ...(inputMode && { inputMode }), ...(lang && { lang }) },
   })
 // Read-aloud MP3 for an assistant reply (text + language are looked up server-side).
-export const fetchTts = (consultationId, messageId) =>
-  request('/tts', { method: 'POST', body: { consultationId, messageId }, responseType: 'blob' })
+// `variant` ('en' | 'hi' | 'hinglish') reads the translation shown in the bubble.
+export const fetchTts = (consultationId, messageId, variant) =>
+  request('/tts', { method: 'POST', body: { consultationId, messageId, ...(variant && { variant }) }, responseType: 'blob' })
+// The reply in another language: { content, target, lang }. Cached server-side.
+export const translateMessage = (consultationId, messageId, target) =>
+  request(`/consultations/${consultationId}/messages/${messageId}/translate`, { method: 'POST', body: { target } })
 // feedback: 'like' | 'dislike' | null (null clears it)
 export const setMessageFeedback = (consultationId, messageId, feedback) =>
   request(`/consultations/${consultationId}/messages/${messageId}/feedback`, { method: 'POST', body: { feedback } })
