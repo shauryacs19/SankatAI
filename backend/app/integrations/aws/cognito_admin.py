@@ -1,8 +1,8 @@
 """Cognito user-pool administration: ADMIN group membership + pool metadata.
 
 Called as the backend instance role, whose policy allows exactly these actions
-on this one pool ARN. ``username`` is the Cognito username; in this pool
-(username_attributes = email) that is the user's ``sub``.
+on this one pool ARN. ``username`` is the Cognito username: an opaque UUID for
+email/phone sign-ups, ``google_<id>`` / ``facebook_<id>`` for social accounts.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from typing import Any
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 from app.core import config
 
@@ -57,3 +58,15 @@ def estimated_user_count() -> int:
 def is_not_found(error: Exception) -> bool:
     code = getattr(error, "response", {}).get("Error", {}).get("Code")
     return code in {"UserNotFoundException", "ResourceNotFoundException"}
+
+
+def user_exists(username: str) -> bool:
+    """Whether ``username`` is still a user in the configured pool (operator
+    bootstrap only; the backend role has no AdminGetUser)."""
+    try:
+        client().admin_get_user(UserPoolId=config.COGNITO_USER_POOL_ID, Username=username)
+        return True
+    except ClientError as error:
+        if is_not_found(error):
+            return False
+        raise

@@ -119,3 +119,32 @@ variable "app_url" {
   type        = string
   default     = ""
 }
+
+# Social sign-in (Cognito identity providers). Empty = provider not created.
+# Set in terraform.tfvars (local only). Redirect URI to register with each
+# provider: `terraform output cognito_social_redirect_uri`.
+variable "google_client_id" {
+  description = "Google OAuth client ID (Google Cloud Console > APIs & Services > Credentials)."
+  type        = string
+  default     = ""
+}
+
+variable "google_client_secret" {
+  description = "Google OAuth client secret."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "facebook_app_id" {
+  description = "Facebook app ID (Meta for Developers)."
+  type        = string
+  default     = ""
+}
+
+variable "facebook_app_secret" {
+  description = "Facebook app secret."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

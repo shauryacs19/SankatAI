@@ -278,8 +278,8 @@ def accept_invitation(ctx: AuditContext, sub: str, username: str, token: str, id
 
 
 def _is_root(record: Optional[dict]) -> bool:
-    """The root admin: set only by scripts/bootstrap_admin.py, never via the API."""
-    return bool(record) and record.get("role") == repo.ROOT_ROLE
+    """The active root admin: set only by scripts/bootstrap_admin.py, never via the API."""
+    return bool(record) and record.get("role") == repo.ROOT_ROLE and record.get("status") == "active"
 
 
 def list_admins(current_sub: str) -> dict:
@@ -355,6 +355,23 @@ def remove_admin(ctx: AuditContext, target_sub: str, confirm_self: bool) -> dict
                          None if cleanup == "done" else "cognito_cleanup_failed")
     audit_service.record(ctx, "permission_change", f"{resource} revoke", "success")
     return {"status": "revoked", "cognitoCleanup": cleanup, "self": target_sub == ctx.actor_sub}
+
+
+def retire_orphaned_admins() -> int:
+    """Operator bootstrap: revoke active admin rows whose Cognito user no longer
+    exists in the configured pool (e.g. after moving to a new user pool, whose
+    users all have new subs). Returns how many were retired."""
+    system = AuditContext(actor_sub="system:bootstrap")
+    retired = 0
+    for admin in repo.list_admins():
+        if admin.get("status") != "active":
+            continue
+        if cognito_admin.user_exists(str(admin.get("username") or admin["sk"])):
+            continue
+        if repo.retire_admin(admin["sk"], "system:bootstrap", _iso(_now()), "cognito_user_missing"):
+            audit_service.record(system, "admin_bootstrap", f"admin:{admin['sk']} retire", "success", "cognito_user_missing")
+            retired += 1
+    return retired
 
 
 def bootstrap(email_lower: str, sub: str, username: str, root: bool = False) -> bool:

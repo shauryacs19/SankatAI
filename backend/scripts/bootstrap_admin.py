@@ -12,6 +12,8 @@ email-based check anywhere in the request path.
 BOOTSTRAP_ROOT=true also makes this admin the ROOT admin: permanent (no one can
 remove them through the app) and the only admin who can remove other admins.
 There is exactly one root; the script refuses if another account already is.
+Admin rows whose Cognito user no longer exists in the pool (for example after
+moving to a new user pool) are retired first, so they can't block this.
 
 Usage (from backend/, values from `terraform output`):
     BOOTSTRAP_ADMIN_EMAIL=you@gmail.com BOOTSTRAP_ROOT=true \\
@@ -57,6 +59,11 @@ def main() -> int:
         return 1
 
     root = os.getenv("BOOTSTRAP_ROOT", "").strip().lower() in {"1", "true", "yes"}
+    # Rows left behind by users who no longer exist in this pool (e.g. after the
+    # move to a new user pool) would otherwise keep a stale root in place.
+    retired = admin_access_service.retire_orphaned_admins()
+    if retired:
+        print(f"Retired {retired} admin row(s) whose Cognito user no longer exists in this pool.")
     try:
         created = admin_access_service.bootstrap(email, attrs["sub"], user["Username"], root=root)
     except admin_access_service.AdminError as error:

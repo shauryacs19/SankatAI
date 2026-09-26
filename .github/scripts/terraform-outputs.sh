@@ -56,6 +56,7 @@ app_url:app_url
 # May legitimately be empty (invitations then answer 503 until it is set).
 OPTIONAL_MAPPINGS="
 ses_sender_email:ses_sender_email
+cognito_social_providers:cognito_social_providers
 "
 
 missing=0

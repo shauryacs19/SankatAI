@@ -17,6 +17,11 @@ module "cognito" {
   # API's domain, not on the authorizer that consumes this client id.
   callback_urls = concat(var.cognito_callback_urls, ["https://${module.frontend.cloudfront_domain_name}/auth/callback"])
   logout_urls   = concat(var.cognito_logout_urls, ["https://${module.frontend.cloudfront_domain_name}/"])
+
+  google_client_id     = var.google_client_id
+  google_client_secret = var.google_client_secret
+  facebook_app_id      = var.facebook_app_id
+  facebook_app_secret  = var.facebook_app_secret
 }
 
 module "frontend" {

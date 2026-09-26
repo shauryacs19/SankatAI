@@ -144,6 +144,42 @@ def revoke_admin(sub: str, revoked_by: str, now: str) -> None:
     ])
 
 
+def retire_admin(sub: str, retired_by: str, now: str, reason: str) -> bool:
+    """Operator-only (scripts/bootstrap_admin.py): revoke an active admin row,
+    root included, without the app's root/last-admin guards. Used for rows whose
+    Cognito user no longer exists. False if the row was not active."""
+    table = get_admins_table().name
+    try:
+        _transact([
+            {
+                "Update": {
+                    "TableName": table,
+                    "Key": {"pk": ADMIN_PK, "sk": sub},
+                    "UpdateExpression": "SET #s = :revoked, revoked_at = :now, revoked_by = :by, revoke_reason = :reason",
+                    "ConditionExpression": "#s = :active",
+                    "ExpressionAttributeNames": {"#s": "status"},
+                    "ExpressionAttributeValues": {
+                        ":revoked": "revoked", ":active": "active", ":now": now, ":by": retired_by, ":reason": reason,
+                    },
+                }
+            },
+            {
+                "Update": {
+                    "TableName": table,
+                    "Key": {"pk": META_PK, "sk": COUNTER_SK},
+                    "UpdateExpression": "ADD active_count :minus",
+                    "ConditionExpression": "active_count > :zero",
+                    "ExpressionAttributeValues": {":minus": -1, ":zero": 0},
+                }
+            },
+        ])
+        return True
+    except TransactionFailed as failed:
+        if failed.reasons[0] == "ConditionalCheckFailed":
+            return False
+        raise
+
+
 def set_admin_attrs(sub: str, attrs: dict) -> None:
     names = {f"#{k}": k for k in attrs}
     get_admins_table().update_item(

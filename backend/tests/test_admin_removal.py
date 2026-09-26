@@ -136,3 +136,19 @@ def test_existing_admin_can_be_promoted_to_root(aws):
     assert admin_access_service.bootstrap(admin["email"], admin["sub"], admin["username"], root=True) is False
     assert admin_repository.get_admin(admin["sub"])["role"] == "root"
     assert admin_repository.active_count() == 1
+
+
+def test_bootstrap_retires_admins_missing_from_the_pool(aws):
+    # After a move to a new user pool, old rows (including the old root) point
+    # at users that no longer exist; they must not block the new root.
+    from app.services import admin_access_service
+
+    old_root = make_admin(aws, "old@gmail.com", root=True)
+    make_admin(aws, "stays@gmail.com")
+    aws["cognito"].admin_delete_user(UserPoolId=aws["pool_id"], Username=old_root["username"])
+    assert admin_access_service.retire_orphaned_admins() == 1
+    assert admin_repository.get_admin(old_root["sub"])["status"] == "revoked"
+    assert admin_repository.active_count() == 1
+    new_root = make_admin(aws, "new@gmail.com", root=True)
+    assert admin_repository.get_admin(new_root["sub"])["role"] == "root"
+    assert admin_access_service.retire_orphaned_admins() == 0

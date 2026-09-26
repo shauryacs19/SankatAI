@@ -47,6 +47,7 @@ jobs:
       cognito_user_pool_id: ${{ steps.tf.outputs.cognito_user_pool_id }}
       cognito_user_pool_client_id: ${{ steps.tf.outputs.cognito_user_pool_client_id }}
       cognito_hosted_ui_domain: ${{ steps.tf.outputs.cognito_hosted_ui_domain }}
+      cognito_social_providers: ${{ steps.tf.outputs.cognito_social_providers }}
       users_table_name: ${{ steps.tf.outputs.users_table_name }}
       chat_history_table_name: ${{ steps.tf.outputs.chat_history_table_name }}
       attachments_table_name: ${{ steps.tf.outputs.attachments_table_name }}
@@ -111,6 +112,8 @@ jobs:
           VITE_COGNITO_USER_POOL_ID: ${{ needs.terraform-outputs.outputs.cognito_user_pool_id }}
           VITE_COGNITO_CLIENT_ID: ${{ needs.terraform-outputs.outputs.cognito_user_pool_client_id }}
           VITE_COGNITO_DOMAIN: ${{ needs.terraform-outputs.outputs.cognito_hosted_ui_domain }}
+          # Empty until Google/Facebook credentials are set; the buttons then stay hidden.
+          VITE_SOCIAL_PROVIDERS: ${{ needs.terraform-outputs.outputs.cognito_social_providers }}
         run: bash .github/scripts/build-web.sh
 
       - name: Configure AWS credentials
