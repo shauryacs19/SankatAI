@@ -15,7 +15,7 @@
     "android": "npm run android --workspace=@sankatai/mobile",
     "ios": "npm run ios --workspace=@sankatai/mobile",
     "web:preview": "npm run preview --workspace=@sankatai/web",
-    "postinstall": "patch-package"
+    "postinstall": "node scripts/postinstall.cjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

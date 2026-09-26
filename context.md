@@ -188,7 +188,7 @@ dev. `@react-native-async-storage/async-storage` remains installed only because 
 - New native modules need `npm install` + `expo start -c`.
 - **Root `overrides` pins `image-size@^2.0.3`** (Trivy CVE-2025-71329/71330; only user is
   `metro@0.83.3` via expo 54, and no metro release uses image-size 2). image-size 2 rejects
-  file paths, so `patches/metro+0.83.3.patch` (applied by root `postinstall: patch-package`)
+  file paths, so `patches/metro+0.83.3.patch` (applied by root `postinstall` → `scripts/postinstall.cjs`, which skips when patch-package isn't installed, e.g. CI's `npm ci` in apps/web)
   makes `metro/src/Assets.js` pass a buffer. On an Expo/metro bump: regenerate or drop the
   patch (`npx patch-package metro`), then verify with `npx expo export --platform android`.
 - WhatsApp deep links can't auto-send and can't foreground with a call → Shake-SOS opens
