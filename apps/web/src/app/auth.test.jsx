@@ -228,7 +228,7 @@ describe('sign-up and verification', () => {
     type('Verification code', '123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
     await waitFor(() => expect(loc()).toBe('/login'))
-    expect(auth.confirmSignUp).toHaveBeenCalledWith('uuid-1', '123456')
+    expect(auth.confirmSignUp).toHaveBeenCalledWith('uuid-1', '123456', 'asha.k')
     // The sign-in form is pre-filled with the new username.
     expect(screen.getByLabelText(/^Email, phone or username/, { selector: 'input' }).value).toBe('asha.k')
   })

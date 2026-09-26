@@ -213,22 +213,29 @@ export async function getValidIdToken() {
 /**
  * Create an account with an email or a phone (E.164). The Cognito username is
  * a fresh UUID; people sign in with their chosen username, email or phone.
+ * The chosen username goes as ClientMetadata (Cognito refuses
+ * preferred_username on an unconfirmed account when it is an alias); the pool's
+ * triggers check it at sign-up and set it on confirmation.
  * @returns {Promise<{username: string}>} the Cognito username, needed to confirm.
  */
 export const signUp = ({ username, email, phone, name, password }) =>
   new Promise((resolve, reject) => {
     const cognitoUsername = uuidV4((a) => crypto.getRandomValues(a))
-    const attrs = [new CognitoUserAttribute({ Name: 'preferred_username', Value: normalizeUsername(username) })]
+    const attrs = []
     if (email) attrs.push(new CognitoUserAttribute({ Name: 'email', Value: email.trim().toLowerCase() }))
     if (phone) attrs.push(new CognitoUserAttribute({ Name: 'phone_number', Value: phone }))
     if (name?.trim()) attrs.push(new CognitoUserAttribute({ Name: 'name', Value: name.trim() }))
-    userPool.signUp(cognitoUsername, password, attrs, null, (err) => (err ? reject(err) : resolve({ username: cognitoUsername })))
+    const metadata = { preferred_username: normalizeUsername(username) }
+    userPool.signUp(cognitoUsername, password, attrs, null, (err) => (err ? reject(err) : resolve({ username: cognitoUsername })), metadata)
   })
 
-export const confirmSignUp = (cognitoUsername, code) =>
+// ForceAliasCreation stays false: an email/phone another account has verified
+// is never moved to this one.
+export const confirmSignUp = (cognitoUsername, code, handle) =>
   new Promise((resolve, reject) => {
     const user = new CognitoUser({ Username: cognitoUsername, Pool: userPool, Storage: memoryStore })
-    user.confirmRegistration(code, true, (err, res) => (err ? reject(err) : resolve(res)))
+    const metadata = handle ? { preferred_username: normalizeUsername(handle) } : undefined
+    user.confirmRegistration(code, false, (err, res) => (err ? reject(err) : resolve(res)), metadata)
   })
 
 export const resendConfirmationCode = (cognitoUsername) =>

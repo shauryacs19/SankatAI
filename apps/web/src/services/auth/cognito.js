@@ -342,20 +342,32 @@ const plainUser = (username) => new CognitoUser({ Username: username.trim(), Poo
  * Create an account with an email or a phone number. The Cognito username is
  * a fresh UUID (never shown); the person signs in with their chosen username,
  * email or phone.
+ *
+ * The chosen username travels as ClientMetadata, not as an attribute: Cognito
+ * refuses preferred_username on an unconfirmed account when it is an alias.
+ * The pre sign-up trigger checks it; the post confirmation trigger sets it.
  * @returns {Promise<{username: string}>} the Cognito username, needed to confirm.
  */
 export const signUp = async ({ email, phone, password, name, username }) => {
   const cognitoUsername = crypto.randomUUID()
-  const attributes = [new CognitoUserAttribute({ Name: 'preferred_username', Value: normalizeUsername(username) })]
+  const attributes = []
   if (email) attributes.push(new CognitoUserAttribute({ Name: 'email', Value: email.trim().toLowerCase() }))
   if (phone) attributes.push(new CognitoUserAttribute({ Name: 'phone_number', Value: phone }))
   if (name?.trim()) attributes.push(new CognitoUserAttribute({ Name: 'name', Value: name.trim() }))
-  await callback((cb) => poolFor('session').signUp(cognitoUsername, password, attributes, null, cb))
+  const metadata = { preferred_username: normalizeUsername(username) }
+  await callback((cb) => poolFor('session').signUp(cognitoUsername, password, attributes, null, cb, metadata))
   return { username: cognitoUsername }
 }
 
-/** Confirm with the code sent to the new email/phone (by Cognito username). */
-export const confirmSignUp = (username, code) => callback((cb) => plainUser(username).confirmRegistration(code.trim(), true, cb))
+/**
+ * Confirm with the code sent to the new email/phone (by Cognito username).
+ * `handle` is the chosen username, set by the post confirmation trigger.
+ * ForceAliasCreation stays false, so an email/phone another account has
+ * verified is never moved to this one (AliasExistsException instead).
+ */
+export const confirmSignUp = (username, code, handle) => callback((cb) => plainUser(username).confirmRegistration(
+  code.trim(), false, cb, handle ? { preferred_username: normalizeUsername(handle) } : undefined,
+))
 
 export const resendSignUpCode = (username) => callback((cb) => plainUser(username).resendConfirmationCode(cb))
 

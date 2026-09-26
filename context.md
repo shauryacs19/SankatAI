@@ -655,6 +655,13 @@ account has VERIFIED (or a social account's email); Google with verified email �
 `AdminLinkProviderForUser` onto the single matching verified native account. Facebook never
 auto-linked (no verified-email claim). Cognito fails the first sign-in right after linking
 ("Already found an entry for username") — both clients retry once automatically.
+⚠️ **Cognito refuses `preferred_username` on an unconfirmed account in an alias pool**
+("Preferred username cannot be provided for unconfirmed account…", broke first sign-ups on
+2026-09-26). So the chosen username goes as **ClientMetadata** on SignUp (pre sign-up checks
+format + `ListUsers preferred_username` uniqueness) and again on ConfirmSignUp; the same Lambda
+is the **post confirmation** trigger and sets it with `AdminUpdateUserAttributes` (never fails the
+confirmation; a lost race leaves no username → Settings). ConfirmSignUp uses
+`ForceAliasCreation=false` (true would move a verified email/phone off another account).
 
 **Shared** (`packages/shared/auth.js`): username/phone (`toE164`, default +91)/identifier parsing,
 `createCognitoApi` (USER_AUTH SMS_OTP start/answer, UpdateUserAttributes), OAuth helpers

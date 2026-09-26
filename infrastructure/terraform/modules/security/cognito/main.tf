@@ -109,8 +109,12 @@ resource "aws_cognito_user_pool" "users" {
     sms_message          = "Your SankatAI verification code is {####}"
   }
 
+  # One function for both triggers (it dispatches on triggerSource). Post
+  # confirmation sets the chosen username: Cognito refuses preferred_username
+  # on an unconfirmed account when it is an alias.
   lambda_config {
-    pre_sign_up = aws_lambda_function.pre_sign_up.arn
+    pre_sign_up       = aws_lambda_function.pre_sign_up.arn
+    post_confirmation = aws_lambda_function.pre_sign_up.arn
   }
 
   tags = {
@@ -286,7 +290,7 @@ resource "aws_iam_role_policy" "cognito_sms" {
   })
 }
 
-# ── Pre sign-up trigger: duplicate checks + Google account linking ──────────
+# ── Sign-up triggers: duplicate/username checks, Google linking, username ───
 # Source: backend/lambdas/cognito_pre_sign_up.py (tested in backend/tests).
 data "archive_file" "pre_sign_up" {
   type        = "zip"
@@ -321,7 +325,7 @@ resource "aws_iam_role_policy" "pre_sign_up" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = ["cognito-idp:ListUsers", "cognito-idp:AdminLinkProviderForUser"]
+        Action   = ["cognito-idp:ListUsers", "cognito-idp:AdminLinkProviderForUser", "cognito-idp:AdminUpdateUserAttributes"]
         Resource = aws_cognito_user_pool.users.arn
       },
       {
@@ -335,7 +339,7 @@ resource "aws_iam_role_policy" "pre_sign_up" {
 
 resource "aws_lambda_function" "pre_sign_up" {
   function_name    = local.pre_sign_up
-  description      = "Cognito pre sign-up: duplicate email/phone checks and Google account linking"
+  description      = "Cognito pre sign-up + post confirmation: duplicate/username checks, Google linking, username"
   role             = aws_iam_role.pre_sign_up.arn
   runtime          = "python3.12"
   handler          = "cognito_pre_sign_up.handler"

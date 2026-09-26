@@ -1,4 +1,4 @@
-"""Cognito pre sign-up Lambda: duplicate checks and Google account linking."""
+"""Cognito triggers Lambda: duplicate checks, usernames, Google account linking."""
 
 from __future__ import annotations
 
@@ -23,6 +23,8 @@ class FakeCognito:
     def __init__(self, users):
         self.users = users
         self.links = []
+        self.updates = []
+        self.fail_update = False
 
     def list_users(self, UserPoolId, Filter, Limit):
         name, value = Filter.split(" = ")
@@ -31,6 +33,11 @@ class FakeCognito:
 
     def admin_link_provider_for_user(self, **kwargs):
         self.links.append(kwargs)
+
+    def admin_update_user_attributes(self, UserPoolId, Username, UserAttributes):
+        if self.fail_update:
+            raise RuntimeError("AliasExistsException")
+        self.updates.append((Username, UserAttributes))
 
 
 @pytest.fixture
@@ -42,9 +49,14 @@ def cognito(monkeypatch):
     return install
 
 
-def sign_up(**attrs):
+def sign_up(metadata=None, **attrs):
     return {"triggerSource": "PreSignUp_SignUp", "userPoolId": POOL, "userName": "new-uuid",
-            "request": {"userAttributes": attrs}}
+            "request": {"userAttributes": attrs, "clientMetadata": metadata or {}}}
+
+
+def confirmed(metadata):
+    return {"triggerSource": "PostConfirmation_ConfirmSignUp", "userPoolId": POOL, "userName": "new-uuid",
+            "request": {"userAttributes": {}, "clientMetadata": metadata}}
 
 
 def social(username, **attrs):
@@ -115,3 +127,39 @@ def test_admin_created_users_pass_through(cognito):
     fake = cognito()
     event = {"triggerSource": "PreSignUp_AdminCreateUser", "userPoolId": POOL, "userName": "x", "request": {"userAttributes": {}}}
     assert trigger.handler(event, None) is event and fake.links == []
+
+
+# --- usernames (preferred_username arrives as ClientMetadata) ----------------
+
+@pytest.mark.parametrize("handle", ["ab", "9lives", "a..b", "asha.", "admin", "has space"])
+def test_bad_username_is_rejected_at_sign_up(cognito, handle):
+    cognito()
+    with pytest.raises(Exception, match="Choose a username"):
+        trigger.handler(sign_up({"preferred_username": handle}, email="asha@gmail.com"), None)
+
+
+def test_taken_username_is_rejected_at_sign_up(cognito):
+    cognito([user("u1", preferred_username="asha.k")])
+    with pytest.raises(Exception, match="username is taken"):
+        trigger.handler(sign_up({"preferred_username": "Asha.K"}, email="new@gmail.com"), None)
+
+
+def test_free_username_passes(cognito):
+    cognito([user("u1", preferred_username="someone")])
+    event = sign_up({"preferred_username": "asha.k"}, email="asha@gmail.com")
+    assert trigger.handler(event, None) is event
+
+
+def test_confirmation_sets_the_username(cognito):
+    fake = cognito()
+    trigger.handler(confirmed({"preferred_username": "Asha.K"}), None)
+    assert fake.updates == [("new-uuid", [{"Name": "preferred_username", "Value": "asha.k"}])]
+
+
+def test_confirmation_never_fails_on_a_username_problem(cognito):
+    fake = cognito()
+    fake.fail_update = True
+    event = confirmed({"preferred_username": "asha.k"})
+    assert trigger.handler(event, None) is event
+    assert trigger.handler(confirmed({}), None)["userName"] == "new-uuid"
+    assert fake.updates == []

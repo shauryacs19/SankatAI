@@ -64,7 +64,7 @@ export default function Verify() {
     setSubmitting(true)
     setError('')
     try {
-      await confirmSignUp(pending.username, code)
+      await confirmSignUp(pending.username, code, pending.handle)
       clearPendingSignUp()
       toast.success(`${byPhone ? 'Phone number' : 'Email'} verified. Sign in to continue.`)
       navigate(loginPath(returnTo), { replace: true, state: { identifier: pending.handle || pending.destination } })

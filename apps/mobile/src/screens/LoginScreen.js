@@ -96,7 +96,7 @@ export default function LoginScreen({ route }) {
     }, 'Unable to create account.')
   }
   const doConfirm = () => run(async () => {
-    await confirmSignUp(pending.username, form.code.trim())
+    await confirmSignUp(pending.username, form.code.trim(), pending.handle)
     setNotice('Account verified. You can now sign in.')
     setForm({ ...empty, identifier: pending.handle })
     setPending(null)
