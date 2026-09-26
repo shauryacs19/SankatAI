@@ -123,13 +123,16 @@ def _version(item: dict, variant: Optional[str]) -> tuple[str, Optional[str]]:
     cached on the message (or the reply already is that language), else the
     original reply in its own language."""
     content = item.get("content", "")
+    original = language_service.target_of(item.get("lang"), content)
+    # Hindi text is read with the Hindi voice even if the reply is mislabelled.
+    original_lang = "hi-IN" if original == "hi" else item.get("lang")
     if variant in language_service.TARGET_LOCALE:
-        if language_service.target_of(item.get("lang"), content) == variant:
-            return content, item.get("lang")
+        if original == variant:
+            return content, original_lang
         cached = item.get(f"translation_{variant}")
         if cached:
             return cached, language_service.TARGET_LOCALE[variant]
-    return content, item.get("lang")
+    return content, original_lang
 
 
 def synthesize_message(user_id: str, consultation_id: str, message_id: str,

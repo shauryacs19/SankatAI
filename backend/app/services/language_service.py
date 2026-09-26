@@ -90,7 +90,10 @@ TARGET_LOCALE = {"en": "en-IN", "hi": "hi-IN", "hinglish": "en-IN"}
 
 def target_of(lang: Optional[str], content: str) -> str:
     """Which translation target a reply already is: English, Hindi in
-    Devanagari, or Hindi in Latin letters (Hinglish)."""
-    if not (lang or "").lower().startswith("hi"):
-        return "en"
-    return "hi" if any("ऀ" <= ch <= "ॿ" for ch in content or "") else "hinglish"
+    Devanagari, or Hindi in Latin letters (Hinglish). The script decides first:
+    a stored `lang` can be wrong (replies from before the reply-language fix
+    are labelled en-IN but written in Hindi), and trusting it made "English"
+    return the untranslated Hindi original."""
+    if any("ऀ" <= ch <= "ॿ" for ch in content or ""):
+        return "hi"
+    return "hinglish" if (lang or "").lower().startswith("hi") else "en"

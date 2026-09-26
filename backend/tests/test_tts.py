@@ -160,3 +160,10 @@ def test_uncached_variant_falls_back_to_the_original(env):
     client.post("/api/tts", json={**BODY, "variant": "en"}, headers=AUTH)
     text, voice = calls[0]
     assert text == "Go to the ER now. See" and voice["LanguageCode"] == "hi-IN"
+
+
+def test_mislabelled_hindi_reply_is_read_with_the_hindi_voice(env):
+    client, messages, calls = env
+    messages[("owner", "c1", "m1")].update({"lang": "en-IN", "content": json.dumps({"advice": "आराम करें।"}, ensure_ascii=False)})
+    client.post("/api/tts", json=BODY, headers=AUTH)
+    assert calls[0][1]["LanguageCode"] == "hi-IN"

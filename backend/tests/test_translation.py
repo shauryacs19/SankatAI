@@ -128,3 +128,15 @@ def test_plain_text_replies_translate_too(env):
     items[("owner", "c1", "m1")]["content"] = "Please see a doctor."
     res = client.post(URL, json={"target": "hi"}, headers=AUTH)
     assert res.json()["content"] == "[hi] Please see a doctor."
+
+
+def test_a_hindi_reply_labelled_english_is_translated_to_english(env):
+    # Replies from before the reply-language fix are stored as en-IN but
+    # written in Hindi; "English" must translate them, not return them as-is.
+    client, items, _, provider = env
+    items[("owner", "c1", "m1")]["content"] = json.dumps({"severity": "MODERATE", "riskScore": 40, "advice": "आराम करें।"}, ensure_ascii=False)
+    res = client.post(URL, json={"target": "en"}, headers=AUTH)
+    assert res.status_code == 200
+    assert json.loads(res.json()["content"])["advice"] == "[en] आराम करें।"
+    assert provider.calls and provider.calls[0][1] == "en"
+    assert client.post(URL, json={"target": "hi"}, headers=AUTH).json()["content"] == items[("owner", "c1", "m1")]["content"]

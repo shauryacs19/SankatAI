@@ -170,6 +170,7 @@ def test_english_directive_has_no_hindi_script_rule():
     ("hi-IN", "आराम करें", "hi"),
     ("hi-IN", "Aaram karein aur paani piyein", "hinglish"),
     (None, "anything", "en"),
+    ("en-IN", "आराम करें", "hi"),  # mislabelled older reply: the script wins
 ])
 def test_which_language_a_reply_already_is(lang, content, expected):
     assert language_service.target_of(lang, content) == expected

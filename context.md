@@ -441,8 +441,10 @@ another language"; the Devanagari rule applies to Hindi only.
 caller's assistant replies; only text values (`reasoning`, `advice`, `disclaimer`,
 `followUpQuestions`) are translated — `severity`/`riskScore` always copied from the original.
 Cached on the message item as `translation_<target>`; the reply's own language returns the
-original with no model call (`language_service.target_of`: en, hi = Devanagari, hinglish = Latin
-Hindi). `TRANSLATIONS_PER_MINUTE` (20/user, in-process). Model/parse failure → 503, nothing cached.
+original with no model call (`language_service.target_of` / shared `replyLanguageOf`: **the script
+decides first** — any Devanagari = hi, else a hi-IN label = hinglish, else en — because replies from
+before the reply-language fix are labelled en-IN but written in Hindi; trusting the label made
+"English" show the Hindi original. Read-aloud uses the Hindi voice for Devanagari text). `TRANSLATIONS_PER_MINUTE` (20/user, in-process). Model/parse failure → 503, nothing cached.
 Web reply footer button cycles English → हिन्दी → Hinglish from the reply's own language
 (`@sankatai/shared` `replyLanguageOf`/`nextTranslation`), shows "Translated to …"; read-aloud
 passes `variant` so Polly reads the shown version (Hinglish uses the en-IN voice). Tests:

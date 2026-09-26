@@ -47,10 +47,14 @@ export const TRANSLATION_CYCLE = ['en', 'hi', 'hinglish']
 export const TRANSLATION_LABELS = { en: 'English', hi: 'हिन्दी', hinglish: 'Hinglish' }
 export const TRANSLATION_NAMES = { en: 'English', hi: 'Hindi', hinglish: 'Hinglish' }
 
-/** The language a reply is already in: English, Hindi (Devanagari) or Hinglish (Hindi in Latin letters). */
+/**
+ * The language a reply is already in: English, Hindi (Devanagari) or Hinglish
+ * (Hindi in Latin letters). The script decides first, because a stored `lang`
+ * can be wrong (older replies labelled en-IN but written in Hindi).
+ */
 export const replyLanguageOf = (lang, content) => {
-  if (!String(lang || '').toLowerCase().startsWith('hi')) return 'en'
-  return /[ऀ-ॿ]/.test(String(content || '')) ? 'hi' : 'hinglish'
+  if (/[ऀ-ॿ]/.test(String(content || ''))) return 'hi'
+  return String(lang || '').toLowerCase().startsWith('hi') ? 'hinglish' : 'en'
 }
 
 export const nextTranslation = (target) =>

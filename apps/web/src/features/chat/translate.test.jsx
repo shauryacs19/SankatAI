@@ -57,6 +57,18 @@ describe('translate cycle', () => {
     expect(screen.getByText(/MODERATE|Moderate/i)).toBeTruthy()
   })
 
+  it('translates a Hindi reply labelled English (older replies) to real English', async () => {
+    renderReply(bubble({ text: 'आराम करें', raw: reply('आराम करें'), lang: 'en-IN' }))
+    // The script says Hindi, so the cycle starts there: next is Hinglish, then English.
+    fireEvent.click(screen.getByRole('button', { name: 'Show this reply in Hinglish' }))
+    expect(await screen.findByText('Aaram karein aur paani piyein.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Show this reply in English' }))
+    expect(await screen.findByText('Rest and drink water.')).toBeTruthy()
+    expect(api.translateMessage).toHaveBeenLastCalledWith('c1', 'm1', 'en')
+    fireEvent.click(screen.getByRole('button', { name: 'Show this reply in Hindi' }))
+    expect(await screen.findByText('आराम करें')).toBeTruthy()
+  })
+
   it('stays on the current language when translation fails', async () => {
     api.translateMessage.mockRejectedValueOnce(new Error('Translation isn’t available right now.'))
     renderReply(bubble())
@@ -70,6 +82,7 @@ describe('translate cycle', () => {
 describe('shared cycle rules', () => {
   it.each([
     ['en-IN', 'Rest', 'en'], ['hi-IN', 'आराम', 'hi'], ['hi-IN', 'Aaram', 'hinglish'], [null, 'x', 'en'],
+    ['en-IN', 'आराम', 'hi'],
   ])('%s %s -> %s', (lang, content, expected) => expect(replyLanguageOf(lang, content)).toBe(expected))
 
   it('wraps around', () => {
