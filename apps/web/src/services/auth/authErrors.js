@@ -20,6 +20,14 @@ const MESSAGES = {
   SmsSignInUnavailable: 'Text-message sign-in isn’t available for this number. Sign in with your password.',
   SocialSignInFailed: 'Couldn’t finish signing in with that account. Try again.',
   InvalidPhoneNumber: 'Enter the phone number with its country code, like +91 98765 43210.',
+  PasskeyUnavailable: 'No passkey is set up for that account. Sign in another way, then add one in Settings.',
+  PasskeyCancelled: 'No passkey was used. Try again when you’re ready.',
+  NotAllowedError: 'The passkey request was cancelled or timed out. Try again.',
+  InvalidStateError: 'This device already has a passkey for your account.',
+  WebAuthnRelyingPartyMismatchException: 'Passkeys only work on the SankatAI website address.',
+  WebAuthnOriginNotAllowedException: 'Passkeys only work on the SankatAI website address.',
+  WebAuthnNotEnabledException: 'Passkeys aren’t available right now. Sign in another way.',
+  WebAuthnConfigurationMissingException: 'Passkeys aren’t available right now. Sign in another way.',
   PasswordResetRequiredException: 'You need to reset your password. Use “Forgot password?”.',
   MFASetupRequired: 'This account needs multi-factor setup, which the web app doesn’t support yet.',
   UnsupportedChallenge: 'This sign-in method isn’t supported.',
@@ -29,7 +37,9 @@ const MESSAGES = {
 }
 
 export const authErrorMessage = (err, fallback = 'Something went wrong. Try again.') => {
-  const code = err?.code || err?.name
+  // Cognito errors carry a string code; browser DOMExceptions (WebAuthn) a
+  // numeric legacy code, so use their name instead.
+  const code = typeof err?.code === 'string' ? err.code : err?.name
   // Our pre sign-up check (duplicate email/phone) explains itself.
   if (code === 'UserLambdaValidationException') return preSignUpMessage(err) || fallback
   if (code === 'InvalidParameterException' && /phone/i.test(err?.message || '')) return MESSAGES.InvalidPhoneNumber

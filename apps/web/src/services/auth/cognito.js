@@ -5,6 +5,8 @@
 //     (they are Cognito aliases).
 //   - text-message code: Cognito's passwordless USER_AUTH flow (SMS_OTP),
 //     called directly because the library doesn't implement it.
+//   - passkey: Cognito's USER_AUTH flow with WEB_AUTHN; the browser signs the
+//     challenge with a passkey bound to this site's domain.
 //   - Google / Facebook: only when the person presses the button, a redirect
 //     to Cognito's /oauth2/authorize naming that provider (code + PKCE).
 // Loading a page never redirects anywhere: it only reads the library's stored
@@ -29,6 +31,7 @@ import {
   buildAuthorizeUrl, createCognitoApi, exchangeAuthCode, isLinkedAccountRetry, normalizeUsername,
   parseSocialProviders, pkceChallenge, randomUrlSafe,
 } from '@sankatai/shared'
+import { authenticationJSON, registrationJSON, toCreationOptions, toRequestOptions } from './webauthn'
 
 const POOL_ID = import.meta.env.VITE_COGNITO_USER_POOL_ID
 const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID
@@ -282,6 +285,41 @@ export const confirmCodeSignIn = async ({ code, remember = true }) => {
   pendingCode = null
   return { nextStep: NEXT_STEP.DONE, user: adoptTokens(tokens, remember ? 'local' : 'session') }
 }
+
+// ── passkeys (WebAuthn through Cognito) ────────────────────────────────────
+// The passkey is bound to this site's domain (the pool's relying party ID), so
+// passkeys work on the deployed site, not on localhost.
+
+const noPasskey = () => Object.assign(new Error('No passkey was used.'), { code: 'PasskeyCancelled' })
+
+/** Sign in with a passkey for this username, email or phone. */
+export const signInWithPasskey = async ({ username, remember = true }) => {
+  const { session, options } = await api().startPasskeySignIn(username)
+  const credential = await navigator.credentials.get({ publicKey: toRequestOptions(options) })
+  if (!credential) throw noPasskey()
+  const tokens = await api().answerPasskey({ username, session, credential: authenticationJSON(credential) })
+  return { nextStep: NEXT_STEP.DONE, user: adoptTokens(tokens, remember ? 'local' : 'session') }
+}
+
+const accessToken = async () => {
+  const token = await getValidAccessToken()
+  if (!token) throw Object.assign(new Error('Sign in again to manage passkeys.'), { code: 'NoSession' })
+  return token
+}
+
+/** Create a passkey on this device for the signed-in account. */
+export const addPasskey = async () => {
+  const token = await accessToken()
+  const options = await api().startPasskeyRegistration(token)
+  const credential = await navigator.credentials.create({ publicKey: toCreationOptions(options) })
+  if (!credential) throw noPasskey()
+  await api().completePasskeyRegistration({ accessToken: token, credential: registrationJSON(credential) })
+}
+
+/** [{ CredentialId, FriendlyCredentialName, CreatedAt, AuthenticatorAttachment }] */
+export const listPasskeys = async () => api().listPasskeys(await accessToken())
+
+export const removePasskey = async (credentialId) => api().deletePasskey({ accessToken: await accessToken(), credentialId })
 
 // ── social sign-in (Google / Facebook through Cognito) ─────────────────────
 

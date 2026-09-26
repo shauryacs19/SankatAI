@@ -18,6 +18,8 @@ module "cognito" {
   callback_urls = concat(var.cognito_callback_urls, ["https://${module.frontend.cloudfront_domain_name}/auth/callback"])
   logout_urls   = concat(var.cognito_logout_urls, ["https://${module.frontend.cloudfront_domain_name}/"])
 
+  passkey_relying_party_id = module.frontend.cloudfront_domain_name
+
   google_client_id     = var.google_client_id
   google_client_secret = var.google_client_secret
   facebook_app_id      = var.facebook_app_id

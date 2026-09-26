@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { ShieldCheck } from 'lucide-react'
+import { KeyRound, ShieldCheck } from 'lucide-react'
 import { maskPhone, parseIdentifier, toE164 } from '@sankatai/shared'
 import { useAuth } from '../../../context/AuthContext.jsx'
 import { cancelPendingSignIn, isCognitoConfigured, NEXT_STEP, startCodeSignIn } from '../../../services/auth/cognito'
+import { passkeysSupported } from '../../../services/auth/webauthn'
 import { authErrorMessage, passwordOk, safeReturnTo } from '../../../services/auth/authErrors'
 import { Alert, Button, Field, Input, SegmentedControl } from '../../../components/ui'
 import { AuthLayout, CodeInput, PasswordChecklist, PasswordInput } from './AuthLayout.jsx'
@@ -24,13 +25,16 @@ const TITLES = {
 const METHODS = [
   { value: 'password', label: 'Password' },
   { value: 'code', label: 'Text me a code' },
+  { value: 'passkey', label: 'Passkey' },
 ]
+// The passkey tab only appears where the browser can use passkeys.
+const methodsHere = () => (passkeysSupported() ? METHODS : METHODS.filter((m) => m.value !== 'passkey'))
 
 export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
   const [params] = useSearchParams()
-  const { signIn, confirmSignIn, confirmCodeSignIn } = useAuth()
+  const { signIn, confirmSignIn, confirmCodeSignIn, signInWithPasskey } = useAuth()
   const returnTo = safeReturnTo(params.get('returnTo'))
 
   const [step, setStep] = useState('signin')
@@ -98,6 +102,13 @@ export default function Login() {
     setTouched({ identifier: true, password: true })
     if (idErr || passwordErr) return
     run(() => signIn({ username: parsed.value, password, remember }))
+  }
+
+  const submitPasskey = (e) => {
+    e.preventDefault()
+    setTouched({ identifier: true })
+    if (idErr) return
+    run(() => signInWithPasskey({ username: parsed.value, remember }))
   }
 
   const sendCode = async () => {
@@ -172,10 +183,26 @@ export default function Login() {
       {step === 'signin' && (
         <>
           <SocialButtons returnTo={returnTo} remember={remember} />
-          <SegmentedControl label="Sign-in method" options={METHODS} value={method} block
+          <SegmentedControl label="Sign-in method" options={methodsHere()} value={method} block
             onChange={(m) => { setMethod(m); setError(''); setTouched({}) }} />
 
-          {method === 'password' ? (
+          {method === 'passkey' && (
+            <form className="ui-form" onSubmit={submitPasskey} noValidate>
+              <Field label="Email, phone or username" required error={touched.identifier ? idErr || undefined : undefined}
+                hint="Use the passkey you added in Settings on this or another device.">
+                <Input ref={firstField} autoComplete="username webauthn" autoCapitalize="none" spellCheck={false} value={identifier}
+                  onChange={(e) => { setIdentifier(e.target.value); setError('') }}
+                  onBlur={() => setTouched((t) => ({ ...t, identifier: true }))} placeholder="name@example.com" />
+              </Field>
+              <div className="auth-row">{rememberBox}</div>
+              <Button type="submit" variant="primary" block icon={KeyRound} loading={submitting} loadingText="Waiting for your passkey…"
+                disabled={throttle.locked} hint={lockedHint}>
+                Sign in with passkey
+              </Button>
+            </form>
+          )}
+
+          {method === 'password' && (
             <form className="ui-form" onSubmit={submitSignIn} noValidate>
               <Field label="Email, phone or username" required error={touched.identifier ? idErr || undefined : undefined}>
                 <Input ref={firstField} autoComplete="username" autoCapitalize="none" spellCheck={false} value={identifier}
@@ -199,7 +226,9 @@ export default function Login() {
                 <span>Your password is checked by Amazon Cognito using SRP. It is never sent to SankatAI.</span>
               </p>
             </form>
-          ) : (
+          )}
+
+          {method === 'code' && (
             <form className="ui-form" onSubmit={submitPhone} noValidate>
               <Field label="Phone number" required error={touched.phone ? phoneErr || undefined : undefined}
                 hint="The number on your account. We’ll text you a 6-digit code.">

@@ -6,6 +6,7 @@ import {
   refreshSession,
   restoreSession,
   signIn as cognitoSignIn,
+  signInWithPasskey as cognitoSignInWithPasskey,
   signOut as cognitoSignOut,
 } from '../services/auth/cognito'
 
@@ -72,6 +73,9 @@ export function AuthProvider({ children }) {
   /** Passwordless: answer the texted code. */
   const confirmCodeSignIn = useCallback(async (answer) => finish(await cognitoConfirmCodeSignIn(answer)), [finish])
 
+  /** Passkey sign-in (WebAuthn). */
+  const signInWithPasskey = useCallback(async (opts) => finish(await cognitoSignInWithPasskey(opts)), [finish])
+
   /** Adopt a user whose tokens were stored elsewhere (social callback, new username). */
   const setSignedIn = useCallback((next) => {
     setUser(next)
@@ -92,8 +96,8 @@ export function AuthProvider({ children }) {
   }, [])
 
   const value = useMemo(
-    () => ({ status, user, signIn, confirmSignIn, confirmCodeSignIn, setSignedIn, signOut, restore, refreshUser }),
-    [status, user, signIn, confirmSignIn, confirmCodeSignIn, setSignedIn, signOut, restore, refreshUser],
+    () => ({ status, user, signIn, confirmSignIn, confirmCodeSignIn, signInWithPasskey, setSignedIn, signOut, restore, refreshUser }),
+    [status, user, signIn, confirmSignIn, confirmCodeSignIn, signInWithPasskey, setSignedIn, signOut, restore, refreshUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

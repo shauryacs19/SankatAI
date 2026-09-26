@@ -679,6 +679,17 @@ card, email/phone rows, password card hidden for social-only (`hasPassword`). Si
 **Mobile**: same flows in `LoginScreen`; social via `expo-web-browser` `openAuthSessionAsync`,
 redirect `sankatai://auth/callback` (app.json `scheme`), **hidden in Expo Go** (needs a dev/store
 build); PKCE SHA-256 via `@aws-crypto/sha256-js`. SecureStore key `sankatai_username` (was email).
+**Passkeys (web only, 2026-09-26):** pool first factors now `PASSWORD, SMS_OTP, WEB_AUTHN`;
+`web_authn_configuration` relying party = the CloudFront domain (`module.frontend`), so passkeys
+work on the deployed site only (not localhost). Login tab "Passkey" (identifier + browser prompt,
+USER_AUTH `PREFERRED_CHALLENGE=WEB_AUTHN`); Settings `PasskeysCard` (Start/CompleteWebAuthnRegistration,
+List/DeleteWebAuthnCredential with the access token; hidden for social-only accounts).
+Hand-written base64url conversion in `apps/web/src/services/auth/webauthn.js` (no
+`parse*FromJSON`). Mobile passkeys not built (needs a native module + associated domains).
+**Status 2026-09-26:** root re-bootstrapped in the new pool (old rows retired). Google/Facebook
+still OFF — credentials go in local `terraform.tfvars` (placeholders added; see
+`terraform.tfvars.example`), then apply + re-run CD (`gh workflow run "SankatAI CD"`) so the web
+build picks up `VITE_SOCIAL_PROVIDERS`.
 **Backend**: unchanged request path. `bootstrap_admin.py` first retires admin rows whose Cognito
 user no longer exists (`retire_orphaned_admins`), so the old pool's root can't block the new one.
 

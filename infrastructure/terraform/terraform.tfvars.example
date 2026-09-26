@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars (gitignored, local only) and fill in what you use.
+
+# Verified SES From address for admin invitation emails.
+ses_sender_email = "you@gmail.com"
+
+# Social sign-in. Leave empty to keep a provider off. Register this redirect
+# URI with both providers: terraform output -raw cognito_social_redirect_uri
+google_client_id     = ""
+google_client_secret = ""
+facebook_app_id      = ""
+facebook_app_secret  = ""

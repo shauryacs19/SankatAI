@@ -9,6 +9,7 @@ import { Alert, Button, Card, Field, InfoRow, Input } from '../../../components/
 import { errText } from '../../../utils/errText'
 import { SignOutDialog } from '../../auth/components/SignOutDialog.jsx'
 import UsernameCard from './UsernameCard.jsx'
+import PasskeysCard from './PasskeysCard.jsx'
 
 const MIN_LEN = 8
 
@@ -61,6 +62,9 @@ export default function AuthSection({ profile, onSignOut }) {
       </Card>
 
       <UsernameCard />
+
+      {/* Passkey sign-in needs a username/email/phone, which social-only accounts don't sign in with. */}
+      {hasPassword && <PasskeysCard />}
 
       {hasPassword && <Card title="Change password" icon={KeyRound}>
         <form className="ui-form" onSubmit={submit} noValidate>

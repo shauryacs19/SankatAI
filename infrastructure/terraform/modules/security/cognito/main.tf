@@ -76,7 +76,15 @@ resource "aws_cognito_user_pool" "users" {
   # First factors people may choose. EMAIL_OTP is left out: Cognito can only
   # send email codes through SES, and the SES account is still in the sandbox.
   sign_in_policy {
-    allowed_first_auth_factors = ["PASSWORD", "SMS_OTP"]
+    allowed_first_auth_factors = ["PASSWORD", "SMS_OTP", "WEB_AUTHN"]
+  }
+
+  # Passkeys. The relying party is the website's own domain (the CloudFront
+  # distribution): the browser only offers a passkey to the site whose domain
+  # matches, and the apps never use Cognito's hosted pages for passkeys.
+  web_authn_configuration {
+    relying_party_id  = var.passkey_relying_party_id
+    user_verification = "preferred"
   }
 
   # Passwordless sign-in needs MFA off or optional.

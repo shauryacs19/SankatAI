@@ -121,6 +121,11 @@ export const createCognitoApi = ({ region, clientId, fetchImpl }) => {
     if (!res.ok) throw cognitoError(String(data.__type || 'UnknownError').split('#').pop(), data.message || data.Message)
     return data
   }
+  const tokensOf = (res) => {
+    const r = res.AuthenticationResult
+    if (!r) throw cognitoError('UnsupportedChallenge')
+    return { idToken: r.IdToken, accessToken: r.AccessToken, refreshToken: r.RefreshToken, expiresIn: r.ExpiresIn }
+  }
   return {
     /** Cognito texts a code to the account's verified phone. */
     async startSmsSignIn(phone) {
@@ -140,9 +145,43 @@ export const createCognitoApi = ({ region, clientId, fetchImpl }) => {
         Session: session,
         ChallengeResponses: { USERNAME: phone, SMS_OTP: String(code).trim() },
       })
-      const r = res.AuthenticationResult
-      if (!r) throw cognitoError('UnsupportedChallenge')
-      return { idToken: r.IdToken, accessToken: r.AccessToken, refreshToken: r.RefreshToken, expiresIn: r.ExpiresIn }
+      return tokensOf(res)
+    },
+
+    // Passkeys (WebAuthn). Cognito returns and accepts the standard WebAuthn
+    // JSON forms (base64url binary fields); the platform does the ceremony.
+    /** Passkey sign-in, step 1: the request options for this account's passkeys. */
+    async startPasskeySignIn(username) {
+      const res = await call('InitiateAuth', {
+        ClientId: clientId,
+        AuthFlow: 'USER_AUTH',
+        AuthParameters: { USERNAME: username, PREFERRED_CHALLENGE: 'WEB_AUTHN' },
+      })
+      if (res.ChallengeName !== 'WEB_AUTHN') throw cognitoError('PasskeyUnavailable')
+      return { session: res.Session, options: JSON.parse(res.ChallengeParameters?.CREDENTIAL_REQUEST_OPTIONS || '{}') }
+    },
+    /** Passkey sign-in, step 2: the signed assertion; resolves the tokens. */
+    async answerPasskey({ username, session, credential }) {
+      const res = await call('RespondToAuthChallenge', {
+        ClientId: clientId,
+        ChallengeName: 'WEB_AUTHN',
+        Session: session,
+        ChallengeResponses: { USERNAME: username, CREDENTIAL: JSON.stringify(credential) },
+      })
+      return tokensOf(res)
+    },
+    /** Creation options for a new passkey on the signed-in account. */
+    async startPasskeyRegistration(accessToken) {
+      return (await call('StartWebAuthnRegistration', { AccessToken: accessToken })).CredentialCreationOptions
+    },
+    async completePasskeyRegistration({ accessToken, credential }) {
+      await call('CompleteWebAuthnRegistration', { AccessToken: accessToken, Credential: credential })
+    },
+    async listPasskeys(accessToken) {
+      return (await call('ListWebAuthnCredentials', { AccessToken: accessToken })).Credentials || []
+    },
+    async deletePasskey({ accessToken, credentialId }) {
+      await call('DeleteWebAuthnCredential', { AccessToken: accessToken, CredentialId: credentialId })
     },
     /** Change the signed-in person's own attributes, e.g. { preferred_username }. */
     async updateAttributes({ accessToken, attributes }) {

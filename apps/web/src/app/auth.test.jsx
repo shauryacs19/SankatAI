@@ -26,6 +26,10 @@ const auth = vi.hoisted(() => ({
   completeSocialSignIn: vi.fn(),
   socialProviders: vi.fn(() => []),
   updateUsername: vi.fn(),
+  signInWithPasskey: vi.fn(),
+  addPasskey: vi.fn(),
+  listPasskeys: vi.fn(async () => []),
+  removePasskey: vi.fn(),
 }))
 vi.mock('../services/auth/cognito', () => ({
   ...auth,
@@ -412,5 +416,45 @@ describe('phone, code and social sign-in', () => {
     auth.completeSocialSignIn.mockRejectedValueOnce(Object.assign(new Error('PreSignUp failed with error An account with this email already exists. Sign in instead.'), { code: 'UserLambdaValidationException' }))
     renderAt('/auth/callback?error=invalid_request')
     expect((await screen.findByRole('alert')).textContent).toBe('An account with this email already exists. Sign in instead')
+  })
+})
+
+describe('passkeys', () => {
+  const withPasskeys = () => {
+    window.PublicKeyCredential = function PublicKeyCredential() {}
+    Object.defineProperty(navigator, 'credentials', { configurable: true, value: { create: vi.fn(), get: vi.fn() } })
+  }
+  afterEach(() => {
+    delete window.PublicKeyCredential
+    delete navigator.credentials
+  })
+
+  it('hides the passkey tab where the browser has no passkey support', async () => {
+    renderAt('/login')
+    await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
+    expect(screen.queryByRole('radio', { name: 'Passkey' })).toBeNull()
+  })
+
+  it('signs in with a passkey for the typed account', async () => {
+    withPasskeys()
+    auth.signInWithPasskey.mockResolvedValue({ nextStep: 'DONE', user: USER })
+    renderAt(`/login?returnTo=${encodeURIComponent('/dashboard/chat')}`)
+    await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
+    fireEvent.click(screen.getByRole('radio', { name: 'Passkey' }))
+    type('Email, phone or username', 'Asha.K')
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with passkey' }))
+    await waitFor(() => expect(loc()).toBe('/dashboard/chat'))
+    expect(auth.signInWithPasskey).toHaveBeenCalledWith({ username: 'asha.k', remember: true })
+  })
+
+  it('explains a cancelled passkey prompt', async () => {
+    withPasskeys()
+    auth.signInWithPasskey.mockRejectedValue(Object.assign(new Error('cancelled'), { name: 'NotAllowedError', code: 0 }))
+    renderAt('/login')
+    await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
+    fireEvent.click(screen.getByRole('radio', { name: 'Passkey' }))
+    type('Email, phone or username', 'asha.k')
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with passkey' }))
+    expect((await screen.findByRole('alert')).textContent).toMatch(/cancelled or timed out/)
   })
 })
