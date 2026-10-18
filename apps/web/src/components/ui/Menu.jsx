@@ -1,15 +1,17 @@
 import { useEffect, useId, useRef, useState } from 'react'
 // eslint-disable-next-line no-unused-vars -- `motion` is used via motion.* JSX
 import { AnimatePresence, motion } from 'framer-motion'
-import { IconButton } from './Button.jsx'
+import { Button, IconButton } from './Button.jsx'
 import { dropdown } from './motion'
 
 /**
  * Menu — a dropdown of actions. Arrow keys move, Enter/Space selects, Escape
  * or an outside click closes and returns focus to the trigger.
  * items: [{ key, label, icon, onSelect, tone: 'danger' }]
+ * `text` gives the trigger a visible word next to its icon (label stays the
+ * accessible name, so keep the word inside it: text "Attach", label "Attach a file").
  */
-export function Menu({ label, icon, items, placement = 'bottom', align = 'end', triggerClassName = '', tooltip = true }) {
+export function Menu({ label, icon, items, placement = 'bottom', align = 'end', triggerClassName = '', tooltip = true, text }) {
   const [open, setOpen] = useState(false)
   const anchorRef = useRef(null)
   const triggerRef = useRef(null)
@@ -40,17 +42,34 @@ export function Menu({ label, icon, items, placement = 'bottom', align = 'end', 
 
   return (
     <span className="ui-menu-anchor" ref={anchorRef}>
-      <IconButton
-        ref={triggerRef}
-        label={label}
-        icon={icon}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        className={triggerClassName}
-        tooltip={tooltip && !open}
-        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}
-      />
+      {text ? (
+        <Button
+          ref={triggerRef}
+          variant="ghost"
+          size="sm"
+          icon={icon}
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          className={triggerClassName}
+          onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}
+        >
+          <span className="ui-btn-text">{text}</span>
+        </Button>
+      ) : (
+        <IconButton
+          ref={triggerRef}
+          label={label}
+          icon={icon}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          className={triggerClassName}
+          tooltip={tooltip && !open}
+          onClick={(e) => { e.stopPropagation(); setOpen((o) => !o) }}
+        />
+      )}
       <AnimatePresence>
         {open && (
           <motion.div

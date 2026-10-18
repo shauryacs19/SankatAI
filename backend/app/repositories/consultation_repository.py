@@ -283,8 +283,11 @@ def add_message(
     offline_fallback: bool = False,
     lang: Optional[str] = None,
     input_mode: Optional[str] = None,
+    created_at: Optional[str] = None,
 ) -> dict:
-    now = now_iso()
+    # created_at: only for importing an earlier conversation (guest save); it
+    # keeps the original order and times. Normal sends always use "now".
+    now = created_at or now_iso()
     message_id = short_id()
     item = {
         "user_id": user_id,

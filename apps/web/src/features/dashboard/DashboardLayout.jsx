@@ -65,7 +65,7 @@ export default function DashboardLayout() {
       <nav className="sh-side" aria-label="Main">
         <NavLink to="/dashboard/chat" className="sh-side-brand" aria-label="SankatAI — symptom chat">
           <Brand className="sh-brand-full" />
-          <HeartPulse size={24} className="sh-brand-mark" aria-hidden="true" />
+          <span className="ui-brand-mark sh-brand-mark" aria-hidden="true"><HeartPulse size={18} strokeWidth={2.25} /></span>
         </NavLink>
 
         <Button variant="secondary" icon={Plus} block className="sh-newchat-full" onClick={newChat}>New chat</Button>
@@ -105,14 +105,18 @@ export default function DashboardLayout() {
 
       <div className="sh-main">
         <header className="sh-bar">
-          <HeartPulse size={22} className="sh-bar-mark" aria-hidden="true" />
+          <span className="ui-brand-mark sh-bar-mark" aria-hidden="true"><HeartPulse size={16} strokeWidth={2.25} /></span>
           <h1 className="sh-bar-title">{title}</h1>
           {d.isOffline && (
             <Badge tone="warning" icon={CloudOff} href="/dashboard/offline" onClick={(e) => { e.preventDefault(); navigate('/dashboard/offline') }}>AI offline</Badge>
           )}
           <div className="sh-bar-actions">
             {isChat && <IconButton label="New chat" icon={Plus} className="sh-bar-newchat" onClick={newChat} tooltipSide="bottom" />}
-            {isChat && <IconButton label="AI analysis" icon={PanelRightOpen} onClick={() => d.setAnalysisOpen(true)} tooltipSide="bottom" tooltipAlign="end" />}
+            {isChat && (
+              <Button variant="ghost" size="sm" icon={PanelRightOpen} className="sh-bar-analysis" aria-label="AI analysis" aria-haspopup="dialog" onClick={() => d.setAnalysisOpen(true)}>
+                <span className="ui-btn-text">AI analysis</span>
+              </Button>
+            )}
             <Button variant="emergency" icon={Siren} onClick={d.triggerSos} aria-label="SOS — get emergency help now">SOS</Button>
           </div>
         </header>

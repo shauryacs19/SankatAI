@@ -81,7 +81,7 @@ describe('public routes', () => {
     const href = window.location.href
     renderAt('/')
     expect((await screen.findAllByRole('button', { name: 'Sign in' })).length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('button', { name: 'Sign up' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Get started' }).length).toBeGreaterThan(0)
     expect(loc()).toBe('/')
     expect(window.location.href).toBe(href) // no full-page navigation (Hosted UI)
     expect(auth.restoreSession).toHaveBeenCalledTimes(1) // the silent check only
@@ -90,7 +90,7 @@ describe('public routes', () => {
   it('shows the user menu on the home page when signed in', async () => {
     auth.restoreSession.mockResolvedValue(USER)
     renderAt('/')
-    expect((await screen.findAllByRole('button', { name: 'Open app' })).length).toBeGreaterThan(0)
+    expect((await screen.findAllByRole('button', { name: 'Open SankatAI' })).length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull()
   })
 })

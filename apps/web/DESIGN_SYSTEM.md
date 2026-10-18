@@ -1,13 +1,16 @@
 # SankatAI web design system
 
-The goal is clinical trust: calm, precise, high-contrast and fast. Every visual choice must be
-justified by hierarchy, affordance or feedback. If it can't be, remove it.
+The goal is a calm, trustworthy health companion that anyone can use, including older adults:
+warm ivory, white reading surfaces, restrained sage accents, large readable type. Every visual
+choice must be justified by hierarchy, affordance or feedback. If it can't be, remove it.
 
 ## Where things live
 
 | What | Where |
 | --- | --- |
-| Token values (shared with mobile) | `packages/shared/theme.js`. The additive exports are `semantic`, `severityTokens`, `neutral`, `typeScale`, `space`, `motionTokens`, `zIndex` and `breakpoints`. |
+| Structural tokens (shared with mobile) | `packages/shared/theme.js`: `space`, `fontWeight`, `motionTokens`, `zIndex`, `breakpoints`, severity fills. |
+| Web visual identity (web only; mobile unaffected) | `src/styles/palette.js`: colours (light + dark), severity inks, type scale, font stack, radii. |
+| Webfont | Inter variable (OFL, `public/fonts/Inter-LICENSE.txt`), self-hosted from `src/assets/fonts/`, `@font-face` in `src/styles/base.js`. No third-party font request. |
 | CSS custom properties (the only place they are generated) | `src/styles/tokens.js` |
 | Reset, focus and reduced motion | `src/styles/base.js`, installed once by `src/styles/install.js` before first paint |
 | Primitives | `src/components/ui/`. Styles are in `ui.styles.js`. Import from `components/ui`. |
@@ -18,7 +21,17 @@ is wrong or the token set needs a deliberate addition in `theme.js`.
 
 ## Colour
 
-Colour carries meaning. **Most of the UI is neutral.**
+Colour carries meaning. **Most of the UI is warm neutral; sage marks the one thing to act on.**
+
+| Palette | Light | Use |
+| --- | --- | --- |
+| Warm ivory | `#F6F4ED` | `--bg`, page background |
+| White | `#FFFFFF` | `--surface`: cards, inputs, replies |
+| Muted sage | `#426F68` | `--primary`: primary buttons, current item, key icons |
+| Soft sage | `#E5EBE3` | `--primary-soft`, `--surface-tint`, `--user-bubble` |
+| Stone | `#E8E9E5` | `--border-subtle` |
+| Charcoal | `#293B38` | `--text-primary` |
+| Muted grey | `#5E6964` | `--text-muted` (the brief's `#66716C`, darkened to keep 4.5:1 on stone) |
 
 | Token | Use |
 | --- | --- |
@@ -31,7 +44,9 @@ Colour carries meaning. **Most of the UI is neutral.**
 | `--border-subtle` | structural dividers and card edges (decorative) |
 | `--border-strong` | input and control boundaries (≥3:1, WCAG 1.4.11) |
 | `--focus-ring` | the single focus outline (neutral, 2px, offset 2px) |
-| `--primary`, `--primary-hover`, `--on-primary` | **only** the one primary action per view and the brand mark |
+| `--primary`, `--primary-hover`, `--on-primary` | the one primary action per view, the brand mark, the current nav item's icon |
+| `--surface-tint`, `--user-bubble` | soft sage fills: info alerts, the user's chat bubble, the closing call to action |
+| `--focus-halo` | the soft ring around a focused input (its 2px sage edge is the indicator) |
 | `--primary-text` | brand-coloured text (≥4.5:1 on `--bg`) |
 | `--danger*` | destructive actions and error messages. Distinct from emergency. |
 | `--warning*`, `--success*` | status notices (offline mode, saved) |
@@ -58,22 +73,22 @@ above is contrast-checked.
 
 ## Typography
 
-- One family: `--font-sans` (the system stack). No webfont request.
-- One scale, about 1.2 ratio:
+- One family: `--font-sans` (Inter, then the system stack; Devanagari falls back to the system).
+- One scale, senior-friendly. **Nothing below 14px.**
 
 | Token | px / line-height | Use |
 | --- | --- | --- |
-| `--fs-xs` | 12 / 16 | badges, timestamps, overlines |
-| `--fs-sm` | 14 / 20 | secondary copy, labels, buttons, meta |
-| `--fs-md` | 16 / 24 | **body and inputs** (the mobile body minimum; 16px inputs also stop iOS zoom) |
-| `--fs-lg` | 18 / 26 | card titles |
-| `--fs-xl` | 20 / 28 | page titles in the app bar |
-| `--fs-2xl` | 24 / 32 | empty-state and auth headings |
-| `--fs-3xl` / `--fs-4xl` | 30 / 38, 36 / 44 | marketing only |
+| `--fs-xs` | 14 / 20 | badges, timestamps |
+| `--fs-sm` | 15 / 22 | supporting copy, hints, small buttons, group labels |
+| `--fs-md` | 17 / 27 | **body, inputs, buttons, navigation** |
+| `--fs-lg` | 19 / 28 | card titles, app bar title |
+| `--fs-xl` | 22 / 30 | dialog and state titles |
+| `--fs-2xl` | 28 / 36 | page and auth headings |
+| `--fs-3xl` / `--fs-4xl` | 34 / 42, 48 / 56 | home page only (headings use `clamp()` there) |
 
 - Weights: 400 body, 500 controls and labels, 600 headings, 700 rare emphasis. There is no 800 or 900.
 - Hierarchy uses weight, colour and space together, not size alone.
-- Overlines (small uppercase) are allowed only for section group labels: `--fs-xs`, 600, `0.04em`.
+- `.ui-overline` is a sentence-case group label (`--fs-sm`, 600, muted). No small uppercase labels.
 
 ## Spacing and layout
 
@@ -91,10 +106,10 @@ above is contrast-checked.
 
 | Element | Token |
 | --- | --- |
-| Buttons, inputs, selects, icon buttons | `--radius-control` (8) |
-| Cards, panels, list containers | `--radius-card` (12) |
-| Modals, sheets, drawers | `--radius-modal` (16) |
-| Chips, badges, avatars' status dots | `--radius-pill`. **Pills only here.** |
+| Inputs, selects, icon buttons, nav items | `--radius-control` (12) |
+| Cards, panels, list containers | `--radius-card` (16); chat replies and the composer use 20 |
+| Modals, sheets, drawers, auth card | `--radius-modal` (20) |
+| Text buttons, chips, badges | `--radius-pill` |
 
 ## Elevation
 
@@ -103,6 +118,7 @@ Prefer a border. Shadows are only for things that genuinely float.
 | Level | Use |
 | --- | --- |
 | flat | everything in the page flow (border only) |
+| `--shadow-lift` | the main question box (home page and chat composer) and the auth card |
 | `--shadow-1` | menus, dropdowns, tooltips |
 | `--shadow-2` | toasts, side drawer |
 | `--shadow-3` | modals |
@@ -125,12 +141,12 @@ No other values.
 
 | Primitive | Rules |
 | --- | --- |
-| `Button` | Variants: `primary` (one per view), `secondary`, `ghost`, `destructive` (always behind a `ConfirmDialog`), `emergency` (life-critical only). `loading` keeps the width and sets `aria-busy`. Give a disabled button a `hint` that explains why. |
+| `Button` | Pill, 48px (40px `sm`). Variants: `primary` (one per view), `secondary`, `ghost`, `destructive` (always behind a `ConfirmDialog`), `emergency` (life-critical only). `loading` keeps the width and sets `aria-busy`. Give a disabled button a `hint` that explains why. Prefer a word next to an icon; wrap it in `.ui-btn-text` if it may be hidden on phones (it stays the accessible name). |
 | `IconButton` | ≥40px (44px on touch). `label` is required; it becomes `aria-label` and the tooltip. |
 | `Field` + `Input` / `Select` / `Textarea` | Always labelled. `hint`, `error` (sets `aria-invalid` and `aria-describedby`), `required`. Validate on blur, not just on submit. |
 | `Card` | `--surface`, `--border-subtle`, `--radius-card`, no shadow. Optional header (title and actions). |
 | `Modal` / `ConfirmDialog` | Focus trap, Escape to close, focus restored on close. Primary action bottom-right, destructive actions separated. Becomes a bottom sheet below 480px. |
-| `Menu` | Dropdown with arrow-key navigation, Escape, and outside-click close. |
+| `Menu` | Dropdown with arrow-key navigation, Escape, and outside-click close. `text` gives the trigger a visible word. |
 | `Toast` (`useToast`) | `aria-live`. Auto-dismisses, and pauses on hover or focus. Errors say what failed. |
 | `Skeleton` | Initial loads, shaped like the real content. Spinners are only for in-place actions. |
 | `EmptyState` | Says what goes here and offers the action that fills it. |
@@ -152,6 +168,17 @@ A bare "Loading…" is not acceptable.
 - Offline or fallback answers are visibly different from AI answers. They have a dashed border, the "Offline estimate — not an AI assessment" label, and no AI mark.
 - The medical disclaimer is always visible (in the side nav on desktop, under the composer everywhere). It is never collapsed.
 - An empty medical field reads "Not provided", never "None".
+
+## Home page showcase
+
+- Product visuals are real screens captured from the dev preview (`preview.html?showcase=1`, sample data) and
+  labelled as sample screens. Regenerate after UI changes:
+  `node --experimental-websocket apps/web/scripts/capture-showcase.mjs` (writes `src/assets/showcase/*.webp`).
+- Each shot exists in light and dark; `Shot` renders both and CSS shows the active theme's (lazy, so the other
+  is never downloaded). Always pass real `alt` text describing what the screen shows.
+- Motion: once-only `whileInView` reveals (fade + 16–48px offset, 0.5–0.8s), staggered lists, one gentle scroll
+  parallax in the hero, and the only looping motion is the floating chips (stopped by reduced motion). Real
+  emergency actions (Call 108 buttons, the call-108 note) are never animated in.
 
 ## Checking your work (dev preview)
 

@@ -95,11 +95,11 @@ export function useDashboard() {
   const selectConsultation = async (id) => {
     setActiveId(id); setIsEmergency(false); setLastReply(null)
     try { const msgs = await getMessages(id); setMessages(msgs.map(toBubble)) } catch { setMessages([]) }
-    loadChatAttachments(id)
+    void loadChatAttachments(id) // falls back to an empty map on failure
   }
 
   useEffect(() => {
-    ;(async () => {
+    const loadInitial = async () => {
       try {
         const list = await loadConsultations()
         // Wait for the first conversation's messages before revealing the chat
@@ -108,7 +108,8 @@ export function useDashboard() {
       } finally {
         setInitialLoading(false)
       }
-    })()
+    }
+    void loadInitial() // both steps catch their own errors
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => { fetch('/api/health').then((r) => setIsOffline(!r.ok)).catch(() => setIsOffline(true)) }, [])
@@ -119,6 +120,11 @@ export function useDashboard() {
       setConsultations((prev) => [c, ...prev]); setActiveId(c.consultationId); setMessages([]); setIsEmergency(false)
       return c
     } catch (e) { toast.error(errText(e, 'Could not start a new chat.')); return null }
+  }
+  // A fresh, unsaved conversation with `text` waiting in the composer (the
+  // question typed on the home page). The consultation is created on Send.
+  const startDraft = (text) => {
+    setActiveId(null); setMessages([]); setIsEmergency(false); setLastReply(null); setInput(text)
   }
   // Called after the user confirms in a dialog. Resolves true on success.
   const deleteChat = async (id) => {
@@ -167,7 +173,7 @@ export function useDashboard() {
       if (!cid) { const c = await createConsultation(); setConsultations((prev) => [c, ...prev]); cid = c.consultationId; setActiveId(cid) }
       const res = await apiSendMessage(cid, text, attachmentIds, meta)
       setMessages((prev) => prev.map((m) => (m.id === tmpId ? { ...m, status: 'received' } : m)))
-      if (attachmentIds.length) loadChatAttachments(cid)
+      if (attachmentIds.length) void loadChatAttachments(cid)
       setIsOffline(Boolean(res.isOfflineFallback))
       if (res.assistantMessage) {
         const bot = toBubble(res.assistantMessage)
@@ -200,6 +206,11 @@ export function useDashboard() {
     setInput('')
     setAttachments([]) // they now belong to the message
     await sendText(text, ready, meta)
+  }
+  // A quick-help topic: sent straight away as the person's first message.
+  const sendQuick = async (text) => {
+    if (isLoading || !text) return
+    await sendText(text, [], { inputMode: 'text' })
   }
   const retrySend = async (errId) => {
     const row = messages.find((m) => m.id === errId)
@@ -317,8 +328,8 @@ export function useDashboard() {
     isOffline, isEmergency, setIsEmergency, emergencyFromAssessment, lastRiskScore, analysisOpen, setAnalysisOpen,
     attachments, removeAttachment, voice, chatAttachmentMap,
     search, setSearch, searching, visibleConsultations, onFilesSelected,
-    selectConsultation, startNewConsultation, deleteChat, openRename, closeRename, renameTarget, renameChat,
-    handleSend, retrySend, dismissError, handleFindHospitals, handleSendLocationAlert, submitFeedback,
+    selectConsultation, startNewConsultation, startDraft, deleteChat, openRename, closeRename, renameTarget, renameChat,
+    handleSend, sendQuick, retrySend, dismissError, handleFindHospitals, handleSendLocationAlert, submitFeedback,
     handleSignOut, goEditProfile, goChat, unsendMessageById, triggerSos,
   }
 }

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Navigate, Route, Routes, useSearchParams } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import { MotionConfig } from 'framer-motion'
 import Landing from '../features/marketing/Landing.jsx'
 import Login from '../features/auth/components/Login.jsx'
@@ -33,11 +33,14 @@ const AccessPage = lazy(() => import('../features/admin/pages/AccessPage.jsx'))
 const AuditPage = lazy(() => import('../features/admin/pages/AuditPage.jsx'))
 const InviteAcceptPage = lazy(() => import('../features/admin/pages/InviteAcceptPage.jsx'))
 
-// Signed-in users land in the app; profile completeness decides where.
+// Signed-in users land in the app; profile completeness decides where. A
+// question typed on the home page (state.draft) is carried along to the chat.
 function Gate() {
   const { profile, loading } = useProfile()
+  const { state } = useLocation()
   if (loading) return <Loading />
-  return <Navigate to={isProfileComplete(profile) ? '/dashboard' : '/profile-setup'} replace />
+  const home = state?.draft ? '/dashboard/chat' : '/dashboard'
+  return <Navigate to={isProfileComplete(profile) ? home : '/profile-setup'} replace state={state} />
 }
 
 // Auth pages are for guests. A signed-in visitor (including the moment a

@@ -3,7 +3,7 @@
 > **Purpose:** single source of truth so Claude can get up to speed without
 > re-reading the whole codebase. **Claude updates this file after every completed
 > task** (append to the Changelog + adjust the relevant sections).
-> Last updated: 2026-09-25 (admin console + real analytics; web custom SRP login, no Hosted UI).
+> Last updated: 2026-10-18 (guest chat on the home page + product showcase; web redesign).
 
 ---
 
@@ -89,7 +89,8 @@ Routers in `backend/main.py`: health, triage, profile, consultations, security,
 uploads, voice. CORS middleware uses explicit `CORS_ALLOWED_ORIGINS` and credentials for the web session cookie. Auth: `user_id` from verified
 Cognito token.
 
-Endpoints: `GET /api/health`; `GET/PUT /api/profile`;
+Endpoints: `GET /api/health`; `POST /api/guest/chat` (**public**, see §10 2026-10-18); `POST /api/guest/save`;
+`GET/PUT /api/profile`;
 `GET/POST /api/consultations`, `PATCH …/{id}` (rename), `DELETE`,
 `GET/POST …/{id}/messages`, `POST …/{id}/messages/{msgId}/feedback`;
 `GET/POST/DELETE /api/security/pins`; admin console `/api/admin/*` (§9e);
@@ -265,7 +266,9 @@ retry on 401. Point `EXPO_PUBLIC_API_URL` at the gateway.
 - Do not create another backend under a client directory.
 - Keep mobile and web UI platform-specific.
 - Put business rules/data contracts in `@sankatai/shared`.
-- Protect expensive/medical AI endpoints with Cognito authentication.
+- Protect expensive/medical AI endpoints with Cognito authentication. **One exception (user-requested
+  2026-10-18): `POST /api/guest/chat`** — exact API GW route with no authorizer + route throttle, per-IP
+  backend limits, stores nothing. Never widen it (no `/api/guest/{proxy+}`, no other public AI route).
 - Do not expose model chain-of-thought.
 - Production CORS must be an explicit allow-list.
 - Production web auth requires `AUTH_SESSION_SECRET` and `AUTH_SESSION_SECURE=true`.
@@ -694,6 +697,78 @@ SecureStore key `sankatai_username` (was email). Pool/client defaults in `src/co
 user no longer exists (`retire_orphaned_admins`). Root re-bootstrapped in the new pool 2026-09-26.
 
 ## 10. Changelog (most recent first)
+- **Guest chat on the home page + animated product showcase (2026-10-18):**
+  - **Guest chat (user request):** visitors chat with the AI from the home page without an account; nothing
+    is stored server-side (no DynamoDB write, no analytics event, no message text in logs). Backend:
+    `routes/guest.py`, `services/guest_service.py`, `schemas/guest.py`. `POST /api/guest/chat` takes the whole
+    transcript from the browser (`guestId` = client UUID, ≤24 messages, user text ≤2000 chars, roles user/
+    assistant only, ≤`GUEST_MAX_TURNS`=10 user turns), runs `run_triage` with no profile, and returns a reply
+    **HMAC-signed** (key = HMAC(`ANALYTICS_SALT`, "sankatai/guest-reply/v1"); per-process random key if the salt
+    is unset). Unsigned/tampered assistant turns → 400. Limits per client IP (`x-client-ip`, overwritten by
+    API GW): `GUEST_CHAT_PER_MINUTE`=6, `GUEST_CHAT_PER_HOUR`=30 → 429; `GUEST_CHAT_ENABLED` kill switch → 503.
+    `POST /api/guest/save` (JWT, behind the catch-all) re-verifies every signature, rejects replies older than
+    `GUEST_SAVE_MAX_AGE_HOURS`=24 (410), and writes one consultation keeping the original order/times
+    (`repo.add_message(created_at=...)`, additive). Tests: `backend/tests/test_guest.py` (11).
+  - **Terraform — APPLIED 2026-10-18** (`-target=module.api_gateway`; plan 1 add, 1 in-place change,
+    0 destroy): route `POST /api/guest/chat` (authorization NONE, same integration; `overwrite:header.x-user-id`
+    becomes empty) + stage `route_settings` throttle (`guest_chat_rate_limit`=2 rps, `guest_chat_burst_limit`=10,
+    all guests combined). Verified via CloudFront: `/api/guest/chat` reaches the backend without a token,
+    `/api/guest/save` still 401. **The backend code is not deployed yet**, so `/api/guest/chat` returns 404 in
+    prod until the next backend deploy (push to main).
+  - **Web:** `features/marketing/HeroChat.jsx` — the hero question box becomes the guest chat in place (header
+    "Guest chat · ID XXXX-XXXX · Nothing is saved", Save this chat, New chat; replies via `AssistantMessage guest`
+    = Share only, since feedback/translate/TTS need an account). `features/chat/guestChat.js`: plain `fetch`
+    (no token), wire format, `stash/take` in sessionStorage **only when the person clicks Save**; auth pages show
+    "will be saved…"; `ChatPage` imports it once via `/api/guest/save` and opens it. Signed-in visitors still go
+    to `/app` with the draft in router state (`state.draft`, forwarded by `Gate` and ProfileSetup; never stored). **Quick help topics** (`features/chat/quickTopics.jsx`, 6:
+    fever/infection, headache/dizziness, cough/breathing, stomach/vomiting, injury, chest pain) replace the
+    example sentences on the home page and in the chat empty state; a tap SENDS the topic as the first message
+    (`useDashboard().sendQuick`). Analysis drawer now renders advice with `RichText` (bullets were inline).
+  - **Showcase:** `features/marketing/Showcase.jsx` + `showcase.styles.js`: hero composition (browser frame +
+    phone + floating chips, scroll parallax via framer `useScroll`), guided tour rows (symptom check demo,
+    profile + AI analysis, history + documents, emergency phone) with once-only `whileInView` reveals
+    (alternating sides, staggered text), accessibility block, FAQ "Do I need an account?". Real screens from
+    the dev preview with sample data, labelled "Sample screens…": `src/assets/showcase/*.webp` (light + dark,
+    14 files, ~650 KB, lazy; the hidden theme's images are never fetched). Regenerate with
+    `node --experimental-websocket apps/web/scripts/capture-showcase.mjs` (dev server running; Edge/Chrome via
+    DevTools protocol). Preview flags added: `showcase=1`, `theme=`, `click=`. Tokens: `--shadow-device`,
+    `--device-bezel`. `.lx main { overflow-x: clip }` stops entrance offsets widening phones.
+  - **PR #1 CI fixes:** root `overrides` pin `shell-quote` ^1.11.0 and `source-map-js` ^1.2.2 (new Trivy
+    CRITICAL/HIGH in the root lockfile; minimal lock diff). Sonar: unhandled promises marked `void`, RichText
+    regexes made non-backtracking, `pendingQuestion.js` (sessionStorage) removed, reviewed
+    `NOSONAR(terraform:S6333)` on the guest route. ⚠️ The SonarCloud gate also fails on `main`: `new_coverage`
+    is always 0 because no CI job uploads coverage (needs pytest-cov + vitest lcov + `sonar.*.reportPaths`).
+  - **Not done:** stock photos of doctors/hospitals (Google Images are copyrighted; licensed photos need the
+    user's approval per file). **Verified:** backend 152, web 149 tests; lint = 5 pre-existing; build OK; QA on
+    the home page light/dark at 360/768/1280: 0 contrast failures, no overflow; guest → save → sign-up → import
+    flow in the preview (mocked API). **Not verified:** guest chat against the real backend/API GW, real devices.
+- **Web redesign: calm ivory + sage identity, senior-friendly type, new home page and chat (2026-10-18):**
+  frontend only (`apps/web`); no API, route, auth-flow or backend change; mobile untouched.
+  - **Identity is web-only:** `apps/web/src/styles/palette.js` (light + dark colours, severity inks, type scale,
+    font stack, radii) feeds `styles/tokens.js`. `packages/shared/theme.js` is unchanged (mobile reads its
+    `semantic`/`severityTokens`). Light: bg `#F6F4ED`, surface white, primary sage `#426F68`, soft sage
+    `#E5EBE3`, text `#293B38`, muted `#5E6964` (brief's `#66716C` failed 4.5:1 on stone). New tokens
+    `--surface-tint`, `--user-bubble`, `--focus-halo`, `--shadow-0/-lift`, `--space-7/14/20/24`, `--content-page`.
+  - **Type:** Inter variable self-hosted (`src/assets/fonts/*.woff2`, hashed by Vite; OFL licence in
+    `public/fonts/`); no new npm dependency, no third-party font request. Body 17px, min 14px, buttons 17px/48px pills.
+  - **Home (`features/marketing/Landing.jsx`):** hero with a labelled question box (focal point) + 4 symptom
+    starters; How it works + "every answer shows" (severity levels), features, safety (can/cannot, privacy,
+    Call 108/112), FAQ (+languages), CTA. Copy: guests "Sign in" / "Get started", signed-in "Open SankatAI"
+    (auth.test updated). **Question hand-off:** `features/chat/pendingQuestion.js` keeps the question in
+    sessionStorage (this tab only); auth pages show "Your question is saved"; `ChatPage` takes it once and calls
+    new `useDashboard().startDraft(text)` (fresh unsaved chat, text in composer). **Never auto-sent.**
+  - **Chat:** composer is an auto-growing textarea (Enter sends, Shift+Enter new line, IME-safe), visible
+    Attach / Voice input / Send labels (icon-only row on phones <480px, names kept); replies on white cards,
+    severity via badge only (emergency keeps a red frame), user bubble soft sage; `components/RichText.jsx`
+    lays reply text out as paragraphs/lists/"Label:" subheads (layout only); follow-up questions render as a
+    numbered list (`normalizeAssistant` now also returns `questions`). `Menu` got an optional `text` trigger.
+  - **Shell/pages:** ivory sidebar with white current-item pill, "AI analysis" text button, bottom tabs with
+    sage pill; auth card, standalone pages, profile-setup steps (labels wrap) restyled. Emergency content
+    (chat, SOS panel, call-108 notes) still never animates in.
+  - **Verified:** web tests 144/144 (new `features/chat/richText.test.jsx`), lint = 5 pre-existing errors,
+    build OK. Preview QA (`__qa`/`__contrast`) on 13 routes × light/dark × 360/1280px: 0 contrast failures,
+    no horizontal overflow; tablet rail, admin console, home → sign-up → chat hand-off checked.
+    **Not verified:** real signed-in session, real devices, OS reduced-motion (code paths only).
 - **Root admin (2026-09-26):** see §9e. Backend 105 tests, web 90 tests + build pass. Prod row
   already set to root; protection takes effect when the backend is deployed (push to main).
 - **H1 fixed + APPLIED (2026-09-26, targeted apply, distribution Deployed; verified: 0 custom
