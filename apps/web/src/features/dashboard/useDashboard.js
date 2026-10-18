@@ -99,7 +99,7 @@ export function useDashboard() {
   }
 
   useEffect(() => {
-    ;(async () => {
+    const loadInitial = async () => {
       try {
         const list = await loadConsultations()
         // Wait for the first conversation's messages before revealing the chat
@@ -108,7 +108,8 @@ export function useDashboard() {
       } finally {
         setInitialLoading(false)
       }
-    })()
+    }
+    void loadInitial() // both steps catch their own errors
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => { fetch('/api/health').then((r) => setIsOffline(!r.ok)).catch(() => setIsOffline(true)) }, [])
@@ -172,7 +173,7 @@ export function useDashboard() {
       if (!cid) { const c = await createConsultation(); setConsultations((prev) => [c, ...prev]); cid = c.consultationId; setActiveId(cid) }
       const res = await apiSendMessage(cid, text, attachmentIds, meta)
       setMessages((prev) => prev.map((m) => (m.id === tmpId ? { ...m, status: 'received' } : m)))
-      if (attachmentIds.length) loadChatAttachments(cid)
+      if (attachmentIds.length) void loadChatAttachments(cid)
       setIsOffline(Boolean(res.isOfflineFallback))
       if (res.assistantMessage) {
         const bot = toBubble(res.assistantMessage)

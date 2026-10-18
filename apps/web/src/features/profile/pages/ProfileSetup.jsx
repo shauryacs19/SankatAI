@@ -115,7 +115,7 @@ function ProfileSetup() {
     if (m.length) { flag(m); return }
     setErrors({}); setServerError('')
     if (step < STEPS.length - 1) setStep(step + 1)
-    else finish()
+    else void finish() // finish() shows its own error
   }
 
   // Skip the optional steps and save now — only if every required field is filled.
@@ -128,7 +128,7 @@ function ProfileSetup() {
       return
     }
     setErrors({}); setServerError('')
-    finish()
+    void finish() // finish() shows its own error
   }
 
   const back = () => { setErrors({}); setServerError(''); setStep((s) => Math.max(0, s - 1)) }
