@@ -95,7 +95,7 @@ export function useDashboard() {
   const selectConsultation = async (id) => {
     setActiveId(id); setIsEmergency(false); setLastReply(null)
     try { const msgs = await getMessages(id); setMessages(msgs.map(toBubble)) } catch { setMessages([]) }
-    loadChatAttachments(id)
+    void loadChatAttachments(id) // falls back to an empty map on failure
   }
 
   useEffect(() => {

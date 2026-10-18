@@ -76,7 +76,7 @@ export default function HeroChat({ authed, onAskSignedIn, onSaveGuest }) {
     if (sending || limitReached) return
     setText('')
     setError('')
-    send(value)
+    void send(value) // send() reports its own failures in the conversation
   }
   const onSubmit = (e) => { e.preventDefault(); ask(text) }
   const onKeyDown = (e) => {

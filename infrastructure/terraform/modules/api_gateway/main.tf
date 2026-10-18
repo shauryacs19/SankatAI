@@ -108,7 +108,7 @@ resource "aws_apigatewayv2_route" "guest_chat" {
   api_id             = aws_apigatewayv2_api.backend.id
   route_key          = "POST /api/guest/chat"
   target             = "integrations/${aws_apigatewayv2_integration.backend.id}"
-  authorization_type = "NONE"
+  authorization_type = "NONE" # NOSONAR(terraform:S6333) reviewed: deliberate public guest route; stateless, per-IP + route throttled
 }
 
 resource "aws_cloudwatch_log_group" "access" {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { ArrowRight, ClipboardList, HeartPulse, MapPin } from 'lucide-react'
 import { sevMeta, CHAT_SUGGESTIONS } from '@sankatai/shared'
@@ -11,7 +11,6 @@ import { UserMessage, AssistantMessage, ErrorMessage, ThinkingRow } from '../../
 import Composer from '../../chat/components/Composer.jsx'
 import AnalysisDrawer from '../../chat/components/AnalysisDrawer.jsx'
 import { ttsPlayer } from '../../chat/tts/ttsPlayer'
-import { takePendingQuestion } from '../../chat/pendingQuestion'
 import { saveGuestChat, takeStashedGuestChat } from '../../chat/guestChat'
 import { QUICK_TOPICS } from '../../chat/quickTopics.jsx'
 import { shareReply } from '../../chat/utils/share'
@@ -30,16 +29,21 @@ export default function ChatPage() {
   const reduced = useReducedMotion()
   const scrollRef = useRef(null)
   const toast = useToast()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [retryingId, setRetryingId] = useState(null)
 
   // Leaving the chat (or switching conversation) stops any reply being read.
   useEffect(() => () => ttsPlayer.stop(), [d.activeId])
 
-  // A question typed on the home page opens as a new, unsent chat for review.
+  // A question typed on the home page (router state, never stored) opens as a
+  // new, unsent chat for review. The state is cleared so Back or a reload
+  // does not bring it back.
   useEffect(() => {
-    const q = takePendingQuestion()
+    const q = typeof location.state?.draft === 'string' ? location.state.draft.slice(0, 2000) : ''
     if (!q) return
     d.startDraft(q)
+    navigate(location.pathname, { replace: true, state: null })
     requestAnimationFrame(() => document.getElementById('composer-input')?.focus())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -49,7 +53,7 @@ export default function ChatPage() {
   useEffect(() => {
     const stashed = takeStashedGuestChat()
     if (!stashed) return
-    ;(async () => {
+    const importGuestChat = async () => {
       try {
         const c = await saveGuestChat(stashed.guestId, stashed.messages)
         await d.loadConsultations()
@@ -58,7 +62,8 @@ export default function ChatPage() {
       } catch (e) {
         toast.error(errText(e, 'We couldn’t save your guest conversation.'))
       }
-    })()
+    }
+    void importGuestChat() // handles its own errors
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

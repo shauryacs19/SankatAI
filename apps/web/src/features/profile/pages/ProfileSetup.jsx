@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 // eslint-disable-next-line no-unused-vars -- `motion` is used via motion.* JSX
 import { motion, AnimatePresence } from 'framer-motion'
 import { User, HeartPulse, Phone, ArrowLeft, ArrowRight, Check, Plus, Trash2 } from 'lucide-react'
@@ -68,6 +68,7 @@ const CSS = `
 
 function ProfileSetup() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { profile: existing, setProfile } = useProfile()
   const { user } = useAuth()
   const [form, setForm] = useState(() => makeInitial(existing, user?.email))
@@ -140,7 +141,8 @@ function ProfileSetup() {
     try {
       const saved = await saveProfile(cleaned)
       setProfile(saved)
-      navigate('/dashboard', { replace: true })
+      // A home-page question waiting in router state goes on to the chat.
+      navigate(location.state?.draft ? '/dashboard/chat' : '/dashboard', { replace: true, state: location.state })
     } catch (err) {
       setServerError(errText(err, 'Could not save your profile. Please try again.'))
       setTimeout(() => errorRef.current?.scrollIntoView({ block: 'center' }), 0)

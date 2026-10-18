@@ -9,7 +9,6 @@ import {
 } from 'lucide-react'
 import { AUTH_STATUS, useAuth } from '../../context/AuthContext.jsx'
 import { Brand, Button, IconButton, Menu as AccountMenu, SeverityBadge, SkipLink } from '../../components/ui'
-import { savePendingQuestion } from '../chat/pendingQuestion'
 import { stashGuestChat } from '../chat/guestChat'
 import { CHAT_CSS } from '../chat/chat.styles'
 import HeroChat from './HeroChat.jsx'
@@ -72,8 +71,8 @@ function Landing() {
   // neither is shown (no flash of the wrong state).
   const goLogin = () => navigate('/login')
   const goSignup = () => navigate(authed ? '/app' : '/signup')
-  // Signed in: the question waits in this tab until their chat composer picks it up.
-  const askSignedIn = (q) => { savePendingQuestion(q); navigate('/app') }
+  // Signed in: the question travels in router state to their chat composer.
+  const askSignedIn = (q) => navigate('/app', { state: { draft: q } })
   // Guest: keep the conversation for the chat page to import after sign-up.
   const saveGuest = (guestId, messages) => { stashGuestChat(guestId, messages); navigate('/signup') }
   const userItems = [

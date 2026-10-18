@@ -720,7 +720,7 @@ user no longer exists (`retire_orphaned_admins`). Root re-bootstrapped in the ne
     = Share only, since feedback/translate/TTS need an account). `features/chat/guestChat.js`: plain `fetch`
     (no token), wire format, `stash/take` in sessionStorage **only when the person clicks Save**; auth pages show
     "will be saved…"; `ChatPage` imports it once via `/api/guest/save` and opens it. Signed-in visitors still go
-    to `/app` with the draft (`pendingQuestion.js`). **Quick help topics** (`features/chat/quickTopics.jsx`, 6:
+    to `/app` with the draft in router state (`state.draft`, forwarded by `Gate` and ProfileSetup; never stored). **Quick help topics** (`features/chat/quickTopics.jsx`, 6:
     fever/infection, headache/dizziness, cough/breathing, stomach/vomiting, injury, chest pain) replace the
     example sentences on the home page and in the chat empty state; a tap SENDS the topic as the first message
     (`useDashboard().sendQuick`). Analysis drawer now renders advice with `RichText` (bullets were inline).
@@ -733,6 +733,11 @@ user no longer exists (`retire_orphaned_admins`). Root re-bootstrapped in the ne
     `node --experimental-websocket apps/web/scripts/capture-showcase.mjs` (dev server running; Edge/Chrome via
     DevTools protocol). Preview flags added: `showcase=1`, `theme=`, `click=`. Tokens: `--shadow-device`,
     `--device-bezel`. `.lx main { overflow-x: clip }` stops entrance offsets widening phones.
+  - **PR #1 CI fixes:** root `overrides` pin `shell-quote` ^1.11.0 and `source-map-js` ^1.2.2 (new Trivy
+    CRITICAL/HIGH in the root lockfile; minimal lock diff). Sonar: unhandled promises marked `void`, RichText
+    regexes made non-backtracking, `pendingQuestion.js` (sessionStorage) removed, reviewed
+    `NOSONAR(terraform:S6333)` on the guest route. ⚠️ The SonarCloud gate also fails on `main`: `new_coverage`
+    is always 0 because no CI job uploads coverage (needs pytest-cov + vitest lcov + `sonar.*.reportPaths`).
   - **Not done:** stock photos of doctors/hospitals (Google Images are copyrighted; licensed photos need the
     user's approval per file). **Verified:** backend 152, web 149 tests; lint = 5 pre-existing; build OK; QA on
     the home page light/dark at 360/768/1280: 0 contrast failures, no overflow; guest → save → sign-up → import

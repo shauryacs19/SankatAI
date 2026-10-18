@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
-// Reply layout (lists, subheadings, paragraphs) and the home-page question
-// hand-off. Layout only: no text may be added or dropped.
+// Reply layout (lists, subheadings, paragraphs). Layout only: no text may be
+// added or dropped.
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { RichText } from './components/RichText.jsx'
-import { hasPendingQuestion, savePendingQuestion, takePendingQuestion } from './pendingQuestion'
 
-afterEach(() => { cleanup(); sessionStorage.clear() })
+afterEach(cleanup)
 
 describe('RichText', () => {
   it('keeps plain advice as one paragraph', () => {
@@ -28,15 +27,5 @@ describe('RichText', () => {
     const { container } = render(<RichText text="This can be a sign of a **heart attack**." />)
     expect(container.querySelector('strong').textContent).toBe('heart attack')
     expect(container.textContent).not.toContain('*')
-  })
-})
-
-describe('pending question', () => {
-  it('is handed over once, then cleared', () => {
-    expect(hasPendingQuestion()).toBe(false)
-    savePendingQuestion('Fever since yesterday')
-    expect(hasPendingQuestion()).toBe(true)
-    expect(takePendingQuestion()).toBe('Fever since yesterday')
-    expect(takePendingQuestion()).toBe('')
   })
 })

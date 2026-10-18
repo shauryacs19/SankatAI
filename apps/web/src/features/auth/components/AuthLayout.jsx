@@ -4,14 +4,12 @@ import { Link } from 'react-router-dom'
 import { Check, Eye, EyeOff, MessageSquareText, Phone, X } from 'lucide-react'
 import { Brand, Button, SkipLink } from '../../../components/ui'
 import { PASSWORD_RULES } from '../../../services/auth/authErrors'
-import { hasPendingQuestion } from '../../chat/pendingQuestion'
 import { hasStashedGuestChat } from '../../chat/guestChat'
 import { AUTH_CSS } from './auth.styles'
 
 export function AuthLayout({ title, lead, children, footer }) {
-  // A guest chat the person chose to save, or a question typed on the home
-  // page, waits in this tab until the chat opens.
-  const [pending] = useState(() => (hasStashedGuestChat() ? 'chat' : hasPendingQuestion() ? 'question' : null))
+  // A guest chat the person chose to save waits in this tab until the chat opens.
+  const [pending] = useState(hasStashedGuestChat)
   return (
     <div className="auth">
       <style>{AUTH_CSS}</style>
@@ -29,11 +27,7 @@ export function AuthLayout({ title, lead, children, footer }) {
           {pending && (
             <p className="auth-pending">
               <MessageSquareText size={18} aria-hidden="true" />
-              <span>
-                {pending === 'chat'
-                  ? 'Your guest conversation will be saved to your account as soon as you are signed in.'
-                  : 'Your question is saved. It will be ready to send once you are signed in.'}
-              </span>
+              <span>Your guest conversation will be saved to your account as soon as you are signed in.</span>
             </p>
           )}
           <div className="auth-panel">{children}</div>
