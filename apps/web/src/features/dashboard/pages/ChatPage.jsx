@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
-import { ArrowRight, ClipboardList, MapPin } from 'lucide-react'
+import { ArrowRight, ClipboardList, HeartPulse, MapPin } from 'lucide-react'
 import { sevMeta, CHAT_SUGGESTIONS } from '@sankatai/shared'
-import { Alert, Button, Chip, severityUi, useReducedMotion } from '../../../components/ui'
+import { Alert, Button, Chip, severityUi, useReducedMotion, useToast } from '../../../components/ui'
+import { errText } from '../../../utils/errText'
 import { parseAnalysis } from '../../chat/utils/format.jsx'
 import { CHAT_CSS } from '../../chat/chat.styles'
 import { UserMessage, AssistantMessage, ErrorMessage, ThinkingRow } from '../../chat/components/ChatMessages.jsx'
 import Composer from '../../chat/components/Composer.jsx'
 import AnalysisDrawer from '../../chat/components/AnalysisDrawer.jsx'
 import { ttsPlayer } from '../../chat/tts/ttsPlayer'
-
-const EXAMPLES = ['I have chest pain and shortness of breath', 'High fever and headache for 2 days', "A deep cut that won't stop bleeding"]
+import { takePendingQuestion } from '../../chat/pendingQuestion'
+import { saveGuestChat, takeStashedGuestChat } from '../../chat/guestChat'
+import { QUICK_TOPICS } from '../../chat/quickTopics.jsx'
+import { shareReply } from '../../chat/utils/share'
 
 // Short spoken summary for the live region when a reply arrives.
 const announceFor = (m) => {
@@ -26,10 +29,38 @@ export default function ChatPage() {
   const { messages, isLoading, chatAttachmentMap } = d
   const reduced = useReducedMotion()
   const scrollRef = useRef(null)
+  const toast = useToast()
   const [retryingId, setRetryingId] = useState(null)
 
   // Leaving the chat (or switching conversation) stops any reply being read.
   useEffect(() => () => ttsPlayer.stop(), [d.activeId])
+
+  // A question typed on the home page opens as a new, unsent chat for review.
+  useEffect(() => {
+    const q = takePendingQuestion()
+    if (!q) return
+    d.startDraft(q)
+    requestAnimationFrame(() => document.getElementById('composer-input')?.focus())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // A guest conversation the person chose to save before signing up: import it
+  // once (the server checks every AI reply's signature), then open it.
+  useEffect(() => {
+    const stashed = takeStashedGuestChat()
+    if (!stashed) return
+    ;(async () => {
+      try {
+        const c = await saveGuestChat(stashed.guestId, stashed.messages)
+        await d.loadConsultations()
+        await d.selectConsultation(c.consultationId)
+        toast.success('Your guest conversation is now saved to your account.')
+      } catch (e) {
+        toast.error(errText(e, 'We couldn’t save your guest conversation.'))
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Keep the newest message in view.
   useEffect(() => {
@@ -60,13 +91,7 @@ export default function ChatPage() {
     return []
   }
   const openAtt = (att) => { if (att.url) window.open(att.url, '_blank', 'noopener') }
-  const shareMessage = async (m) => {
-    const text = [m.severity ? sevMeta(m.severity).title : 'SankatAI', String(m.text || '').replace(/\*\*/g, '')].filter(Boolean).join('\n\n')
-    try {
-      if (navigator.share) await navigator.share({ text })
-      else await navigator.clipboard.writeText(text)
-    } catch { /* cancelled */ }
-  }
+  const shareMessage = shareReply
   const retry = async (id) => { setRetryingId(id); await d.retrySend(id); setRetryingId(null) }
   const [reloading, setReloading] = useState(false)
   const reloadChats = async () => { setReloading(true); await d.reloadChats(); setReloading(false) }
@@ -85,17 +110,20 @@ export default function ChatPage() {
           )}
           {showEmpty ? (
             <div className="chat-empty">
-              <h2>Hi {d.firstName}. What symptoms are you having?</h2>
+              <span className="chat-empty-mark" aria-hidden="true"><HeartPulse size={24} /></span>
+              <p className="chat-empty-hello">Hello, {d.firstName}.</p>
+              <h2>What would you like help with today?</h2>
               <p className="chat-empty-lead">
-                Describe what you feel in your own words. I'll ask follow-up questions and tell you how urgent it is.
-                This is guidance, not a diagnosis. If someone is in danger, <a href="tel:108">call 108 now</a>.
+                Describe your symptoms in your own words. I'll ask a few questions and tell you how urgent it may be.
+                This is guidance, not a diagnosis. If someone is in danger, <a className="link link--emergency" href="tel:108">call 108 now</a>.
               </p>
-              <p className="ui-overline" id="chat-examples-label">Try describing</p>
+              <p className="chat-empty-label" id="chat-examples-label">Quick help for</p>
               <ul role="list" className="chat-examples" aria-labelledby="chat-examples-label">
-                {EXAMPLES.map((s) => (
-                  <li key={s}>
-                    <button type="button" className="chat-example" onClick={() => { d.setInput(s); document.getElementById('composer-input')?.focus() }}>
-                      <ArrowRight size={16} aria-hidden="true" />{s}
+                {QUICK_TOPICS.map((t) => (
+                  <li key={t.key}>
+                    <button type="button" className="chat-example" disabled={isLoading} onClick={() => d.sendQuick(t.prompt)}>
+                      <span className="chat-example-icon" aria-hidden="true"><t.Icon size={18} /></span>
+                      <span className="chat-example-text">{t.label}</span><ArrowRight size={18} aria-hidden="true" />
                     </button>
                   </li>
                 ))}

@@ -1,7 +1,7 @@
 import { Activity, Ambulance, MapPin, Hospital } from 'lucide-react'
 import { AI_DISCLAIMER } from '@sankatai/shared'
 import { Button, EmptyState, Modal, SeverityBadge, severityUi } from '../../../components/ui'
-import { formatBold } from '../utils/format.jsx'
+import { RichText } from './RichText.jsx'
 
 // Latest structured assessment, in a side drawer (focus-trapped, Escape closes).
 export default function AnalysisDrawer({ open, onClose, analysis, primaryContact, onShareLocation, onFindHospitals }) {
@@ -21,7 +21,7 @@ export default function AnalysisDrawer({ open, onClose, analysis, primaryContact
               <span className={`sev-${sev.cls}`} style={{ transform: `scaleX(${score / 100})` }} />
             </div>
           </section>
-          {analysis.advice && <section className="an-section"><h3>Recommendation</h3><p>{formatBold(analysis.advice)}</p></section>}
+          {analysis.advice && <section className="an-section"><h3>Recommendation</h3><RichText text={analysis.advice} /></section>}
           {analysis.reasoning && <section className="an-section"><h3>Clinical reasoning</h3><p>{analysis.reasoning}</p></section>}
           <section className="an-section">
             <h3>If you need help now</h3>

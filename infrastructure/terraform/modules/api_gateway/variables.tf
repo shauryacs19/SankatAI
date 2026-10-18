@@ -44,3 +44,15 @@ variable "log_retention_days" {
   type        = number
   default     = 14
 }
+
+variable "guest_chat_rate_limit" {
+  description = "Steady-state requests/second for POST /api/guest/chat across ALL guests (AI cost guard)."
+  type        = number
+  default     = 2
+}
+
+variable "guest_chat_burst_limit" {
+  description = "Burst size for POST /api/guest/chat across all guests."
+  type        = number
+  default     = 10
+}

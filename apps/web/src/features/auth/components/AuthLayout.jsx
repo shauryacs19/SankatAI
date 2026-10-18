@@ -1,19 +1,24 @@
 // Shared shell + controls for the sign-in, sign-up, verify and reset pages.
 import { forwardRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Check, Eye, EyeOff, Phone, X } from 'lucide-react'
+import { Check, Eye, EyeOff, MessageSquareText, Phone, X } from 'lucide-react'
 import { Brand, Button, SkipLink } from '../../../components/ui'
 import { PASSWORD_RULES } from '../../../services/auth/authErrors'
+import { hasPendingQuestion } from '../../chat/pendingQuestion'
+import { hasStashedGuestChat } from '../../chat/guestChat'
 import { AUTH_CSS } from './auth.styles'
 
 export function AuthLayout({ title, lead, children, footer }) {
+  // A guest chat the person chose to save, or a question typed on the home
+  // page, waits in this tab until the chat opens.
+  const [pending] = useState(() => (hasStashedGuestChat() ? 'chat' : hasPendingQuestion() ? 'question' : null))
   return (
     <div className="auth">
       <style>{AUTH_CSS}</style>
       <SkipLink />
       <header className="auth-bar">
-        <Link to="/" className="auth-home" aria-label="SankatAI home"><Brand size="sm" /></Link>
-        <Button variant="emergency" icon={Phone} href="tel:108" aria-label="Emergency — call 108">108</Button>
+        <Link to="/" className="auth-home" aria-label="SankatAI home"><Brand /></Link>
+        <Button variant="emergency" size="sm" icon={Phone} href="tel:108" aria-label="Emergency — call 108">Call 108</Button>
       </header>
       <main id="main" tabIndex={-1} className="auth-main">
         <div className="auth-card">
@@ -21,11 +26,21 @@ export function AuthLayout({ title, lead, children, footer }) {
             <h1 className="auth-title">{title}</h1>
             {lead && <p className="auth-lead">{lead}</p>}
           </div>
+          {pending && (
+            <p className="auth-pending">
+              <MessageSquareText size={18} aria-hidden="true" />
+              <span>
+                {pending === 'chat'
+                  ? 'Your guest conversation will be saved to your account as soon as you are signed in.'
+                  : 'Your question is saved. It will be ready to send once you are signed in.'}
+              </span>
+            </p>
+          )}
           <div className="auth-panel">{children}</div>
           {footer && <div className="auth-links">{footer}</div>}
         </div>
         <p className="auth-foot">
-          SankatAI gives guidance, not a diagnosis. In an emergency, <a href="tel:108">call 108</a>.
+          SankatAI gives guidance, not a diagnosis. In an emergency, <a className="link link--emergency" href="tel:108">call 108</a>.
         </p>
       </main>
     </div>
@@ -46,7 +61,7 @@ export const PasswordInput = forwardRef(function PasswordInput({ className = '',
           aria-pressed={shown}
           onClick={() => setShown((s) => !s)}
         >
-          {shown ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+          {shown ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
         </button>
       </span>
     </span>
@@ -61,7 +76,7 @@ export function PasswordChecklist({ password, id }) {
         const ok = r.test(password)
         return (
           <li key={r.id} className={ok ? 'ok' : ''}>
-            {ok ? <Check size={14} aria-hidden="true" /> : <X size={14} aria-hidden="true" />}
+            {ok ? <Check size={16} aria-hidden="true" /> : <X size={16} aria-hidden="true" />}
             <span>{r.label}</span>
             <span className="sr-only">{ok ? ' (met)' : ' (not met)'}</span>
           </li>

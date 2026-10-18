@@ -12,6 +12,9 @@
 //   offline=1                AI replies are offline fallbacks; /api/health 503
 //   noprofile=1              profile loads as null (onboarding)
 //   static=1                 skip framer animations (stable screenshots for QA)
+//   showcase=1               calm sample conversation first (home page screenshots)
+//   theme=light|dark         force a theme (saved as the preference, like Settings)
+//   click=<css selector>     click it once the page has settled (e.g. open a drawer)
 //   admin=1                  signed-in user is in the ADMIN group; /api/admin/* mocked
 //                            (e.g. ?admin=1&route=/admin). QA fixtures only — the real
 //                            console reads the backend's aggregates.
@@ -23,7 +26,7 @@ import { MotionConfig, MotionGlobalConfig } from 'framer-motion'
 import { App } from '../app/App.jsx'
 import { AuthContext, AUTH_STATUS } from '../context/AuthContext.jsx'
 import { installStyles } from '../styles/install'
-import { initTheme } from '../services/theme'
+import { applyTheme, initTheme } from '../services/theme'
 import { installQa, installContrast } from './qa'
 
 const q = new URLSearchParams(location.search)
@@ -33,6 +36,7 @@ const FAIL = q.get('fail') === '1'
 const SLOW = Number(q.get('slow') || 0)
 const OFFLINE = q.get('offline') === '1'
 const ADMIN = q.get('admin') === '1'
+const SHOWCASE = q.get('showcase') === '1'
 
 const now = Date.now()
 const iso = (msAgo) => new Date(now - msAgo).toISOString()
@@ -66,6 +70,17 @@ const messages = {
     { id: 'm6', role: 'assistant', content: ai({ followUpQuestions: ['How high has your temperature been?', 'Do you have a stiff neck or a rash?'] }), createdAt: iso(0.8 * D) },
   ],
   c3: [], c4: [],
+}
+// showcase=1: a calm, complete conversation first, for the home page's product
+// screenshots (sample data, labelled as such on the page).
+if (SHOWCASE && !EMPTY) {
+  messages.c2 = [
+    { id: 's1', role: 'user', content: 'I have had a fever and a headache for two days.', createdAt: iso(0.2 * H), attachmentIds: [] },
+    { id: 's2', role: 'assistant', content: ai({ followUpQuestions: ['How high has your temperature been?', 'Do you have a stiff neck, a rash or any trouble breathing?'] }), createdAt: iso(0.19 * H), lang: 'en-IN' },
+    { id: 's3', role: 'user', content: 'Around 101°F. No rash or stiff neck, I just feel tired and achy.', createdAt: iso(0.1 * H), attachmentIds: [] },
+    { id: 's4', role: 'assistant', content: ai({ severity: 'MODERATE', riskScore: 40, reasoning: 'Fever and headache for two days without warning signs such as a stiff neck, a rash or trouble breathing.', advice: ['This may be a viral infection, which often settles in a few days.', '- Rest and drink plenty of fluids', '- Check your temperature every few hours', '- See a doctor if it lasts more than three days or you feel worse'].join('\n') }), createdAt: iso(0.09 * H), lang: 'en-IN', feedback: 'like' },
+  ]
+  consultations = [{ ...consultations[1], title: 'Fever and headache for two days', updatedAt: iso(0.09 * H) }, consultations[0], consultations[2], consultations[3]]
 }
 let vault = EMPTY ? [] : [
   { attachmentId: 'f1', filename: 'CBC report — March.pdf', contentType: 'application/pdf', size: 245000, createdAt: iso(3 * D), category: 'Lab reports', kind: 'document', passwordProtected: true, pinId: 'p1' },
@@ -113,6 +128,21 @@ const route_ = async (method, path, body) => {
         isOfflineFallback: OFFLINE,
       })
     }
+  }
+  // Guest chat (home page): first turn asks follow-ups, later turns assess.
+  if (path === '/api/guest/chat' && method === 'POST') {
+    await wait(1200)
+    const turns = body.messages.filter((x) => x.role === 'user').length
+    const content = turns === 1
+      ? ai({ followUpQuestions: ['How long have you had these symptoms?', 'Do you have a high temperature, a rash, or trouble breathing?'], severity: null, riskScore: 0 })
+      : ai({ severity: 'MODERATE', riskScore: 40, advice: ['This may be a viral infection, which often settles in a few days.', '- Rest and drink plenty of fluids', '- Check your temperature every few hours', '- See a doctor if it lasts more than three days or you feel worse'].join('\n') })
+    return json(200, { reply: { role: 'assistant', content, createdAt: new Date().toISOString(), lang: 'en-IN', isOfflineFallback: OFFLINE, signature: 'preview' } })
+  }
+  if (path === '/api/guest/save' && method === 'POST') {
+    const c = { consultationId: `g${Date.now()}`, title: body.messages.find((x) => x.role === 'user')?.content.slice(0, 47) || 'Guest chat', updatedAt: new Date().toISOString() }
+    consultations = [c, ...consultations]
+    messages[c.consultationId] = body.messages.map((x, i) => ({ id: `${c.consultationId}-${i}`, role: x.role, content: x.content, createdAt: x.createdAt, attachmentIds: [] }))
+    return json(200, c)
   }
   if (path.startsWith('/api/uploads')) {
     if (path.startsWith('/api/uploads?')) return json(200, path.includes('scope=chat') ? [] : vault)
@@ -254,6 +284,8 @@ if (q.get('static') === '1') MotionGlobalConfig.skipAnimations = true
 
 installStyles()
 initTheme()
+if (q.get('theme')) applyTheme(q.get('theme'))
+if (q.get('click')) setTimeout(() => document.querySelector(q.get('click'))?.click(), 1500)
 installQa()
 installContrast()
 

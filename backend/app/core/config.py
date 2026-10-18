@@ -138,6 +138,17 @@ TTS_REQUESTS_PER_MINUTE = int(os.getenv("TTS_REQUESTS_PER_MINUTE", "20"))  # per
 # Reply translation (English/Hindi/Hinglish cycle). Cached per message, so only
 # the first switch to each language calls the model.
 TRANSLATIONS_PER_MINUTE = int(os.getenv("TRANSLATIONS_PER_MINUTE", "20"))  # per user
+
+# --- Guest chat (home page, no account) ---
+# POST /api/guest/chat is the ONE public AI route (API Gateway route with no
+# authorizer, plus a route throttle). It stores nothing: the browser holds the
+# transcript, each reply is HMAC-signed so it can be saved after sign-up
+# (POST /api/guest/save) without trusting client-written "AI" text.
+GUEST_CHAT_ENABLED = os.getenv("GUEST_CHAT_ENABLED", "true").lower() in {"1", "true", "yes"}
+GUEST_CHAT_PER_MINUTE = int(os.getenv("GUEST_CHAT_PER_MINUTE", "6"))  # per client IP
+GUEST_CHAT_PER_HOUR = int(os.getenv("GUEST_CHAT_PER_HOUR", "30"))  # per client IP
+GUEST_MAX_TURNS = int(os.getenv("GUEST_MAX_TURNS", "10"))  # user messages per guest conversation
+GUEST_SAVE_MAX_AGE_HOURS = int(os.getenv("GUEST_SAVE_MAX_AGE_HOURS", "24"))
 # Optional cache of synthesized MP3s, keyed by sha256(text+voice), under tts/ in
 # a private bucket (default: the chat-uploads bucket, which has a 7-day tts/
 # lifecycle rule). Served back via a short-lived presigned GET.

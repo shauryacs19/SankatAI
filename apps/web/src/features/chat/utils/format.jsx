@@ -17,7 +17,7 @@ export const parseAnalysis = (raw) => { try { return JSON.parse(raw) } catch { r
 export const normalizeAssistant = (content) => {
   const p = parseAnalysis(content)
   if (!p) return { text: content, severity: null, riskScore: null }
-  if (p.followUpQuestions?.length) return { text: p.followUpQuestions.join(' '), severity: null, riskScore: null }
+  if (p.followUpQuestions?.length) return { text: p.followUpQuestions.join(' '), questions: p.followUpQuestions, severity: null, riskScore: null }
   if (p.severity) return { text: p.advice || '', severity: p.severity, riskScore: typeof p.riskScore === 'number' ? Math.round(p.riskScore) : null }
   return { text: p.advice || content, severity: null, riskScore: null }
 }
@@ -26,7 +26,7 @@ export const toBubble = (m) => {
   // User messages loaded from history are persisted -> delivered ("received").
   if (m.role === 'user') return { id: m.id, sender: 'user', text: m.content, createdAt: m.createdAt, status: 'received', attachmentIds: m.attachmentIds || [] }
   const n = normalizeAssistant(m.content)
-  return { id: m.id, sender: 'bot', text: n.text, severity: n.severity, riskScore: n.riskScore, raw: m.content, lang: m.lang || null, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
+  return { id: m.id, sender: 'bot', text: n.text, questions: n.questions || null, severity: n.severity, riskScore: n.riskScore, raw: m.content, lang: m.lang || null, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
 }
 
 export const relTime = (iso) => {

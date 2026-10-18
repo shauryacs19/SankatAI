@@ -26,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.admin import admin_error_handler
 from app.api.routes.admin import router as admin_router
 from app.api.routes.consultations import router as consultations_router
+from app.api.routes.guest import router as guest_router
 from app.api.routes.health import router as health_router
 from app.api.routes.profile import router as profile_router
 from app.api.routes.security import router as security_router
@@ -99,6 +100,7 @@ app.include_router(health_router)
 app.include_router(triage_router)
 app.include_router(profile_router)
 app.include_router(consultations_router)
+app.include_router(guest_router)
 app.include_router(security_router)
 app.include_router(uploads_router)
 app.include_router(voice_router)

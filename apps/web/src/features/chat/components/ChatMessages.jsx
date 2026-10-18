@@ -17,9 +17,10 @@ import { Alert, Button, IconButton, Menu, SeverityBadge, severityUi, messageEnte
 import { errText } from '../../../utils/errText'
 import { translateMessage } from '../services/chatApi'
 import { formatBold, fmtTime, normalizeAssistant } from '../utils/format.jsx'
+import { RichText } from './RichText.jsx'
 
 export function UserMessage({ m, attachments, onOpenAtt, onUnsend }) {
-  const canUnsend = m.status !== 'sent' && m.status !== 'failed' && !String(m.id).startsWith('tmp-')
+  const canUnsend = Boolean(onUnsend) && m.status !== 'sent' && m.status !== 'failed' && !String(m.id).startsWith('tmp-')
   return (
     <motion.div className="msg-user" {...messageEnter}>
       {attachments.length > 0 && (
@@ -68,7 +69,7 @@ function useTranslationCycle(m, consultationId) {
   const original = replyLanguageOf(m.lang, m.raw)
   const [shown, setShown] = useState(original)
   const [busy, setBusy] = useState(false)
-  const texts = useRef({ [original]: m.text })
+  const texts = useRef({ [original]: { text: m.text, questions: m.questions } })
   const next = nextTranslation(shown)
   const advance = async () => {
     if (busy) return
@@ -76,7 +77,8 @@ function useTranslationCycle(m, consultationId) {
       setBusy(true)
       try {
         const res = await translateMessage(consultationId, m.id, next)
-        texts.current[next] = normalizeAssistant(res.content).text
+        const n = normalizeAssistant(res.content)
+        texts.current[next] = { text: n.text, questions: n.questions }
       } catch (e) {
         toast.error(errText(e, 'Couldn’t translate this reply. Try again.'))
         return
@@ -87,10 +89,13 @@ function useTranslationCycle(m, consultationId) {
     setShown(next)
   }
   const translated = shown !== original
-  return { text: translated ? texts.current[shown] : m.text, shown, next, busy, advance, translated }
+  const cur = translated ? texts.current[shown] : { text: m.text, questions: m.questions }
+  return { text: cur.text, questions: cur.questions, shown, next, busy, advance, translated }
 }
 
-export function AssistantMessage({ m, onFeedback, onShare, consultationId }) {
+// `guest`: a home-page guest reply. Feedback, translation and read-aloud need an
+// account (they are stored per message), so a guest gets Share only.
+export function AssistantMessage({ m, onFeedback, onShare, consultationId, guest = false }) {
   const tr = useTranslationCycle(m, consultationId)
   const sev = m.severity ? severityUi(m.severity) : null
   const offline = Boolean(m.offline)
@@ -115,7 +120,14 @@ export function AssistantMessage({ m, onFeedback, onShare, consultationId }) {
         </Alert>
       )}
 
-      {tr.text && <p className="msg-ai-body" lang={tr.shown === 'hi' ? 'hi' : 'en'}>{formatBold(tr.text)}</p>}
+      {tr.questions?.length > 1 ? (
+        <div className="msg-ai-body rt" lang={tr.shown === 'hi' ? 'hi' : 'en'}>
+          <p className="rt-h">To understand better, please tell me:</p>
+          <ol className="msg-ai-questions">{tr.questions.map((q, i) => <li key={i}>{formatBold(q)}</li>)}</ol>
+        </div>
+      ) : (
+        tr.text && <RichText className="msg-ai-body" text={tr.text} lang={tr.shown === 'hi' ? 'hi' : 'en'} />
+      )}
       {tr.translated && <p className="msg-ai-translated">Translated to {TRANSLATION_NAMES[tr.shown]}</p>}
 
       {m.severity === 'EMERGENCY' && (
@@ -131,13 +143,18 @@ export function AssistantMessage({ m, onFeedback, onShare, consultationId }) {
           <ul className="ui-list">{m.recommendations.map((r, i) => <li key={i}>{r}</li>)}</ul>
         </div>
       )}
-      {m.followUp && <p className="msg-ai-body">{m.followUp}</p>}
+      {m.followUp && <RichText className="msg-ai-body" text={m.followUp} />}
 
       {m.severity && (
         <p className="msg-ai-disclaimer"><ShieldCheck size={14} aria-hidden="true" /><span>{AI_DISCLAIMER}</span></p>
       )}
 
-      {canFeedback && (
+      {guest && (
+        <footer className="msg-ai-foot">
+          <Button size="sm" variant="ghost" icon={Share2} className="msg-ai-share" onClick={() => onShare(m)}>Share or copy</Button>
+        </footer>
+      )}
+      {!guest && canFeedback && (
         <footer className="msg-ai-foot">
           <span className="msg-ai-foot-label" id={`fb-${m.id}`}>Was this helpful?</span>
           <div role="group" aria-labelledby={`fb-${m.id}`} className="msg-ai-fb">
@@ -177,8 +194,8 @@ export function ThinkingRow() {
   return (
     <div className="msg-thinking" role="status">
       <span className="msg-ai-mark"><HeartPulse size={16} aria-hidden="true" /></span>
+      <span>Analysing your symptoms</span>
       <span className="msg-dots" aria-hidden="true"><span /><span /><span /></span>
-      Analysing your symptoms…
     </div>
   )
 }

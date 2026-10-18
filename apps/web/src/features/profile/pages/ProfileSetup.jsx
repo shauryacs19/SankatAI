@@ -40,24 +40,24 @@ const CSS = `
 .ps-progress { display: flex; flex-direction: column; gap: var(--space-3); }
 .ps-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); list-style: none; margin: 0; padding: 0; }
 .ps-step {
-  display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: var(--touch); padding: 0 var(--space-3);
+  display: flex; align-items: center; gap: var(--space-2); width: 100%; height: 100%; min-height: var(--control-h); padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border-subtle); border-radius: var(--radius-control); background: var(--surface);
   font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-medium); color: var(--text-muted); text-align: left;
 }
 .ps-step:disabled { cursor: default; }
-.ps-step[aria-current="step"] { border-color: var(--text-primary); color: var(--text-primary); }
+.ps-step[aria-current="step"] { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); color: var(--text-primary); font-weight: var(--fw-semibold); }
 .ps-step.is-done { color: var(--text-secondary); }
 .ps-step.is-done:hover { background: var(--surface-hover); }
 .ps-step-dot { display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: var(--radius-pill); background: var(--surface-sunken); color: var(--text-muted); flex-shrink: 0; font-size: var(--fs-xs); font-weight: var(--fw-semibold); }
-.ps-step[aria-current="step"] .ps-step-dot { background: var(--text-primary); color: var(--surface); }
-.ps-step.is-done .ps-step-dot { background: var(--success); color: var(--surface); }
-.ps-step-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ps-step[aria-current="step"] .ps-step-dot { background: var(--primary); color: var(--on-primary); }
+.ps-step.is-done .ps-step-dot { background: var(--primary-soft); color: var(--primary-text); }
+.ps-step-label { min-width: 0; }
 .ps-count { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-muted); }
 .ps-body { min-height: 16rem; }
 .ps-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .ps-fieldset > legend.sa-lead { margin: 0 0 var(--space-1); padding: 0; }
-.ps-contact { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-card); }
-.ps-contact-head { display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-semibold); }
+.ps-contact { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-5); border: 1px solid var(--border-subtle); border-radius: var(--radius-card); background: var(--bg); }
+.ps-contact-head { display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-semibold); }
 .ps-grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
 @media (max-width: 639px) {
   .ps-step-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

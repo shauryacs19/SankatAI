@@ -10,7 +10,7 @@ vi.mock('../../../services/api/httpClient', () => ({
 
 let audio
 let send
-const input = () => screen.getByLabelText('Describe your symptoms', { selector: 'input' })
+const input = () => screen.getByLabelText('Describe your symptoms', { selector: 'textarea' })
 const sendButton = () => screen.getByRole('button', { name: /send message|waiting/i })
 const dialog = () => screen.queryByRole('dialog')
 

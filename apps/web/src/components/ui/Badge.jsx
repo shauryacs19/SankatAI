@@ -41,7 +41,7 @@ export function Avatar({ name, size = 'md' }) {
 export function Brand({ size = 'md', className = '' }) {
   return (
     <span className={`ui-brand ${size === 'sm' ? 'ui-brand--sm' : ''} ${className}`}>
-      <HeartPulse size={size === 'sm' ? 20 : 24} aria-hidden="true" />
+      <span className="ui-brand-mark"><HeartPulse size={size === 'sm' ? 16 : 18} strokeWidth={2.25} aria-hidden="true" /></span>
       SankatAI
     </span>
   )

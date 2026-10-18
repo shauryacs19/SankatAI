@@ -98,6 +98,19 @@ resource "aws_apigatewayv2_route" "health" {
   authorization_type = "NONE"
 }
 
+# Guest chat on the home page: the ONE public AI route. Exact method + path, so
+# nothing else under /api/guest (e.g. /api/guest/save) escapes the JWT
+# catch-all. With no authorizer, the integration's overwrite: mapping sets
+# x-user-id to empty, so a caller cannot inject an identity; the backend route
+# never reads it anyway. Rate limited per IP in the backend, and throttled for
+# all callers together in the stage's route_settings below.
+resource "aws_apigatewayv2_route" "guest_chat" {
+  api_id             = aws_apigatewayv2_api.backend.id
+  route_key          = "POST /api/guest/chat"
+  target             = "integrations/${aws_apigatewayv2_integration.backend.id}"
+  authorization_type = "NONE"
+}
+
 resource "aws_cloudwatch_log_group" "access" {
   name              = "/aws/apigateway/${var.project_name}"
   retention_in_days = var.log_retention_days
@@ -129,5 +142,12 @@ resource "aws_apigatewayv2_stage" "default" {
   default_route_settings {
     throttling_burst_limit = 100
     throttling_rate_limit  = 50
+  }
+
+  # Cost guard for the unauthenticated AI route (all guests combined).
+  route_settings {
+    route_key              = aws_apigatewayv2_route.guest_chat.route_key
+    throttling_burst_limit = var.guest_chat_burst_limit
+    throttling_rate_limit  = var.guest_chat_rate_limit
   }
 }

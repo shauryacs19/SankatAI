@@ -120,6 +120,11 @@ export function useDashboard() {
       return c
     } catch (e) { toast.error(errText(e, 'Could not start a new chat.')); return null }
   }
+  // A fresh, unsaved conversation with `text` waiting in the composer (the
+  // question typed on the home page). The consultation is created on Send.
+  const startDraft = (text) => {
+    setActiveId(null); setMessages([]); setIsEmergency(false); setLastReply(null); setInput(text)
+  }
   // Called after the user confirms in a dialog. Resolves true on success.
   const deleteChat = async (id) => {
     try {
@@ -200,6 +205,11 @@ export function useDashboard() {
     setInput('')
     setAttachments([]) // they now belong to the message
     await sendText(text, ready, meta)
+  }
+  // A quick-help topic: sent straight away as the person's first message.
+  const sendQuick = async (text) => {
+    if (isLoading || !text) return
+    await sendText(text, [], { inputMode: 'text' })
   }
   const retrySend = async (errId) => {
     const row = messages.find((m) => m.id === errId)
@@ -317,8 +327,8 @@ export function useDashboard() {
     isOffline, isEmergency, setIsEmergency, emergencyFromAssessment, lastRiskScore, analysisOpen, setAnalysisOpen,
     attachments, removeAttachment, voice, chatAttachmentMap,
     search, setSearch, searching, visibleConsultations, onFilesSelected,
-    selectConsultation, startNewConsultation, deleteChat, openRename, closeRename, renameTarget, renameChat,
-    handleSend, retrySend, dismissError, handleFindHospitals, handleSendLocationAlert, submitFeedback,
+    selectConsultation, startNewConsultation, startDraft, deleteChat, openRename, closeRename, renameTarget, renameChat,
+    handleSend, sendQuick, retrySend, dismissError, handleFindHospitals, handleSendLocationAlert, submitFeedback,
     handleSignOut, goEditProfile, goChat, unsendMessageById, triggerSos,
   }
 }

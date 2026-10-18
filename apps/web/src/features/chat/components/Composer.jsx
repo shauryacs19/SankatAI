@@ -1,14 +1,28 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 import { FileText, Image as ImageIcon, Paperclip, Mic, Send, X, ShieldCheck, AlertTriangle } from 'lucide-react'
 import { voiceFlags } from '@sankatai/shared/voice'
-import { IconButton, Menu, Spinner } from '../../../components/ui'
+import { Button, IconButton, Menu, Spinner } from '../../../components/ui'
 import VoicePopup from '../voice/VoicePopup.jsx'
+
+// Grows with the text up to this height, then scrolls.
+const MAX_HEIGHT_PX = 208
+
+// Phones get a shorter placeholder so it fits on one line of the compact row.
+const NARROW = '(max-width: 479px)'
+const subscribeNarrow = (cb) => {
+  const m = window.matchMedia?.(NARROW)
+  m?.addEventListener?.('change', cb)
+  return () => m?.removeEventListener?.('change', cb)
+}
+const useNarrow = () => useSyncExternalStore(subscribeNarrow, () => Boolean(window.matchMedia?.(NARROW)?.matches), () => false)
 
 export default function Composer({
   input, setInput, onSubmit, isLoading, voice, attachments, onRemoveAttachment, docInputRef, photoInputRef,
 }) {
   const { popupOpen, inputReadOnly } = voiceFlags(voice.state, { text: input, sending: isLoading })
   const inputRef = useRef(null)
+  const formRef = useRef(null)
+  const narrow = useNarrow()
 
   // Review: the transcript is in the box — focus it with the cursor at the end.
   useEffect(() => {
@@ -18,11 +32,28 @@ export default function Composer({
     el.focus()
     el.setSelectionRange(el.value.length, el.value.length)
   }, [voice.state])
+
+  // Auto-size to the content (typing, voice transcripts and suggestions alike).
+  useLayoutEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    // Empty: rest at the CSS min-height (a wrapping placeholder must not grow it).
+    if (input) el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`
+  }, [input])
+
   const ready = attachments.filter((a) => a.status === 'uploaded')
   const uploading = attachments.some((a) => a.status === 'uploading')
   // Voice never sends by itself; Send is off while the listening popup is open.
   const canSend = (input.trim() || ready.length > 0) && !isLoading && !popupOpen
   const sendLabel = isLoading ? 'Analysing your symptoms…' : uploading && !input.trim() ? 'Waiting for uploads to finish' : 'Send message'
+
+  // Enter sends; Shift+Enter adds a line. Never mid-IME composition.
+  const onKeyDown = (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
+    e.preventDefault()
+    if (canSend) formRef.current?.requestSubmit()
+  }
 
   return (
     <div className="composer-wrap">
@@ -44,47 +75,66 @@ export default function Composer({
           </ul>
         )}
 
-        <form className="composer" onSubmit={(e) => (canSend ? onSubmit(e) : e.preventDefault())} aria-label="Describe your symptoms">
-          <Menu
-            label="Attach a file"
-            icon={Paperclip}
-            placement="top"
-            align="start"
-            items={[
-              { key: 'doc', label: 'Document', icon: FileText, onSelect: () => docInputRef.current?.click() },
-              { key: 'photo', label: 'Photo', icon: ImageIcon, onSelect: () => photoInputRef.current?.click() },
-            ]}
-          />
+        <form ref={formRef} className="composer" onSubmit={(e) => (canSend ? onSubmit(e) : e.preventDefault())} aria-label="Describe your symptoms">
           <label htmlFor="composer-input" className="sr-only">Describe your symptoms</label>
-          <input
+          <textarea
             ref={inputRef}
             id="composer-input"
             className="composer-input"
-            type="text"
+            rows={1}
             autoComplete="off"
             enterKeyHint="send"
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
             readOnly={inputReadOnly}
-            placeholder="Describe your symptoms…"
+            aria-describedby="composer-keys"
+            placeholder={narrow ? 'Describe symptoms…' : 'Describe your symptoms…'}
           />
-          <IconButton
-            label={voice.state === 'review' ? 'Record more' : 'Voice input'}
-            icon={Mic}
-            aria-haspopup="dialog"
-            disabled={popupOpen}
-            onClick={voice.open}
-          />
-          <IconButton type="submit" variant="primary" label={sendLabel} disabled={!canSend} aria-busy={isLoading || undefined} tooltipAlign="end">
-            {isLoading ? <Spinner size={18} /> : <Send size={18} aria-hidden="true" />}
-          </IconButton>
+          <span id="composer-keys" className="sr-only">Press Enter to send. Press Shift and Enter for a new line.</span>
+          <div className="composer-actions">
+            <Menu
+              label="Attach a file"
+              text="Attach"
+              icon={Paperclip}
+              placement="top"
+              align="start"
+              items={[
+                { key: 'doc', label: 'Document', icon: FileText, onSelect: () => docInputRef.current?.click() },
+                { key: 'photo', label: 'Photo', icon: ImageIcon, onSelect: () => photoInputRef.current?.click() },
+              ]}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={Mic}
+              aria-haspopup="dialog"
+              disabled={popupOpen}
+              onClick={voice.open}
+            >
+              <span className="ui-btn-text">{voice.state === 'review' ? 'Record more' : 'Voice input'}</span>
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              icon={Send}
+              className="composer-send"
+              aria-label={sendLabel}
+              loading={isLoading}
+              loadingText={<span className="ui-btn-text">Send</span>}
+              disabled={!canSend}
+            >
+              <span className="ui-btn-text">Send</span>
+            </Button>
+          </div>
         </form>
 
         <VoicePopup voice={voice} />
 
         <p className="composer-note">
-          <ShieldCheck size={14} aria-hidden="true" />
-          <span>SankatAI gives guidance, not a diagnosis. In an emergency, <a href="tel:108">call 108</a>.</span>
+          <ShieldCheck size={16} aria-hidden="true" />
+          <span>SankatAI gives guidance, not a diagnosis. In an emergency, <a className="link link--emergency" href="tel:108">call 108</a>.</span>
         </p>
       </div>
     </div>
