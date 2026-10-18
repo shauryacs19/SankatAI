@@ -82,6 +82,8 @@ ENV/
 .ruff_cache/
 .coverage
 htmlcov/
+coverage.xml
+coverage/
 .tox/
 
 # ── Terraform ──

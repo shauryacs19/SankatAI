@@ -382,6 +382,15 @@ recording's language is kept as `draftLang` and sent as
   devDeps `jsdom@^29` because 30 needs Node 22, plus `@testing-library/react`). CI installs the dev
   requirements and runs `npm test` before the build. There are no mobile unit tests; the shared
   logic is covered by the web tests.
+- **Coverage → SonarCloud (2026-10-18):** backend job runs `pytest --cov=app --cov-report=xml`
+  (`pytest-cov` dev dep); frontend runs `vitest run --coverage --coverage.reporter=lcov`
+  (`@vitest/coverage-v8`, must match the vitest version) and prefixes lcov `SF:` with `apps/web/`
+  (else Sonar could match same-named `apps/mobile` files). Both upload artifacts; `sonarqube` now
+  `needs: [backend, frontend]` and downloads them. Report paths + `sonar.coverage.exclusions`
+  (mobile, infra, tests, `src/dev`, `*.styles.js`, `apps/web/scripts`) live in
+  `sonar-project.properties`. `npm ci` in `apps/web` resolves the root workspace and uses the ROOT
+  `package-lock.json`; `apps/web/package-lock.json` is a stale initial-commit file (vite 7, no
+  vitest) that npm ignores, only used as setup-node's cache key.
 - **Known limits:**
   - The rate limit is in-process and per instance.
   - The 60 s cap is enforced by the client. A presigned URL can open several streams within its

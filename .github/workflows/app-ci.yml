@@ -42,10 +42,19 @@ jobs:
         working-directory: backend
         run: |
           if [ -d tests ]; then
-            pytest -q
+            # coverage.xml (Cobertura) is read by the sonarqube job.
+            pytest -q --cov=app --cov-report=xml
           else
             echo "No backend tests directory found - skipping tests"
           fi
+
+      - name: Upload backend coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+          if-no-files-found: error
+          retention-days: 7
 
   frontend:
     name: Frontend - Build
@@ -68,7 +77,20 @@ jobs:
       
       - name: Test frontend
         working-directory: apps/web
-        run: npm test
+        # lcov paths are relative to apps/web; prefix them so Sonar (which
+        # scans from the repo root) maps them to the web files, not to the
+        # same-named files under apps/mobile.
+        run: |
+          npx vitest run --coverage --coverage.reporter=lcov
+          sed -i 's#^SF:#SF:apps/web/#' coverage/lcov.info
+
+      - name: Upload frontend coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: apps/web/coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Build frontend
         working-directory: apps/web
@@ -79,10 +101,25 @@ jobs:
   sonarqube:
     name: SonarQube
     runs-on: ubuntu-latest
+    # Waits for the test jobs so it can read their coverage reports. Deploy
+    # does not depend on this job.
+    needs:
+      - backend
+      - frontend
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
+      - name: Download backend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend
+      - name: Download frontend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: apps/web/coverage
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995
         env:
