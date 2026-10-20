@@ -69,7 +69,22 @@ const messages = {
     { id: 'm5', role: 'user', content: 'High fever and headache for 2 days.', createdAt: iso(0.8 * D), attachmentIds: [] },
     { id: 'm6', role: 'assistant', content: ai({ followUpQuestions: ['How high has your temperature been?', 'Do you have a stiff neck or a rash?'] }), createdAt: iso(0.8 * D) },
   ],
-  c3: [], c4: [],
+  // Triage engine v2: one adaptive question, then a structured assessment.
+  c3: [
+    { id: 't1', role: 'user', content: 'I twisted my ankle while running. It is swollen.', createdAt: iso(5 * D + 0.3 * H), attachmentIds: [] },
+    { id: 't2', role: 'assistant', content: ai({ followUpQuestions: ['Can you stand and take a few steps on that foot?'], severity: null, riskScore: null, advice: '', confidence: 0.52, reasoning: 'Being able to walk helps tell a sprain from a fracture.', triage: { v: 2, mode: 'ask', slot: 'pain' } }), createdAt: iso(5 * D + 0.29 * H) },
+    { id: 't3', role: 'user', content: 'Yes, it hurts but I can walk. Pain is about 4/10.', createdAt: iso(5 * D + 0.2 * H), attachmentIds: [] },
+    { id: 't4', role: 'assistant', content: ai({ reasoning: 'You can walk on it and the pain is moderate (4/10), which points to a mild sprain rather than a fracture.', followUpQuestions: [], severity: 'LOW', riskScore: 22, advice: 'This sounds like a mild ankle sprain you can look after at home. Rest it for a day or two and keep it raised when you sit.', likelyCauses: ['Mild ankle sprain (stretched ligament)', 'Bruising of the soft tissue'], homeCare: ['Ice for 15–20 minutes every 2–3 hours for the first 2 days', 'Keep the foot raised above hip level when resting', 'A firm elastic bandage for support'], warningSigns: ['You cannot put any weight on it', 'The foot looks bent or feels numb', 'Swelling keeps growing after 48 hours'], seekCare: 'Self-care at home. See a doctor if you still cannot walk normally after 5 days or any warning sign appears.', confidence: 0.79, disclaimer: 'x', triage: { v: 2, mode: 'final' } }), createdAt: iso(5 * D + 0.19 * H), feedback: null },
+  ],
+  c4: [],
+}
+// showcase=1: no phone numbers in the home page screenshots — even sample ones
+// read as someone's real number. The contact stays (its features need a phone),
+// only the digits are hidden.
+if (SHOWCASE) {
+  const style = document.createElement('style')
+  style.textContent = '.emg-row:has(a[href^="tel:+"]) .emg-row-num, .ui-info-row:has(.lucide-phone) { display: none !important; }'
+  document.head.appendChild(style)
 }
 // showcase=1: a calm, complete conversation first, for the home page's product
 // screenshots (sample data, labelled as such on the page).
