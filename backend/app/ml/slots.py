@@ -1,9 +1,11 @@
-"""Follow-up question slots: the missing features the triage engine can ask about.
+"""Slots: the structured facts the severity model uses (duration, age, pain,
+fever, temperature, breathing, ...), each with a parser for a reply and a way to
+apply a value to ``Features``.
 
-Each slot knows: when it is still unknown, when it is relevant, the possible
-answers with a prior (for expected information gain), how to apply an answer to
-a ``Features`` copy (to simulate it), and how to parse a real reply. The canonical
-wording is a fallback and a hint; the LLM phrases the actual question.
+The questions people see are the LLM's own (engine v3). Slots read answers: a
+reply to an engine-v2 single question, a questionnaire answer whose question
+asks for a duration/age/temperature/pain, and the synthetic Q&A turns used in
+training. The wording/purpose/priors are kept for those training turns.
 """
 
 from __future__ import annotations
@@ -23,8 +25,11 @@ from app.ml.features import (
     tokenize,
 )
 
-_YES = re.compile(r"^(?:yes|yeah|yep|yup|ya|yah|haa?n?|hanji|ji haa?n|ji|हाँ|हां|जी|sure|correct|right|it is|i do|i am|i have|true|definitely)\b")
-_NO = re.compile(r"^(?:no|nope|nah|not really|not at all|none|never|nahi|nahin|nhi|nai|नहीं|नही|na\b|i don'?t|i do not|i'm not|i am not)\b")
+# Ends with a lookahead, not \b: Devanagari answers end in a vowel sign, which is
+# not a \w character, so \b never matched after "हाँ" / "नहीं".
+_END = r"(?=$|[\s,.!?;:।-])"
+_YES = re.compile(r"^(?:yes|yeah|yep|yup|ya|yah|haa?n?|hanji|ji haa?n|ji|हाँ|हां|जी|sure|correct|right|it is|i do|i am|i have|true|definitely)" + _END)
+_NO = re.compile(r"^(?:no|nope|nah|not really|not at all|none|never|nahi|nahin|nhi|nai|नहीं|नही|na|i don'?t|i do not|i'm not|i am not)" + _END)
 
 
 def parse_yes_no(text: str) -> Optional[int]:
@@ -184,11 +189,6 @@ SLOTS: dict[str, Slot] = {s.id: s for s in (
 )}
 
 
-def candidates(f: Features) -> list[Slot]:
-    """Slots that are unknown, relevant, and not asked before in this session."""
-    return [s for s in SLOTS.values() if s.id not in f.asked and not s.is_known(f) and s.relevant(f)]
-
-
 _SYMPTOM = re.compile(
     r"pain|ache|hurt|fever|cough|cold|flu|vomit|nausea|dizz|headache|migraine|rash|itch|swell|bleed|blood|burn|"
     r"\bcut\b|bite|injur|tired|weak|diarrh|loose motion|constipat|breath|chest|stomach|throat|\bear\b|\beye|tooth|"
@@ -203,4 +203,4 @@ def has_complaint(f: Features) -> bool:
             or bool(_SYMPTOM.search(f.text)) or len(tokenize(f.text)) >= 6)
 
 
-__all__ = ["SLOTS", "Slot", "candidates", "has_complaint", "parse_yes_no", "find"]
+__all__ = ["SLOTS", "Slot", "has_complaint", "parse_yes_no", "find"]

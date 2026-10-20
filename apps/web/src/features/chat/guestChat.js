@@ -18,7 +18,7 @@ export const shortGuestId = (id) => String(id).replace(/-/g, '').slice(0, 8).toU
 // Bubbles -> what the server expects. Errors and unsent messages are left out;
 // assistant turns keep the signature the server gave them.
 export const toWire = (bubbles) => bubbles.flatMap((m) => {
-  if (m.sender === 'user' && m.status !== 'failed') return [{ role: 'user', content: m.text, createdAt: m.createdAt }]
+  if (m.sender === 'user' && m.status !== 'failed') return [{ role: 'user', content: m.text, createdAt: m.createdAt, ...(m.answers && { answers: m.answers }) }]
   if (m.sender === 'bot' && m.signature) {
     return [{ role: 'assistant', content: m.raw, createdAt: m.createdAt, lang: m.lang, isOfflineFallback: Boolean(m.offline), signature: m.signature }]
   }

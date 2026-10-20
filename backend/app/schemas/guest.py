@@ -6,6 +6,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from app.schemas.triage import TriageAnswers
+
 # Upper bound on a transcript the client may send (user + assistant turns).
 GUEST_MAX_MESSAGES = 24
 _UUID = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -21,6 +23,7 @@ class GuestMessage(BaseModel):
     lang: Optional[str] = Field(default=None, max_length=16)
     isOfflineFallback: bool = False
     signature: Optional[str] = Field(default=None, max_length=128)
+    answers: Optional[TriageAnswers] = None  # user turns sent from a questionnaire
 
 
 class GuestChatRequest(BaseModel):

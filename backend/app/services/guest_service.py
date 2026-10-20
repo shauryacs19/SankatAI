@@ -100,7 +100,7 @@ def chat(guest_id: str, messages: list[GuestMessage], client_key: str) -> dict:
     text = messages[-1].content.strip()
     previous = next((m.lang for m in reversed(messages) if m.role == "assistant" and m.lang), None)
     reply_lang = language_service.resolve_language(text, None, previous)
-    history = [ChatMessage(role=m.role, content=m.content) for m in messages][-8:]
+    history = [ChatMessage(role=m.role, content=m.content, answers=m.answers) for m in messages][-8:]
 
     content, offline = run_triage(history, None, lang=reply_lang, session_id=guest_id)
     lang = language_service.DEFAULT_FALLBACK_LANGUAGE if offline else reply_lang
@@ -168,7 +168,8 @@ def save(user_id: str, guest_id: str, messages: list[GuestMessage]) -> dict:
             repo.add_message(user_id, cid, "assistant", m.content, severity=severity, risk_score=risk,
                              offline_fallback=m.isOfflineFallback, lang=m.lang, created_at=times[i])
         else:
-            repo.add_message(user_id, cid, "user", m.content, input_mode="text", created_at=times[i])
+            repo.add_message(user_id, cid, "user", m.content, input_mode="text", created_at=times[i],
+                             answers=m.answers.model_dump() if m.answers else None)
     repo.touch_consultation(user_id, cid, last_severity=last_severity)
     analytics_service.emit("CHAT_CREATED", user_id)
     return {**consultation, "lastSeverity": last_severity}

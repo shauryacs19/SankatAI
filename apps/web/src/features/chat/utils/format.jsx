@@ -33,11 +33,25 @@ export const assessmentDetails = (p) => {
   return p.triage && any ? d : null
 }
 
+// A follow-up questionnaire: the AI's questions, each with an id, a short label,
+// a kind (yes_no | choice | text) and options (none for text). Malformed items
+// are dropped.
+const questionnaireOf = (p) => {
+  const items = Array.isArray(p.questionnaire) ? p.questionnaire.filter((it) => it && typeof it.id === 'string'
+    && typeof it.question === 'string' && Array.isArray(it.options) && (it.kind === 'text' || it.options.length)) : []
+  return items.length ? items : null
+}
+
 export const normalizeAssistant = (content) => {
   const p = parseAnalysis(content)
   if (!p) return { text: content, severity: null, riskScore: null }
   const details = assessmentDetails(p)
-  if (p.followUpQuestions?.length) return { text: p.followUpQuestions.join(' '), questions: p.followUpQuestions, severity: null, riskScore: null, details }
+  if (p.followUpQuestions?.length) {
+    return {
+      text: p.followUpQuestions.join(' '), questions: p.followUpQuestions, severity: null, riskScore: null, details,
+      questionnaire: questionnaireOf(p), intro: typeof p.reasoning === 'string' ? p.reasoning : '',
+    }
+  }
   if (p.severity) return { text: p.advice || '', severity: p.severity, riskScore: typeof p.riskScore === 'number' ? Math.round(p.riskScore) : null, details }
   return { text: p.advice || content, severity: null, riskScore: null, details }
 }
@@ -46,7 +60,7 @@ export const toBubble = (m) => {
   // User messages loaded from history are persisted -> delivered ("received").
   if (m.role === 'user') return { id: m.id, sender: 'user', text: m.content, createdAt: m.createdAt, status: 'received', attachmentIds: m.attachmentIds || [] }
   const n = normalizeAssistant(m.content)
-  return { id: m.id, sender: 'bot', text: n.text, questions: n.questions || null, details: n.details || null, severity: n.severity, riskScore: n.riskScore, raw: m.content, lang: m.lang || null, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
+  return { id: m.id, sender: 'bot', text: n.text, questions: n.questions || null, questionnaire: n.questionnaire || null, intro: n.intro || '', details: n.details || null, severity: n.severity, riskScore: n.riskScore, raw: m.content, lang: m.lang || null, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
 }
 
 export const relTime = (iso) => {

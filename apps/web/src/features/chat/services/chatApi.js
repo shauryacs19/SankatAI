@@ -16,12 +16,14 @@ export const deleteConsultation = (id) =>
   request(`/consultations/${id}`, { method: 'DELETE' })
 export const renameConsultation = (id, title) =>
   request(`/consultations/${id}`, { method: 'PATCH', body: { title } })
-// meta: { inputMode: 'voice' | 'text', lang } — lang is the language Transcribe
-// identified for a dictated message; the server replies in it.
-export const sendMessage = (id, content, attachmentIds = [], { inputMode, lang } = {}) =>
+// meta: { inputMode: 'voice' | 'text', lang, answers } — lang is the language
+// Transcribe identified for a dictated message; the server replies in it.
+// answers ({ values, other, note }) come from a follow-up questionnaire and are
+// applied exactly; `content` is then their readable summary.
+export const sendMessage = (id, content, attachmentIds = [], { inputMode, lang, answers } = {}) =>
   request(`/consultations/${id}/messages`, {
     method: 'POST',
-    body: { content, attachmentIds, ...(inputMode && { inputMode }), ...(lang && { lang }) },
+    body: { content, attachmentIds, ...(inputMode && { inputMode }), ...(lang && { lang }), ...(answers && { answers }) },
   })
 // Read-aloud MP3 for an assistant reply (text + language are looked up server-side).
 // `variant` ('en' | 'hi' | 'hinglish') reads the translation shown in the bubble.

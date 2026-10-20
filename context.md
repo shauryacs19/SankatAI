@@ -725,20 +725,38 @@ heavy bleeding, unconscious, seizure, anaphylaxis, poisoning, self-harm (+Tele-M
 head injury+signs, meningitis, thunderclap, pregnancy bleeding, SpO2<90, SBP<90, HR>140/<40, RR>30, T≥41, fever
 <3 months) can never be lowered; HIGH rules (fracture, animal bite, fainting, severe abdominal pain, blood in urine,
 SpO2<94, T≥40, fever <1 y, severe photo) → final at once. Model P(EMERGENCY)≥0.4 also = EMERGENCY.
-**Questions:** `ml/question_policy.choose` = expected information gain over the severity distribution for each
-unknown, relevant slot (`ml/slots.py`: duration, age, pain, fever, temperature, breathing, vomiting, bleeding,
-worsening, chronic, pregnant, spreading; "complaint" for a symptom-free opener) × bandit weight (0.5–1.5). Stops at
-confidence ≥ `TRIAGE_CONFIDENCE_THRESHOLD` (0.75), `TRIAGE_MAX_QUESTIONS` (5), gain < 0.01 nats, or nothing left.
-After a final answer, later turns are answered (no new questionnaire). **LLM** only phrases the question / explains:
-`provider.generate` with `AI_TEMPERATURE` 0.7, `AI_TOP_P` 0.9, `seed` = sha256(session id) (consultation id / guest
-id), system prompt = engine state + features + prompt variant; severity/riskScore are overwritten; EMERGENCY advice
-gets the 108/112 line if missing; HIGH/EMERGENCY never get home care. LLM failure/no key → template text (English,
-`isOfflineFallback`), same severity. Turn budget `TRIAGE_TIME_BUDGET_SECONDS` 26 (API GW 30 s cap).
-**Reply JSON** keeps `reasoning/followUpQuestions/severity/riskScore/advice/disclaimer` (mobile unchanged; questions =
-one item, severity null) and adds `likelyCauses, homeCare, warningSigns, seekCare, confidence, safetyNote, triage`
-(`{v:2, mode, slot, asked, modelVersion, source, stop, probs, modelSeverity, provisional, reasons, variant, features}` —
-also the state for the next turn; guest replies are HMAC-signed so it can't be forged). Translation now sends only the
-text keys and merges the new lists back.
+**Questions = the LLM's own (engine v3, 2026-10-20, user decision: "we do not generate our own questions").**
+Each turn the LLM (Ollama) gets the engine state (severity, probabilities, known facts) and returns EITHER
+`{"type":"questions","intro","questions":[{label, question, kind: yes_no|choice|text, options, allowOther}]}` OR
+`{"type":"assessment", reasoning, advice, likelyCauses, homeCare, warningSigns, seekCare}`. The engine never writes
+questions; it only forbids asking (`decide().may_ask`): EMERGENCY or a HIGH red-flag floor ("assess now"), right after
+a questionnaire was answered (one round; a "what's wrong?" round before any complaint doesn't count — meta
+`complaint`), and offline. `llm_questions` sanitises: ≤ `TRIAGE_MAX_QUESTIONS` (5), yes/no = exactly 2 options
+(default Yes/No or हाँ/नहीं), choice needs 2-6 distinct options (else → text), `allowOther` on choices, ids q1..qn.
+Severity is still ours (model + rules, never the LLM's): `provider.generate` with `AI_TEMPERATURE` 0.7, `AI_TOP_P` 0.9,
+`seed` = sha256(session id); severity/riskScore overwritten; EMERGENCY advice gets the 108/112 line if missing;
+HIGH/EMERGENCY never get home care. Offline (no key / error / timeout): templated assessment, same severity, labelled
+offline estimate — never questions (only "please tell me your symptoms" when nothing was described, mode `describe`).
+Turn budget `TRIAGE_TIME_BUDGET_SECONDS` 26 (API GW 30 s cap). The IG question picker (`ml/question_policy.py`),
+slot option labels and `slot#` bandit arms were REMOVED; `ml/slots.py` stays as answer parsers (engine-v2 single
+questions, training Q&A turns, bare questionnaire answers).
+**Answers:** the web questionnaire (`features/chat/components/Questionnaire.jsx` + `utils/questionnaire.js`) shows the
+questions ONE AT A TIME (user request, Claude-style): header "Question 2 of 5" + progress dots + ‹ › icon buttons
+(←/→ keys too); options are numbered rows (tap or press 1-9) and picking one moves on after 260 ms; yes/no = two
+rows, choice = the LLM's options + "Other" (text box), text = text box (Enter or Next moves on); slide animation via
+framer `AnimatePresence`; last step "Review" lists every answer (tap one to go back to it) + optional "Anything else"
+note + "n of m answered" + Send answers. It posts ONE message: content = short summary ("My answers:\n• label:
+answer…") + `answers: {items: [{id, question, answer, kind}], note}` (additive on `PostMessageRequest`,
+`GuestMessage`; stored on the user message, returned in `MessageView.answers`). The engine reads items, not the
+summary: yes/no → the question's symptom keywords set yes/no (a "yes" also adds the question text, so its red flags
+count; a "no" never does); choice/text → the answer text, with the question telling a bare value what it is
+(how long / how old / temperature / pain). Once answered (or not the latest reply) the card shows a plain list.
+Mobile is unchanged: it shows `followUpQuestions` as a list and the person types. Guest chat (home page) works the same.
+**Reply JSON** keeps `reasoning/followUpQuestions/severity/riskScore/advice/disclaimer` and adds `questionnaire`,
+`likelyCauses, homeCare, warningSigns, seekCare, confidence, safetyNote, triage`
+(`{v:3, mode: ask|final|describe, questions, complaint?, modelVersion, source, stop, probs, modelSeverity,
+provisional, reasons, variant, features}`; guest replies are HMAC-signed so it can't be forged). Translation sends
+only the text keys and merges lists back (the card then shows translated questions; options stay as sent).
 
 **Model:** TF-IDF (own analyzer, 1-2 grams, sublinear) + 44 structured features → multinomial LogisticRegression,
 case-mix prior LOW 40 / MOD 33 / HIGH 19 / EMR 8 % (balanced weights made vague openers HIGH), temperature-scaled.
@@ -781,25 +799,30 @@ wrong_severity, dislike only), `direction` (higher|lower, wrong_severity only), 
 misuse. `services/feedback_service.record` (best-effort, never fails the vote): one row per rated reply in
 `TRIAGE_FEEDBACK_TABLE` (pk `FB#YYYY-MM`, sk `<reply time>#<msg ref>`): keyed-hash `session_id`/`message_ref` (no
 user id), PII-scrubbed (`ml/pii.scrub`: emails, URLs, PAN, 6+ digit runs, "my name is …") model input `query`,
-features, predicted/final severity, confidence, probs, model version, prompt variant, slots asked, scrubbed response,
+features, predicted/final severity, confidence, probs, model version, prompt variant, question count, scrubbed response,
 vote, reason/direction/comment, timestamps, TTL 365 d. Re-vote overwrites, clear deletes. Bandit counters
-(pk `BANDIT`, sk `prompt#<variant>` / `slot#<id>`, standing votes moved old→new) → `bandit_service` Thompson
-sampling (cache 300 s): prompt variant per turn + slot weights. Web: "No" opens reason chips (+ more/less serious) and
+(pk `BANDIT`, sk `prompt#<variant>`, standing votes moved old→new) → `bandit_service` Thompson
+sampling (cache 300 s): assessment prompt variant per turn. Web: "No" opens reason chips (+ more/less serious) and
 an optional comment; v2 replies show When to get care / What you can do now / Get help sooner if / Possible causes /
-Why this rating + "NN% confident"; the disclaimer shows on every reply incl. questions. Admin analytics:
+Why this rating + "NN% confident"; the disclaimer shows on every reply incl. questions. Yes/No shows an animated
+"Thanks for your feedback!" popup above the buttons (spring + heart pop + ring pulse, gone after 2.6 s; Yes at once,
+No after the reason form is sent or skipped; clearing a vote shows none; reduced motion via the app's MotionConfig). Admin analytics:
 `byInputType.image` is now recorded (`input_type=image` for photo turns).
 
-**Infra (`modules/triage_ml`) — APPLIED 2026-10-19** (`-target=module.triage_ml -target=module.iam -target=module.ecr`, 8 add, 1 in-place, 0 destroy; re-plan = no changes; verified: bucket versioned/AES256/public-blocked/90 d noncurrent, table ACTIVE + TTL + PITR, backend policy 15 → 18 statements, retrain role trust = repo main only). Registry is still EMPTY, so the backend serves the bundled baseline until a model is promoted. GitHub secret `AWS_RETRAIN_ROLE_ARN` = `arn:aws:iam::945139114868:role/sankatai-model-retrain`. Set 2026-10-20. Code: PR #3 (`feature/triage-engine-v2`, opened 2026-10-20; merging deploys).
-bucket (versioned, SSE, public-access block, noncurrent 90 d, HTTPS-only bucket policy — **added 2026-10-20 for
-Sonar S6249, NOT applied yet**; access logging off by a reviewed `NOSONAR(terraform:S6258)`), table (on-demand, SSE, PITR, TTL), retrain role
+**Infra (`modules/triage_ml`) — APPLIED 2026-10-19** (`-target=module.triage_ml -target=module.iam -target=module.ecr`, 8 add, 1 in-place, 0 destroy; re-plan = no changes; verified: bucket versioned/AES256/public-blocked/90 d noncurrent, table ACTIVE + TTL + PITR, backend policy 15 → 18 statements, retrain role trust = repo main only). Registry is still EMPTY, so the backend serves the bundled baseline until a model is promoted. GitHub secret `AWS_RETRAIN_ROLE_ARN` = `arn:aws:iam::945139114868:role/sankatai-model-retrain`. Set 2026-10-20. Code: PR #3 **merged 2026-10-20** (merge commit `3dee7bf`; Sonar gate OK — 0 bugs, 0 vulnerabilities, 93.3 % new
+coverage), deployed by the CI → CD run on main. Branches cleaned up: only `main` remains (local + origin); the
+old `.claude/worktrees/ci-coverage` worktree was removed. HTTPS-only bucket policy APPLIED 2026-10-20
+(`-target=module.triage_ml`, 1 add; verified: HTTP → explicit deny, HTTPS works; re-plan = no changes).
+bucket (versioned, SSE, public-access block, noncurrent 90 d, HTTPS-only bucket policy (Sonar S6249,
+applied 2026-10-20); access logging off by a reviewed `NOSONAR(terraform:S6258)`), table (on-demand, SSE, PITR, TTL), retrain role
 (Query feedback; Get/Put `severity/*`; ListBucket); backend role + feedback Get/Put/Update/Delete/Query + S3 Get
 `severity/*` + ListBucket. `ecr` module outputs `github_assume_role_policy_json`. CD passes `ML_ARTIFACTS_BUCKET` /
 `TRIAGE_FEEDBACK_TABLE` **optionally** (empty before the apply; config defaults `{PROJECT_NAME}-ml-artifacts` /
 `-triage-feedback` already match because the container gets `PROJECT_NAME=sankatai`). Cost: cents/month.
 **Deps:** backend `Pillow`; `requirements-ml.txt` (scikit-learn, numpy) for training + CI only; dev `moto[s3]`.
-**Tests:** backend `test_severity_model.py` (20), `test_triage_engine.py` (40), `test_triage_images.py` (8),
-`test_feedback.py` (11), `test_severity_cli.py` (6, the CLI end to end on moto) → 237 total; web
-`features/chat/triage.test.jsx` (7) → 155. CI now measures `--cov=app --cov=scripts` (scripts were tested but
+**Tests:** backend `test_severity_model.py` (20), `test_triage_engine.py` (42), `test_questionnaire.py` (6),
+`test_triage_images.py` (8), `test_feedback.py` (11), `test_severity_cli.py` (6) → 245 total; web
+`features/chat/triage.test.jsx` (7), `questionnaire.test.jsx` (6) → 161. CI now measures `--cov=app --cov=scripts` (scripts were tested but
 reported 0 %). Regexes run on user text avoid overlapping quantifiers (Sonar S8786, linear matching).
 `src/app/auth.test.jsx` "throttles after five failures" was flaky under CI load (clicked "Sign in" while it
 still read "Signing in…"); fixed 2026-10-20. Workflow YAML: never put `: ` in a plain `run:` value (use `run: |`). conftest autouse
@@ -810,6 +833,16 @@ a diagnosis; in-process bandit cache/vision executor per instance. **Not verifie
 the S3 registry against real AWS, the retrain workflow run, mobile UI (unchanged; reads the old keys).
 
 ## 10. Changelog (most recent first)
+- **Questions come from Ollama; tap-to-answer questionnaire (2026-10-20, NOT committed — working tree on main):**
+  see §9h "Questions" / "Answers". The LLM decides whether to ask, what, and the answer options; the web renders them
+  (radios, "Other" box, text box) and sends one summary message + structured answers; severity stays model + rules.
+  Removed our own question picker. Fixes found on the way: Hindi yes/no ("हाँ"/"नहीं") never parsed (`\b` after a
+  vowel sign) — now a lookahead; red flags now also catch "lips are/look turning blue", "face going purple",
+  "chest feels tight/heavy". Verified: backend 245, web 161 tests, build OK, desktop preview (answer with taps +
+  "Other" + text → exact payload, card collapses, assessment renders). Not verified: real Ollama output.
+  Then (same day, user request): questions shown ONE AT A TIME with ‹ › + dots + review step, and an animated thanks
+  popup for Yes/No. Web 164 tests; preview checked with the pane visible (tap → next question ~0.4 s, review → send →
+  card collapses; popup shows and leaves by itself). Measurements from a hidden Browser pane are throttled — ignore them.
 - **Triage engine v2 (2026-10-19):** see §9h. Real severity model + red-flag floor, adaptive information-gain
   questions (max 5), Ollama sampling 0.7/0.9 + per-session seed, image-first triage (v2 upload, EXIF strip, vision),
   anonymised feedback store + bandit + gated weekly retraining with S3 versioning/rollback. Terraform APPLIED

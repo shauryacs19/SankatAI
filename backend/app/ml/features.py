@@ -381,6 +381,8 @@ class Turn:
     role: str  # "user" | "assistant"
     text: str
     slot: Optional[str] = None  # assistant turns: the slot that question asked
+    answers: Optional[list] = None  # user turns: [{id, question, answer, kind}] from a questionnaire
+    note: Optional[str] = None  # user turns: the questionnaire's free-text "anything else"
 
 
 _PROFILE_NONE = {"", "none", "no", "nil", "na", "n/a", "-"}
@@ -408,24 +410,9 @@ def build_features(
             pending_slot = turn.slot
             if turn.slot and turn.slot not in f.asked:
                 f.asked.append(turn.slot)
-            continue
-        if turn.role != "user":
-            continue
-        text = normalize(turn.text)
-        if not text:
-            continue
-        answered = False
-        if pending_slot:
-            slot = slot_defs.SLOTS.get(pending_slot)
-            value = slot.parse(text) if slot else None
-            if value is not None:
-                slot.apply(f, value)
-                answered = True
-        pending_slot = None
-        # A bare slot answer ("yes", "3 days") adds nothing for TF-IDF.
-        if not (answered and len(tokenize(text)) <= 6):
-            texts.append(text)
-        _absorb_free_text(f, text)
+        elif turn.role == "user":
+            _user_turn(f, turn, pending_slot, texts, slot_defs)
+            pending_slot = None
 
     if f.age is None and profile_age is not None and not _OTHER_SUBJECT.search(" ".join(texts)):
         f.age = profile_age
@@ -449,6 +436,70 @@ def build_features(
     f.text = " ".join(texts)
     f.red_flags = detect(f)
     return f
+
+
+# Which kind of fact a question asks for, so a bare answer ("3", "45") can be read.
+_ASKS_FOR = (
+    ("duration", re.compile(r"how long|since when|how many (?:days|hours|weeks)|when did|kab se|कब से")),
+    ("age", re.compile(r"how old|\bage\b|umar|उम्र")),
+    ("temperature", re.compile(r"temperature|thermometer|तापमान")),
+    ("pain", re.compile(r"pain|hurt|dard|दर्द")),
+)
+
+
+def _answer_item(f: Features, item: dict, texts: list[str], slot_defs) -> None:
+    """One answered question. Yes/no: the question's own symptom words are set
+    to yes or no (a "yes" also adds the question as something they have, so its
+    red flags count; a "no" never does). Choice/text: the answer is read as free
+    text, with the question telling a bare value what it is."""
+    question, answer = normalize(item.get("question") or ""), normalize(item.get("answer") or "")
+    if not answer:
+        return
+    yes_no = slot_defs.parse_yes_no(answer) if item.get("kind") == "yes_no" else None
+    if yes_no is not None:
+        for key, rx in KEYWORDS.items():
+            if find(rx, question) == 1:
+                f.flags[key] = yes_no
+        if yes_no == 1:
+            texts.append(question)
+            _absorb_free_text(f, question)
+        return
+    for slot_id, rx in _ASKS_FOR:
+        if rx.search(question):
+            value = slot_defs.SLOTS[slot_id].parse(answer)
+            if value is not None:
+                slot_defs.SLOTS[slot_id].apply(f, value)
+            break
+    texts.append(answer)
+    _absorb_free_text(f, answer)  # exact readings ("101.5 F") win over a parsed band
+
+
+def _user_turn(f: Features, turn: Turn, pending_slot: Optional[str], texts: list[str], slot_defs) -> None:
+    """Fold one user turn into ``f``. Questionnaire answers are read per
+    question; the generated summary text itself is not parsed. A reply to a
+    single (engine v2) question is parsed for that slot first."""
+    if turn.answers is not None:
+        for item in turn.answers:
+            _answer_item(f, item, texts, slot_defs)
+        note = normalize(turn.note or "")
+        if note:
+            texts.append(note)
+            _absorb_free_text(f, note)
+        return
+    text = normalize(turn.text)
+    if not text:
+        return
+    answered = False
+    if pending_slot:
+        slot = slot_defs.SLOTS.get(pending_slot)
+        value = slot.parse(text) if slot else None
+        if value is not None:
+            slot.apply(f, value)
+            answered = True
+    # A bare slot answer ("yes", "3 days") adds nothing for TF-IDF.
+    if not (answered and len(tokenize(text)) <= 6):
+        texts.append(text)
+    _absorb_free_text(f, text)
 
 
 def _absorb_free_text(f: Features, text: str) -> None:

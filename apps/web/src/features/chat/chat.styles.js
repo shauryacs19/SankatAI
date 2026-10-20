@@ -104,6 +104,64 @@ export const CHAT_CSS = `
 .msg-ai-note { display: flex; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-radius: var(--radius-card); background: var(--warning-soft); border: 1px solid var(--warning-border); font-size: var(--fs-sm); line-height: var(--lh-sm); }
 .msg-ai-note svg { color: var(--warning); flex-shrink: 0; margin-top: 0.125rem; }
 
+/* follow-up questionnaire: one question at a time (‹ › to move, 1-9 to pick) */
+.qn { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-card); background: var(--surface-tint); }
+.qn-head { display: flex; align-items: center; gap: var(--space-3); }
+.qn-progress { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--text-secondary); white-space: nowrap; }
+.qn-dots { flex: 1; display: flex; justify-content: center; align-items: center; gap: 6px; }
+.qn-dot { width: 8px; height: 8px; border-radius: var(--radius-pill); background: var(--border-default); transition: background-color 150ms, transform 150ms; }
+.qn-dot.is-done { background: var(--primary-border); }
+.qn-dot.is-current { background: var(--primary); transform: scale(1.35); }
+.qn-dot--review { border-radius: 2px; }
+.qn-nav { display: flex; gap: var(--space-1); }
+.qn-nav .ui-iconbtn:disabled { opacity: 0.35; cursor: default; }
+.qn-stage { overflow: hidden; }
+.qn-step { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.qn-q { padding: 0; font-size: var(--fs-lg); line-height: 1.45; font-weight: var(--fw-semibold); color: var(--text-primary); }
+.qn-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.qn-row {
+  position: relative; display: flex; align-items: center; gap: var(--space-3); min-height: 3rem; padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--surface); cursor: pointer;
+  font-size: var(--fs-md); line-height: 1.35; color: var(--text-primary); transition: border-color 120ms, background-color 120ms;
+}
+.qn-row:hover { border-color: var(--primary-border); background: var(--surface-hover); }
+.qn-row.is-checked { border-color: var(--primary); background: var(--primary-soft); color: var(--primary-text); font-weight: var(--fw-semibold); }
+/* the radio stays in the accessibility tree and keyboard order; the row is what you see */
+.qn-row input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.qn-row:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.qn-key { flex: none; display: inline-grid; place-items: center; width: 1.625rem; height: 1.625rem; border-radius: 6px; border: 1px solid var(--border-default); font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: var(--text-muted); }
+.qn-row.is-checked .qn-key { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
+.qn-label { flex: 1; }
+.qn-tick { flex: none; color: var(--primary); }
+.qn-type { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
+.qn-type textarea, .qn-note { width: 100%; }
+.qn-review { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border-subtle); border-radius: var(--radius-control); background: var(--surface); overflow: hidden; }
+.qn-review li + li { border-top: 1px solid var(--border-subtle); }
+.qn-review-row {
+  width: 100%; min-height: 2.75rem; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-2) var(--space-4); border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.qn-review-row:hover { background: var(--surface-hover); }
+.qn-review-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.qn-review-q { font-size: var(--fs-sm); color: var(--text-secondary); }
+.qn-review-a { font-weight: var(--fw-semibold); text-align: right; overflow-wrap: anywhere; }
+.qn-review-a.is-skipped { font-weight: var(--fw-regular); font-style: italic; color: var(--text-muted); }
+.qn-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); }
+.qn-count { font-size: var(--fs-sm); color: var(--text-muted); }
+@media (max-width: 479px) { .qn { padding: var(--space-3); } .qn-dots { display: none; } }
+
+/* feedback: an animated "thanks" popup above the Yes / No buttons */
+.msg-ai-fb-wrap { position: relative; display: inline-flex; align-items: center; gap: var(--space-2); }
+.fb-pop {
+  position: absolute; left: 0; bottom: calc(100% + var(--space-2)); z-index: 5; width: max-content; max-width: min(20rem, 80vw);
+  display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--primary-border); border-radius: var(--radius-card); background: var(--surface);
+  box-shadow: var(--shadow-lift, 0 8px 24px rgba(0, 0, 0, 0.12)); font-size: var(--fs-sm); line-height: 1.4; color: var(--text-primary);
+}
+.fb-pop strong { display: block; font-size: var(--fs-md); }
+.fb-pop-icon { position: relative; flex: none; display: inline-grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: var(--radius-pill); background: var(--primary-soft); color: var(--primary); }
+.fb-pop-ring { position: absolute; inset: 0; border-radius: var(--radius-pill); border: 2px solid var(--primary); }
+
 /* "No" follow-up: optional reason + comment */
 .msg-fb-more { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-card); background: var(--surface-tint); }
 .msg-fb-more-title { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-semibold); }
@@ -111,7 +169,6 @@ export const CHAT_CSS = `
 .msg-fb-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .msg-fb-chips .ui-chip[aria-pressed="true"] { background: var(--primary-soft); color: var(--primary-text); border-color: var(--primary-border); }
 .msg-fb-actions { display: flex; gap: var(--space-2); }
-.msg-fb-thanks { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-secondary); }
 
 /* ----- error row (a failed send — not an AI message) ----- */
 .msg-error {

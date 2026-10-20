@@ -75,9 +75,7 @@ def test_revote_with_reason_overwrites_and_moves_the_bandit_vote(env):
     assert row["comment"] == "write to me at [EMAIL]"
     arm = f"prompt#{reply['triage']['variant']}"
     assert counts()[arm] == (0, 1)
-    for slot in reply["triage"]["asked"] + ([reply["triage"]["slot"]] if reply["triage"]["slot"] else []):
-        if slot != "complaint":
-            assert counts()[f"slot#{slot}"] == (0, 1)
+    assert not [arm for arm in counts() if arm.startswith("slot#")]  # questions are the LLM's: only prompt arms
 
 
 def test_adding_a_reason_later_does_not_double_count(env):

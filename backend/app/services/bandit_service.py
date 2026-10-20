@@ -1,6 +1,6 @@
-"""Thompson-sampling bandit over prompt variants and follow-up question slots.
+"""Thompson-sampling bandit over the assessment prompt variants.
 
-Arms: ``prompt#<variant>`` and ``slot#<slot id>``; each keeps Yes/No counts from
+Arms: ``prompt#<variant>``; each keeps Yes/No counts from
 the feedback store. Counts are cached in-process for BANDIT_CACHE_SECONDS, and
 any store failure degrades to uniform priors (never an error on the chat path).
 """
@@ -47,11 +47,6 @@ def sample(arm: str, rng: random.Random) -> float:
 def pick(variants: Iterable[str], rng: random.Random) -> str:
     options = list(variants)
     return max(options, key=lambda v: sample(f"prompt#{v}", rng))
-
-
-def slot_weight(slot_id: str, rng: random.Random) -> float:
-    """0.5..1.5 multiplier on a slot's information gain."""
-    return 0.5 + sample(f"slot#{slot_id}", rng)
 
 
 def record(arms: Iterable[str], old: Optional[str], new: Optional[str]) -> None:

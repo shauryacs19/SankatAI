@@ -33,7 +33,7 @@ def _rx(p: str) -> re.Pattern:
 
 TEXT_RULES: tuple[Rule, ...] = (
     Rule("chest_pain", "EMERGENCY", "chest pain or pressure",
-         _rx(r"chest (?:pain|tightness|pressure|heaviness|discomfort)|pain in (?:my |the )?chest|heart attack|"
+         _rx(r"chest (?:pain|tightness|pressure|heaviness|discomfort)|chest (?:feels|is|feeling) (?:tight|heavy)|pain in (?:my |the )?chest|heart attack|"
              r"seen[ea] (?:me|mein|mai) (?:dard|bhaari\w*)|chh?aa?ti (?:me|mein|mai) dard|सीने में (?:दर्द|भारीपन)|छाती में दर्द")),
     Rule("stroke", "EMERGENCY", "possible stroke signs",
          _rx(r"face (?:is )?droop\w*|drooping (?:face|mouth|eyelid)|slurr\w* (?:speech|words)|can'?t (?:speak|talk) properly|"
@@ -41,7 +41,7 @@ TEXT_RULES: tuple[Rule, ...] = (
              r"(?:is )?(?:weak|numb|paraly\w*)|\bstroke\b|lakwa|लकवा|मुंह टेढ़ा")),
     Rule("breathing", "EMERGENCY", "difficulty breathing",
          _rx(r"can'?t breathe|cannot breathe|unable to breathe|struggling to breathe|difficulty (?:in )?breathing|"
-             r"trouble breathing|hard to breathe|gasping|chok(?:ing|ed)|lips (?:are |turning )?blue|blue lips|"
+             r"trouble breathing|hard to breathe|gasping|chok(?:ing|ed)|(?:lips|face) (?:are |is |look |looks |looking )?(?:turning |going )?(?:blue|purple)|blue lips|"
              r"breathless (?:at|while) rest|saa?ns (?:nahi|nhi|nahin) (?:aa|le) (?:rahi|raha|pa)|सांस नहीं|दम घुट")),
     Rule("heavy_bleeding", "EMERGENCY", "heavy or uncontrolled bleeding",
          _rx(r"heavy bleeding|bleeding (?:heavily|a lot|profusely|badly|won'?t stop|wont stop|not stopping|non ?stop)|"

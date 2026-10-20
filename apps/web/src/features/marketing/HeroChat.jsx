@@ -38,8 +38,9 @@ export default function HeroChat({ authed, onAskSignedIn, onSaveGuest }) {
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, sending])
 
-  const send = async (q, base = messages) => {
-    const userMsg = { id: `gu-${Date.now()}`, sender: 'user', text: q, createdAt: new Date().toISOString(), status: 'sent' }
+  // `answers`: picked in a follow-up questionnaire; `q` is then their summary.
+  const send = async (q, base = messages, answers = null) => {
+    const userMsg = { id: `gu-${Date.now()}`, sender: 'user', text: q, createdAt: new Date().toISOString(), status: 'sent', ...(answers && { answers }) }
     const next = [...base, userMsg]
     setMessages(next)
     setSending(true)
@@ -57,7 +58,7 @@ export default function HeroChat({ authed, onAskSignedIn, onSaveGuest }) {
         setLimitReached(true)
         return
       }
-      const row = { id: `ge-${Date.now()}`, sender: 'error', text: errText(e, 'The service is unavailable right now.'), retry: e.status === 400 ? null : { text: q, failedId: userMsg.id }, createdAt: new Date().toISOString() }
+      const row = { id: `ge-${Date.now()}`, sender: 'error', text: errText(e, 'The service is unavailable right now.'), retry: e.status === 400 ? null : { text: q, failedId: userMsg.id, answers }, createdAt: new Date().toISOString() }
       setMessages((prev) => [...prev.map((m) => (m.id === userMsg.id ? { ...m, status: 'failed' } : m)), row])
       setLastReply(row)
     } finally {
@@ -87,7 +88,7 @@ export default function HeroChat({ authed, onAskSignedIn, onSaveGuest }) {
     if (!row?.retry || sending) return
     setRetryingId(errId)
     const base = messages.filter((m) => m.id !== errId && m.id !== row.retry.failedId)
-    await send(row.retry.text, base)
+    await send(row.retry.text, base, row.retry.answers)
     setRetryingId(null)
   }
   const dismiss = (errId) => setMessages((prev) => prev.filter((m) => m.id !== errId))
@@ -124,7 +125,8 @@ export default function HeroChat({ authed, onAskSignedIn, onSaveGuest }) {
             {messages.map((m) => {
               if (m.sender === 'user') return <UserMessage key={m.id} m={m} attachments={[]} onOpenAtt={() => {}} />
               if (m.sender === 'error') return <ErrorMessage key={m.id} m={m} retrying={retryingId === m.id} onRetry={() => retry(m.id)} onDismiss={() => dismiss(m.id)} />
-              return <AssistantMessage key={m.id} m={m} guest onShare={shareReply} onFeedback={() => {}} />
+              return <AssistantMessage key={m.id} m={m} guest onShare={shareReply} onFeedback={() => {}}
+                interactive={m.id === messages.at(-1)?.id && !sending && !limitReached} onAnswer={(text, answers) => send(text, messages, answers)} />
             })}
             {sending && <ThinkingRow />}
           </div>
