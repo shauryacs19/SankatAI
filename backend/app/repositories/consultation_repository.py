@@ -163,6 +163,7 @@ def _msg_view(item: dict) -> dict:
         "isOfflineFallback": bool(item.get("offline_fallback")),
         "lang": item.get("lang"),
         "inputMode": item.get("input_mode"),
+        "answers": item.get("answers"),
     }
 
 
@@ -284,6 +285,7 @@ def add_message(
     lang: Optional[str] = None,
     input_mode: Optional[str] = None,
     created_at: Optional[str] = None,
+    answers: Optional[dict] = None,
 ) -> dict:
     # created_at: only for importing an earlier conversation (guest save); it
     # keeps the original order and times. Normal sends always use "now".
@@ -310,6 +312,8 @@ def add_message(
         item["lang"] = lang  # reply language; the assistant's drives read-aloud
     if input_mode:
         item["input_mode"] = input_mode
+    if answers:
+        item["answers"] = answers  # questionnaire answers behind this (summary) message
     get_chat_table().put_item(Item=item)
     return _msg_view(item)
 

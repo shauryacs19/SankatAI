@@ -66,13 +66,23 @@ describe('"No" follow-up', () => {
     fireEvent.change(screen.getByLabelText('Comment (optional)'), { target: { value: 'It got much worse.' } })
     fireEvent.click(send)
     await waitFor(() => expect(onFeedbackDetail).toHaveBeenCalledWith('m1', { reason: 'wrong_severity', direction: 'higher', comment: 'It got much worse.' }))
-    expect(await screen.findByText(/this helps SankatAI/)).toBeTruthy()
+    const pop = await screen.findByRole('status')
+    expect(pop.textContent).toContain('Thanks for your feedback!')
+    expect(pop.textContent).toContain('It helps SankatAI give better answers.')
   })
 
-  it('Yes does not open the follow-up', () => {
+  it('Yes thanks you with a popup that goes away by itself (no follow-up form)', async () => {
     render(<ToastProvider><AssistantMessage m={bubble(finalReply)} onFeedback={() => {}} onFeedbackDetail={vi.fn()} onShare={() => {}} consultationId="c1" /></ToastProvider>)
     fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
     expect(screen.queryByText(/What was wrong/)).toBeNull()
+    expect((await screen.findByText('Thanks for your feedback!')).closest('.fb-pop').textContent).toContain('Glad it helped.')
+    await waitFor(() => expect(screen.queryByText('Thanks for your feedback!')).toBeNull(), { timeout: 4000 })
+  })
+
+  it('clearing a vote (tapping it again) shows no popup', () => {
+    render(<ToastProvider><AssistantMessage m={{ ...bubble(finalReply), feedback: 'like' }} onFeedback={() => {}} onShare={() => {}} consultationId="c1" /></ToastProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
+    expect(screen.queryByText('Thanks for your feedback!')).toBeNull()
   })
 })
 

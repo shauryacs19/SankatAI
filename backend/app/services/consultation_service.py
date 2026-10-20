@@ -129,7 +129,7 @@ def _emit_feedback_change(user_id: str, old: Optional[str], old_at: Optional[str
 
 def post_message(user_id: str, consultation_id: str, content: str,
                  attachment_ids: Optional[list] = None, lang: Optional[str] = None,
-                 input_mode: Optional[str] = None) -> Optional[dict]:
+                 input_mode: Optional[str] = None, answers: Optional[dict] = None) -> Optional[dict]:
     """Persist the user's message (optionally with attachments). If the message
     has text OR a photo, run triage and store the reply (a session can start with
     a photo); a message with only documents is just recorded (no AI turn).
@@ -153,7 +153,7 @@ def post_message(user_id: str, consultation_id: str, content: str,
     # Persist the user's message (with any attachment references).
     user_msg = repo.add_message(
         user_id, consultation_id, "user", content, attachment_ids=attachment_ids,
-        lang=reply_lang, input_mode=input_mode,
+        lang=reply_lang, input_mode=input_mode, answers=answers,
     )
     history_items = [*earlier, user_msg]
     analytics_service.touch_chat(consultation_id)
@@ -172,7 +172,7 @@ def post_message(user_id: str, consultation_id: str, content: str,
     # Build the conversation history (last 8 turns) for the AI. A photo-only
     # turn gets a placeholder so the turn order stays intact.
     history = [
-        ChatMessage(role=m["role"], content=(m.get("content") or "").strip() or PHOTO_PLACEHOLDER)
+        ChatMessage(role=m["role"], content=(m.get("content") or "").strip() or PHOTO_PLACEHOLDER, answers=m.get("answers"))
         for m in history_items
         if m["role"] in ("user", "assistant")
         and ((m.get("content") or "").strip() or (m["role"] == "user" and m.get("attachmentIds")))

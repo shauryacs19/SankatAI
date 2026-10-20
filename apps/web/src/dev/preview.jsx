@@ -52,6 +52,16 @@ const profile = q.get('noprofile') === '1' ? null : {
 }
 
 const ai = (o) => JSON.stringify(o)
+// The AI's own questions, as the triage engine passes them through (v3).
+const qOpts = (...labels) => labels.map((l) => ({ value: l, label: l }))
+const QN_SAMPLE = [
+  { id: 'q1', short: 'Weight on it', question: 'Can you stand and walk a few steps on that foot?', kind: 'choice', allowOther: true, options: qOpts('Yes, normally', 'Yes, but it hurts', 'Not at all') },
+  { id: 'q2', short: 'Pain', question: 'How bad is the pain right now?', kind: 'choice', allowOther: true, options: qOpts('Mild', 'Moderate', 'Severe') },
+  { id: 'q3', short: 'Pop or crack', question: 'Did you hear a pop or crack when it happened?', kind: 'yes_no', options: qOpts('Yes', 'No') },
+  { id: 'q4', short: 'Numbness', question: 'Is your foot numb, cold or changing colour?', kind: 'yes_no', options: qOpts('Yes', 'No') },
+  { id: 'q5', short: 'What happened', question: 'How exactly did you twist it?', kind: 'text', options: [] },
+]
+const SPRAIN = ai({ reasoning: 'You can walk on it and the pain is moderate (4/10), which points to a mild sprain rather than a fracture.', followUpQuestions: [], severity: 'LOW', riskScore: 22, advice: 'This sounds like a mild ankle sprain you can look after at home. Rest it for a day or two and keep it raised when you sit.', likelyCauses: ['Mild ankle sprain (stretched ligament)', 'Bruising of the soft tissue'], homeCare: ['Ice for 15–20 minutes every 2–3 hours for the first 2 days', 'Keep the foot raised above hip level when resting', 'A firm elastic bandage for support'], warningSigns: ['You cannot put any weight on it', 'The foot looks bent or feels numb', 'Swelling keeps growing after 48 hours'], seekCare: 'Self-care at home. See a doctor if you still cannot walk normally after 5 days or any warning sign appears.', confidence: 0.79, disclaimer: 'x', triage: { v: 2, mode: 'final' } })
 let consultations = EMPTY ? [] : [
   { consultationId: 'c1', title: 'Chest pain and breathlessness', updatedAt: iso(0.3 * H), lastSeverity: 'EMERGENCY' },
   { consultationId: 'c2', title: 'Fever for two days', updatedAt: iso(0.8 * D), lastSeverity: 'MODERATE' },
@@ -69,12 +79,11 @@ const messages = {
     { id: 'm5', role: 'user', content: 'High fever and headache for 2 days.', createdAt: iso(0.8 * D), attachmentIds: [] },
     { id: 'm6', role: 'assistant', content: ai({ followUpQuestions: ['How high has your temperature been?', 'Do you have a stiff neck or a rash?'] }), createdAt: iso(0.8 * D) },
   ],
-  // Triage engine v2: one adaptive question, then a structured assessment.
+  // Triage engine v3: the AI's follow-up questions in one questionnaire (the last
+  // message, so it can be answered here); the fake send then returns an assessment.
   c3: [
     { id: 't1', role: 'user', content: 'I twisted my ankle while running. It is swollen.', createdAt: iso(5 * D + 0.3 * H), attachmentIds: [] },
-    { id: 't2', role: 'assistant', content: ai({ followUpQuestions: ['Can you stand and take a few steps on that foot?'], severity: null, riskScore: null, advice: '', confidence: 0.52, reasoning: 'Being able to walk helps tell a sprain from a fracture.', triage: { v: 2, mode: 'ask', slot: 'pain' } }), createdAt: iso(5 * D + 0.29 * H) },
-    { id: 't3', role: 'user', content: 'Yes, it hurts but I can walk. Pain is about 4/10.', createdAt: iso(5 * D + 0.2 * H), attachmentIds: [] },
-    { id: 't4', role: 'assistant', content: ai({ reasoning: 'You can walk on it and the pain is moderate (4/10), which points to a mild sprain rather than a fracture.', followUpQuestions: [], severity: 'LOW', riskScore: 22, advice: 'This sounds like a mild ankle sprain you can look after at home. Rest it for a day or two and keep it raised when you sit.', likelyCauses: ['Mild ankle sprain (stretched ligament)', 'Bruising of the soft tissue'], homeCare: ['Ice for 15–20 minutes every 2–3 hours for the first 2 days', 'Keep the foot raised above hip level when resting', 'A firm elastic bandage for support'], warningSigns: ['You cannot put any weight on it', 'The foot looks bent or feels numb', 'Swelling keeps growing after 48 hours'], seekCare: 'Self-care at home. See a doctor if you still cannot walk normally after 5 days or any warning sign appears.', confidence: 0.79, disclaimer: 'x', triage: { v: 2, mode: 'final' } }), createdAt: iso(5 * D + 0.19 * H), feedback: null },
+    { id: 't2', role: 'assistant', content: ai({ reasoning: 'A few quick questions will help tell a sprain from something that needs an X-ray.', followUpQuestions: QN_SAMPLE.map((q) => q.question), questionnaire: QN_SAMPLE, severity: null, riskScore: null, advice: '', confidence: 0.52, triage: { v: 3, mode: 'ask', questions: QN_SAMPLE.length, complaint: true } }), createdAt: iso(5 * D + 0.29 * H) },
   ],
   c4: [],
 }
@@ -137,9 +146,10 @@ const route_ = async (method, path, body) => {
     if (path.endsWith('/messages') && method === 'POST') {
       await wait(1400)
       const t = new Date().toISOString()
+      window.__lastSend = body // QA: what a questionnaire sends
       return json(200, {
-        userMessage: { id: `u${Date.now()}`, role: 'user', content: body.content, createdAt: t },
-        assistantMessage: { id: `a${Date.now()}`, role: 'assistant', createdAt: t, isOfflineFallback: OFFLINE, content: ai({ severity: 'HIGH', riskScore: 72, advice: 'Please see a doctor **today**. If symptoms get worse, call 108.' }) },
+        userMessage: { id: `u${Date.now()}`, role: 'user', content: body.content, createdAt: t, answers: body.answers || null },
+        assistantMessage: { id: `a${Date.now()}`, role: 'assistant', createdAt: t, isOfflineFallback: OFFLINE, content: body.answers ? SPRAIN : ai({ severity: 'HIGH', riskScore: 72, advice: 'Please see a doctor **today**. If symptoms get worse, call 108.' }) },
         isOfflineFallback: OFFLINE,
       })
     }

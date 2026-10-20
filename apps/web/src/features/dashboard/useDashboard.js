@@ -208,6 +208,12 @@ export function useDashboard() {
     setAttachments([]) // they now belong to the message
     await sendText(text, ready, meta)
   }
+  // Questionnaire answers: the readable summary is the message; the picked
+  // options travel with it so the server applies them exactly.
+  const sendAnswers = async (text, answers) => {
+    if (isLoading || !text) return
+    await sendText(text, [], { inputMode: 'text', answers })
+  }
   // A quick-help topic: sent straight away as the person's first message.
   const sendQuick = async (text) => {
     if (isLoading || !text) return
@@ -368,7 +374,7 @@ export function useDashboard() {
     attachments, removeAttachment, voice, chatAttachmentMap,
     search, setSearch, searching, visibleConsultations, onFilesSelected,
     selectConsultation, startNewConsultation, startDraft, deleteChat, openRename, closeRename, renameTarget, renameChat,
-    handleSend, sendQuick, retrySend, dismissError, handleFindHospitals, handleSendLocationAlert, submitFeedback, submitFeedbackDetail,
+    handleSend, sendQuick, sendAnswers, retrySend, dismissError, handleFindHospitals, handleSendLocationAlert, submitFeedback, submitFeedbackDetail,
     handleSignOut, goEditProfile, goChat, unsendMessageById, triggerSos,
   }
 }

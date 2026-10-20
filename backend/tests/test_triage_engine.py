@@ -1,4 +1,4 @@
-"""Triage engine: red-flag overrides, adaptive questions, LLM settings, contract."""
+"""Triage engine: red-flag overrides, the LLM's own questions, LLM settings, contract."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import random
 import pytest
 
 from app.core import config
-from app.ml import question_policy, red_flags, severity_model
+from app.ml import red_flags, severity_model
 from app.ml.features import SEVERITIES, Turn, build_features
 from app.ml.severity_model import Prediction, SeverityModel
 from app.schemas.triage import Message
@@ -16,7 +16,7 @@ from app.services import bandit_service, triage_engine, triage_service
 
 
 class Forced(SeverityModel):
-    """The bundled model for information gain, with a fixed prediction."""
+    """The bundled model, with a fixed prediction."""
 
     def __init__(self, severity: str, confidence: float = 0.99):
         super().__init__(json.loads(severity_model.BUNDLED_PATH.read_text(encoding="utf-8")))
@@ -47,10 +47,17 @@ class FakeProvider:
             raise RuntimeError("model down")
         if self.reply is not None:
             return json.dumps(self.reply)
-        if "TASK: Ask" in messages[0]["content"] or "TASK: The person has not" in messages[0]["content"]:
-            return json.dumps({"question": "Since when has this been going on?", "reasoning": "Duration matters."})
-        return json.dumps({"reasoning": "Because of X.", "advice": "Rest and drink water.", "likelyCauses": ["Viral infection"],
-                           "homeCare": ["Rest"], "warningSigns": ["Breathing trouble"], "seekCare": "Clinic if not better in 3 days."})
+        return json.dumps(ASSESSMENT)
+
+
+ASSESSMENT = {"type": "assessment", "reasoning": "Because of X.", "advice": "Rest and drink water.", "likelyCauses": ["Viral infection"],
+              "homeCare": ["Rest"], "warningSigns": ["Breathing trouble"], "seekCare": "Clinic if not better in 3 days."}
+QUESTIONS = {"type": "questions", "intro": "A few quick questions.", "questions": [
+    {"label": "How long", "question": "Since when has this been going on?", "kind": "choice",
+     "options": ["Today", "1-3 days", "More than 3 days"], "allowOther": True},
+    {"label": "Fever", "question": "Do you have a fever?", "kind": "yes_no"},
+    {"label": "Anything else", "question": "What makes it better or worse?", "kind": "text"},
+]}
 
 
 def run(texts, provider=None, session="s1", **kw):
@@ -65,7 +72,7 @@ def run(texts, provider=None, session="s1", **kw):
     "bleeding heavily and it won't stop", "coughing up blood", "she is unconscious", "my son is having a seizure",
     "throat is swelling after a bee sting", "swallowed pesticide", "I want to kill myself", "snake bite on my leg",
     "worst headache of my life", "seene mein dard ho raha hai", "saans nahi aa rahi", "सीने में दर्द है", "बेहोश हो गए",
-    "my oxygen level is 85%", "bp is 80/50", "my 2 month old baby has a fever",
+    "my oxygen level is 85%", "bp is 80/50", "my 2 month old baby has a fever", "her lips are turning blue",
 ])
 def test_red_flags_force_emergency_even_when_the_model_says_low(model, text):
     model("LOW", 0.99)
@@ -111,65 +118,92 @@ def test_self_harm_adds_the_helpline(model):
     assert "14416" in run(["I want to end my life"], FakeProvider())["advice"]
 
 
-# --- adaptive questions ----------------------------------------------------
+# --- the LLM's own questions -----------------------------------------------
 
-def test_asks_one_question_for_a_missing_feature_then_stops_at_five(model, monkeypatch):
+def test_the_llms_questions_are_shown_as_a_questionnaire(model):
     model("MODERATE", 0.4)
-    monkeypatch.setattr(question_policy, "MIN_GAIN", -1.0)  # keep asking: test the hard cap
-    msgs = [Message(role="user", content="I have a headache")]
-    asked = []
-    for _ in range(8):
-        r = triage_engine.run(msgs, None, provider=FakeProvider(), session_id="cap").reply
-        msgs.append(Message(role="assistant", content=json.dumps(r)))
-        if r["triage"]["mode"] == "final":
-            break
-        assert len(r["followUpQuestions"]) == 1 and r["severity"] is None
-        asked.append(r["triage"]["slot"])
-        msgs.append(Message(role="user", content="not sure"))
-    assert len(asked) == config.TRIAGE_MAX_QUESTIONS == 5
-    assert len(set(asked)) == len(asked)  # never the same question twice
-    assert r["triage"]["stop"] == "max_questions" and r["severity"] in SEVERITIES
+    r = run(["I have a headache"], FakeProvider(QUESTIONS))
+    items = r["questionnaire"]
+    assert r["severity"] is None and r["triage"]["mode"] == "ask" and r["reasoning"] == "A few quick questions."
+    assert [it["question"] for it in items] == r["followUpQuestions"] == [q["question"] for q in QUESTIONS["questions"]]
+    assert [it["kind"] for it in items] == ["choice", "yes_no", "text"]
+    assert [o["label"] for o in items[0]["options"]] == ["Today", "1-3 days", "More than 3 days"] and items[0]["allowOther"]
+    assert [o["label"] for o in items[1]["options"]] == ["Yes", "No"] and "allowOther" not in items[1]
+    assert items[2]["options"] == [] and items[0]["short"] == "How long"
 
 
-def test_stops_as_soon_as_confident(model):
+def test_malformed_questions_are_made_safe_or_dropped(model, monkeypatch):
+    model("MODERATE", 0.4)
+    monkeypatch.setattr(config, "TRIAGE_MAX_QUESTIONS", 3)
+    raw = {"type": "questions", "intro": "x" * 999, "questions": [
+        {"question": "Is it hard to breathe?", "kind": "yes_no", "options": ["Y", "N", "Maybe"]},  # yes/no = exactly two
+        {"question": "Which side?", "kind": "choice", "options": ["Left"]},  # one option: becomes a text question
+        {"question": "", "kind": "text"}, "not a dict",  # dropped
+        {"question": "Q4", "kind": "weird", "options": ["a", "a", "b"]},  # unknown kind with options: choice, deduped
+        {"question": "Q5", "kind": "text"},  # over the limit of 3
+    ]}
+    items = run(["my side hurts"], FakeProvider(raw))["questionnaire"]
+    assert [it["kind"] for it in items] == ["yes_no", "text", "choice"]
+    assert [o["label"] for o in items[0]["options"]] == ["Yes", "No"]
+    assert [o["label"] for o in items[2]["options"]] == ["a", "b"]
+
+
+def test_no_questions_in_an_emergency_or_right_after_answers(model):
+    model("LOW", 0.99)
+    llm = FakeProvider(QUESTIONS)
+    r = run(["I have chest pain"], llm)
+    assert r["severity"] == "EMERGENCY" and "questionnaire" not in r
+    assert "give the assessment now, with no questions" in llm.calls[0]["messages"][0]["content"]
+
+    model("MODERATE", 0.4)
+    first = run(["I have a headache"], FakeProvider(QUESTIONS))
+    msgs = [Message(role="user", content="I have a headache"), Message(role="assistant", content=json.dumps(first)),
+            Message(role="user", content="My answers: ...")]
+    llm = FakeProvider(QUESTIONS)  # the LLM tries to ask again: ignored, the assessment follows
+    r = triage_engine.run(msgs, None, provider=llm, session_id="s").reply
+    assert "just answered your questions" in llm.calls[0]["messages"][0]["content"]
+    assert r["triage"]["mode"] == "final" and r["severity"] == "MODERATE"
+
+
+def test_the_llm_may_assess_straight_away(model):
     model("MODERATE", 0.9)
     r = run(["burning when I urinate for 2 days"], FakeProvider())
-    assert r["triage"]["mode"] == "final" and r["triage"]["stop"] == "confident" and r["severity"] == "MODERATE"
+    assert r["triage"]["mode"] == "final" and r["severity"] == "MODERATE" and r["advice"] == "Rest and drink water."
 
 
-def test_known_features_are_not_asked(model):
+def test_offline_never_invents_questions(model):
     model("MODERATE", 0.4)
-    r = run(["fever 102 f for 3 days, I am 30 years old, pain 4/10"], FakeProvider())
-    assert r["triage"]["slot"] not in {"duration", "age", "pain", "fever", "temperature"}
+    r = run(["I have a headache since morning"])  # no provider
+    assert r["triage"]["mode"] == "final" and r["severity"] == "MODERATE" and "questionnaire" not in r
+    hello = run(["hello"])
+    assert hello["triage"]["mode"] == "describe" and hello["severity"] is None and "questionnaire" not in hello
 
 
-def test_vague_opener_asks_for_the_complaint(model):
-    model("MODERATE", 0.3)
-    r = run(["hello"], FakeProvider())
-    assert r["triage"]["slot"] == "complaint" and r["followUpQuestions"]
+def test_a_what_is_wrong_question_does_not_use_up_the_round(model):
+    model("MODERATE", 0.4)
+    ask_complaint = {"type": "questions", "intro": "", "questions": [{"question": "What is bothering you?", "kind": "text"}]}
+    first = run(["hi"], FakeProvider(ask_complaint))
+    msgs = [Message(role="user", content="hi"), Message(role="assistant", content=json.dumps(first)),
+            Message(role="user", content="I have had a headache for two days")]
+    llm = FakeProvider(QUESTIONS)
+    r = triage_engine.run(msgs, None, provider=llm, session_id="s").reply
+    assert r["triage"]["mode"] == "ask"  # real follow-ups are still allowed
 
 
-def test_follow_up_after_a_final_answer_is_not_another_questionnaire(model):
+def test_follow_up_after_an_assessment_is_answered(model):
     model("LOW", 0.5)
-    final = run(["runny nose"], FakeProvider(), )
-    final["triage"]["mode"], final["severity"] = "final", "LOW"
+    final = run(["runny nose"], FakeProvider())
     msgs = [Message(role="user", content="runny nose"), Message(role="assistant", content=json.dumps(final)),
             Message(role="user", content="can I take paracetamol?")]
-    r = triage_engine.run(msgs, None, provider=FakeProvider(), session_id="s").reply
+    llm = FakeProvider()
+    r = triage_engine.run(msgs, None, provider=llm, session_id="s").reply
     assert r["triage"]["mode"] == "final" and r["triage"]["stop"] == "follow_up"
-
-
-def test_bandit_weight_can_change_the_question():
-    model = severity_model.load_bundled()
-    f = build_features([Turn("user", "fever and cough for a day")])
-    first = question_policy.choose(model, f, 0.3)
-    other = question_policy.choose(model, f, 0.3, weight=lambda s, _r: 0.0 if s == first.slot.id else 1.0)
-    assert first.slot and other.slot and other.slot.id != first.slot.id
+    assert "follow-up question, answer it inside 'advice'" in llm.calls[0]["messages"][0]["content"]
 
 
 def test_bandit_prefers_the_variant_people_liked():
     bandit_service.reset_for_tests({"prompt#final.concise": (200, 2), "prompt#final.structured": (2, 200)})
-    picks = [bandit_service.pick(triage_engine.PROMPT_VARIANTS["final"], random.Random(i)) for i in range(20)]
+    picks = [bandit_service.pick(triage_engine.PROMPT_VARIANTS, random.Random(i)) for i in range(20)]
     assert picks.count("final.concise") >= 18
 
 
@@ -183,7 +217,7 @@ def test_seed_is_per_session_and_prompt_carries_the_state(model):
     run(["fever for 2 days"], b, session="two")
     assert a.calls[0]["seed"] == triage_engine.session_seed("one") != b.calls[0]["seed"] == b.calls[1]["seed"]
     system = a.calls[0]["messages"][0]["content"]
-    assert "TRIAGE ENGINE STATE" in system and "fever: yes" in system and "Questions asked so far: 0 of at most 5" in system
+    assert "TRIAGE ENGINE STATE" in system and "fever: yes" in system and "up to 5 short follow-up questions" in system
     assert a.calls[0]["timeout"] <= config.AI_TIMEOUT
 
 
@@ -226,4 +260,4 @@ def test_reply_keeps_the_existing_contract(model):
     for key in ("reasoning", "followUpQuestions", "severity", "riskScore", "advice", "disclaimer"):
         assert key in r
     assert r["severity"] == "LOW" and r["riskScore"] <= 34 and r["likelyCauses"] == ["Viral infection"]
-    assert r["triage"]["modelVersion"] == "forced" and r["triage"]["variant"] in triage_engine.PROMPT_VARIANTS["final"]
+    assert r["triage"]["modelVersion"] == "forced" and r["triage"]["variant"] in triage_engine.PROMPT_VARIANTS

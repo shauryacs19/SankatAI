@@ -8,8 +8,8 @@ still drives the admin analytics). Here, per rated assistant reply:
   confidence, model version, prompt variant, questions asked, the scrubbed reply,
   the vote, optional reason/direction/comment and timestamps. Re-voting
   overwrites the row; clearing the vote deletes it.
-* bandit counters: the reply's prompt variant and every slot asked in that
-  session move their standing vote from the old value to the new one.
+* bandit counters: the reply's prompt variant moves its standing vote from the
+  old value to the new one.
 
 Best-effort: a failure here is logged, never surfaced (the vote itself is saved).
 """
@@ -61,12 +61,7 @@ def _parse(content: str) -> dict:
 
 
 def arms_for(triage: dict) -> list[str]:
-    arms = [f"prompt#{triage['variant']}"] if triage.get("variant") else []
-    slots = list(triage.get("asked") or [])
-    if triage.get("mode") == "ask" and triage.get("slot"):
-        slots.append(triage["slot"])
-    from app.ml.slots import SLOTS
-    return arms + [f"slot#{s}" for s in dict.fromkeys(slots) if s in SLOTS]
+    return [f"prompt#{triage['variant']}"] if triage.get("variant") else []
 
 
 def build_item(*, consultation_id: str, message: dict, query: str, vote: str, reason: Optional[str],
@@ -88,7 +83,7 @@ def build_item(*, consultation_id: str, message: dict, query: str, vote: str, re
         "probs": triage.get("probs") or {},
         "source": triage.get("source"), "model_version": triage.get("modelVersion"),
         "mode": triage.get("mode") or ("final" if reply.get("severity") else "legacy"),
-        "slot": triage.get("slot"), "asked_slots": list(triage.get("asked") or []),
+        "questions": triage.get("questions"),
         "prompt_variant": triage.get("variant"), "stop": triage.get("stop"),
         "response": pii.scrub(response, 1500),
         "feedback": vote, "reason": reason, "direction": direction,
@@ -110,12 +105,13 @@ def model_text(user_id: str, messages: list[dict], message_id: str) -> str:
 
     idx = next((i for i, m in enumerate(messages) if m.get("id") == message_id), len(messages))
     before = messages[:idx]
-    history = [Message(role=m["role"], content=m.get("content") or "") for m in before if m.get("role") in ("user", "assistant")]
+    history = [Message(role=m["role"], content=m.get("content") or "", answers=m.get("answers"))
+               for m in before if m.get("role") in ("user", "assistant")]
     photo_ids = [a for m in before if m.get("role") == "user" for a in (m.get("attachmentIds") or [])]
     findings = []
     if photo_ids:
         findings = [f for f in (vision_service.cached(i) for i in vision_service.photo_items(user_id, photo_ids)) if f]
-    turns, _ = to_turns(history)
+    turns = to_turns(history).turns
     return build_features(turns, image_findings=findings).text
 
 

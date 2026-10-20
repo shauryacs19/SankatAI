@@ -3,10 +3,10 @@
 // different, an OFFLINE keyword estimate), and a failed-send error row.
 
 // eslint-disable-next-line no-unused-vars -- `motion` is used via motion.* JSX
-import { motion } from 'framer-motion'
-import { useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { useEffect, useRef, useState } from 'react'
 import {
-  HeartPulse, CloudOff, FileText, ShieldCheck, ThumbsUp, ThumbsDown, Share2, MoreVertical, Trash2,
+  Heart, HeartPulse, CloudOff, FileText, ShieldCheck, ThumbsUp, ThumbsDown, Share2, MoreVertical, Trash2,
   CheckCheck, AlertTriangle, Ambulance, RotateCw, Languages,
 } from 'lucide-react'
 import SpeakerButton from '../tts/SpeakerButton.jsx'
@@ -18,6 +18,7 @@ import { errText } from '../../../utils/errText'
 import { translateMessage } from '../services/chatApi'
 import { formatBold, fmtTime, normalizeAssistant } from '../utils/format.jsx'
 import { RichText } from './RichText.jsx'
+import { Questionnaire } from './Questionnaire.jsx'
 
 export function UserMessage({ m, attachments, onOpenAtt, onUnsend }) {
   const canUnsend = Boolean(onUnsend) && m.status !== 'sent' && m.status !== 'failed' && !String(m.id).startsWith('tmp-')
@@ -69,7 +70,7 @@ function useTranslationCycle(m, consultationId) {
   const original = replyLanguageOf(m.lang, m.raw)
   const [shown, setShown] = useState(original)
   const [busy, setBusy] = useState(false)
-  const texts = useRef({ [original]: { text: m.text, questions: m.questions, details: m.details } })
+  const texts = useRef({ [original]: { text: m.text, questions: m.questions, details: m.details, intro: m.intro } })
   const next = nextTranslation(shown)
   const advance = async () => {
     if (busy) return
@@ -78,7 +79,7 @@ function useTranslationCycle(m, consultationId) {
       try {
         const res = await translateMessage(consultationId, m.id, next)
         const n = normalizeAssistant(res.content)
-        texts.current[next] = { text: n.text, questions: n.questions, details: n.details }
+        texts.current[next] = { text: n.text, questions: n.questions, details: n.details, intro: n.intro }
       } catch (e) {
         toast.error(errText(e, 'Couldn’t translate this reply. Try again.'))
         return
@@ -89,8 +90,8 @@ function useTranslationCycle(m, consultationId) {
     setShown(next)
   }
   const translated = shown !== original
-  const cur = translated ? texts.current[shown] : { text: m.text, questions: m.questions, details: m.details }
-  return { text: cur.text, questions: cur.questions, details: cur.details || m.details, shown, next, busy, advance, translated }
+  const cur = translated ? texts.current[shown] : { text: m.text, questions: m.questions, details: m.details, intro: m.intro }
+  return { text: cur.text, questions: cur.questions, details: cur.details || m.details, intro: cur.intro ?? m.intro, shown, next, busy, advance, translated }
 }
 
 // The structured parts of a v2 assessment. Home care only for LOW/MODERATE
@@ -160,19 +161,62 @@ export function FeedbackFollowUp({ messageId, onSubmit, onClose }) {
   )
 }
 
+const THANKS_MS = 2600
+const THANKS_TEXT = {
+  like: 'Glad it helped.',
+  dislike: 'It helps SankatAI give better answers.',
+}
+
+// A small "thanks" popup above the Yes / No buttons: it springs up, its heart
+// pops in with a ring pulse, then it leaves by itself. (The app's MotionConfig
+// drops the movement for people who prefer reduced motion.)
+function ThanksPop({ kind }) {
+  return (
+    <AnimatePresence>
+      {kind && (
+        <motion.div key={kind} className="fb-pop" role="status"
+          initial={{ opacity: 0, y: 10, scale: 0.9 }}
+          animate={{ opacity: 1, y: 0, scale: 1, transition: { type: 'spring', stiffness: 420, damping: 26 } }}
+          exit={{ opacity: 0, y: -6, scale: 0.96, transition: { duration: 0.18 } }}>
+          <span className="fb-pop-icon" aria-hidden="true">
+            <motion.span className="fb-pop-ring" initial={{ opacity: 0.7, scale: 0.6 }} animate={{ opacity: 0, scale: 1.7 }}
+              transition={{ duration: 0.9, ease: 'easeOut', delay: 0.1 }} />
+            <motion.span initial={{ scale: 0, rotate: -25 }} animate={{ scale: [0, 1.3, 1], rotate: 0 }}
+              transition={{ duration: 0.45, times: [0, 0.6, 1], delay: 0.08 }} style={{ display: 'inline-grid' }}>
+              <Heart size={18} fill="currentColor" />
+            </motion.span>
+          </span>
+          <span><strong>Thanks for your feedback!</strong>{THANKS_TEXT[kind]}</span>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
 // `guest`: a home-page guest reply. Feedback, translation and read-aloud need an
 // account (they are stored per message), so a guest gets Share only.
-export function AssistantMessage({ m, onFeedback, onFeedbackDetail, onShare, consultationId, guest = false }) {
+// `interactive`: this is the newest reply and nothing is sending, so its
+// questionnaire (if any) can be answered; `onAnswer(text, answers)` sends it.
+export function AssistantMessage({ m, onFeedback, onFeedbackDetail, onShare, consultationId, guest = false, interactive = false, onAnswer }) {
   const tr = useTranslationCycle(m, consultationId)
   const [fbMore, setFbMore] = useState(false)
-  const [fbThanks, setFbThanks] = useState(false)
+  const [thanks, setThanks] = useState(null) // null | 'like' | 'dislike': which popup is showing
+  useEffect(() => {
+    if (!thanks) return undefined
+    const id = setTimeout(() => setThanks(null), THANKS_MS)
+    return () => clearTimeout(id)
+  }, [thanks])
   const details = tr.details
   const confidence = m.severity && details?.confidence != null ? Math.round(details.confidence * 100) : null
   const replyLang = tr.shown === 'hi' ? 'hi' : 'en'
+  // Yes thanks straight away; No first asks why (optional), then thanks.
+  // Tapping the active choice again clears the vote: no popup.
   const vote = (value) => {
     onFeedback(m.id, value)
-    setFbThanks(false)
-    setFbMore(value === 'dislike' && m.feedback !== 'dislike' && Boolean(onFeedbackDetail))
+    const setting = m.feedback !== value
+    const askWhy = value === 'dislike' && setting && Boolean(onFeedbackDetail)
+    setFbMore(askWhy)
+    setThanks(setting && !askWhy ? value : null)
   }
   const sev = m.severity ? severityUi(m.severity) : null
   const offline = Boolean(m.offline)
@@ -202,7 +246,13 @@ export function AssistantMessage({ m, onFeedback, onFeedbackDetail, onShare, con
         </Alert>
       )}
 
-      {tr.questions?.length > 1 ? (
+      {m.questionnaire ? (
+        <div className="msg-ai-body rt" lang={replyLang}>
+          {tr.intro && <p>{tr.intro}</p>}
+          <Questionnaire items={m.questionnaire} labels={tr.translated ? tr.questions : null} lang={replyLanguageOf(m.lang, m.raw) === 'hi' ? 'hi' : 'en'}
+            interactive={interactive && Boolean(onAnswer)} onSubmit={onAnswer} />
+        </div>
+      ) : tr.questions?.length > 1 ? (
         <div className="msg-ai-body rt" lang={tr.shown === 'hi' ? 'hi' : 'en'}>
           <p className="rt-h">To understand better, please tell me:</p>
           <ol className="msg-ai-questions">{tr.questions.map((q, i) => <li key={i}>{formatBold(q)}</li>)}</ol>
@@ -242,10 +292,13 @@ export function AssistantMessage({ m, onFeedback, onFeedbackDetail, onShare, con
       {!guest && canFeedback && (
         <footer className="msg-ai-foot">
           <span className="msg-ai-foot-label" id={`fb-${m.id}`}>Was this helpful?</span>
-          <div role="group" aria-labelledby={`fb-${m.id}`} className="msg-ai-fb">
-            <Button size="sm" variant="ghost" icon={ThumbsUp} aria-pressed={m.feedback === 'like'} onClick={() => vote('like')}>Yes</Button>
-            <Button size="sm" variant="ghost" icon={ThumbsDown} aria-pressed={m.feedback === 'dislike'} onClick={() => vote('dislike')}>No</Button>
-          </div>
+          <span className="msg-ai-fb-wrap">
+            <div role="group" aria-labelledby={`fb-${m.id}`} className="msg-ai-fb">
+              <Button size="sm" variant="ghost" icon={ThumbsUp} aria-pressed={m.feedback === 'like'} onClick={() => vote('like')}>Yes</Button>
+              <Button size="sm" variant="ghost" icon={ThumbsDown} aria-pressed={m.feedback === 'dislike'} onClick={() => vote('dislike')}>No</Button>
+            </div>
+            <ThanksPop kind={thanks} />
+          </span>
           <Button size="sm" variant="ghost" icon={Languages} className="msg-ai-translate" onClick={tr.advance}
             loading={tr.busy} loadingText="Translating…" aria-label={`Show this reply in ${TRANSLATION_NAMES[tr.next]}`}
             hint={`Show this reply in ${TRANSLATION_NAMES[tr.next]}`}>
@@ -257,9 +310,8 @@ export function AssistantMessage({ m, onFeedback, onFeedbackDetail, onShare, con
       )}
       {!guest && fbMore && m.feedback === 'dislike' && (
         <FeedbackFollowUp messageId={m.id} onSubmit={(extra) => onFeedbackDetail(m.id, extra)}
-          onClose={(sent) => { setFbMore(false); setFbThanks(sent) }} />
+          onClose={() => { setFbMore(false); setThanks('dislike') }} />
       )}
-      {!guest && fbThanks && <p className="msg-fb-thanks" role="status">Thank you — this helps SankatAI give better answers.</p>}
     </motion.article>
   )
 }

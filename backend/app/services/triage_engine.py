@@ -1,19 +1,22 @@
-"""Triage engine: one assistant turn, decided by rules + model, explained by the LLM.
+"""Triage engine: severity from the model + safety rules, the conversation from the LLM.
 
-    transcript ──► features ──► severity model ──► red-flag floor ──► decide
-                                                                      │
-                     ask ONE question (max information gain) ◄────────┤ not confident yet
-                     final assessment                         ◄───────┘ confident / 5 asked /
-                                                                         red flag / nothing left
-    LLM (temperature 0.7, top_p 0.9, per-session seed) phrases the question or
-    explains the decided severity. It never sets severity: the engine overwrites
-    severity/riskScore in whatever the LLM returns. No LLM -> templates.
+    transcript ──► features ──► severity model ──► red-flag floor ──► severity (authoritative)
+                                                                          │
+    LLM (Ollama; temperature 0.7, top_p 0.9, per-session seed) gets that state and
+    replies EITHER with its own follow-up questions (wording, answer kind and
+    options are the LLM's; the app shows them as a questionnaire) OR with the
+    assessment that explains the decided severity.
+
+The engine only decides when asking is NOT allowed: an emergency or an urgent
+red flag (answer now), right after the person answered a questionnaire, and
+offline. It never writes questions itself. Offline (no key, error, timeout) the
+reply is a labelled estimate from templates, with the same severity.
 
 The reply keeps the existing JSON contract (``reasoning``, ``followUpQuestions``,
 ``severity``, ``riskScore``, ``advice``, ``disclaimer``) so older clients keep
-working, and adds ``likelyCauses``, ``homeCare``, ``warningSigns``, ``seekCare``,
-``confidence``, ``safetyNote`` and a ``triage`` object (state for the next turn
-and for feedback).
+working (they show ``followUpQuestions`` as a list), and adds ``questionnaire``,
+``likelyCauses``, ``homeCare``, ``warningSigns``, ``seekCare``, ``confidence``,
+``safetyNote`` and a ``triage`` object (state for the next turn and for feedback).
 """
 
 from __future__ import annotations
@@ -23,37 +26,33 @@ import json
 import logging
 import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from app.core import config
 from app.integrations.ai.openai_provider import AIProvider
-from app.ml import question_policy, red_flags
+from app.ml import red_flags
 from app.ml.features import SEVERITIES, Features, Turn, build_features
 from app.ml.severity_model import Prediction, get_model
-from app.ml.slots import SLOTS, has_complaint
+from app.ml.slots import has_complaint
 from app.schemas.triage import Message, PatientProfile
 from app.services import bandit_service
 from app.services.language_service import language_directive, language_reminder
 
 logger = logging.getLogger("sankatai")
 
-ENGINE_VERSION = 2
+ENGINE_VERSION = 3
 EMERGENCY_PROB_FLOOR = 0.4  # model alone: this much EMERGENCY mass is treated as an emergency
 DISCLAIMER = "AI estimate, not a medical diagnosis. In an emergency call 108 or 112."
 RISK_BANDS = {"LOW": (5, 34), "MODERATE": (35, 69), "HIGH": (70, 89), "EMERGENCY": (90, 100)}
 _ANCHORS = {"LOW": 15, "MODERATE": 50, "HIGH": 78, "EMERGENCY": 95}
+KINDS = ("yes_no", "choice", "text")
 
+# Assessment style variants; the bandit learns which one people rate helpful.
 PROMPT_VARIANTS = {
-    "ask": {
-        "ask.direct": "Ask the question directly in one short sentence, mentioning their symptom so it is clearly about them.",
-        "ask.empathetic": "Begin with one short, warm sentence that reflects a specific detail they told you, then ask the question.",
-    },
-    "final": {
-        "final.structured": "Keep every list to 2-4 short, concrete items. Write 'advice' as two or three plain sentences.",
-        "final.conversational": "Write 'advice' as a warm, plain-language paragraph (3-4 sentences) that ties THEIR details together. Keep lists short.",
-        "final.concise": "Be brief: 'advice' in at most two sentences; at most three items per list.",
-    },
+    "final.structured": "Keep every list to 2-4 short, concrete items. Write 'advice' as two or three plain sentences.",
+    "final.conversational": "Write 'advice' as a warm, plain-language paragraph (3-4 sentences) that ties THEIR details together. Keep lists short.",
+    "final.concise": "Be brief: 'advice' in at most two sentences; at most three items per list.",
 }
 
 _CALL_LINE = {
@@ -61,7 +60,8 @@ _CALL_LINE = {
     "hi": "अभी 108 (एम्बुलेंस) या 112 पर कॉल करें, या सबसे नज़दीकी इमरजेंसी विभाग में जाएँ।",
 }
 _SELF_HARM_LINE = "You are not alone. Talk to someone now: Tele-MANAS 14416 (free, 24x7) or call 112."
-_COMPLAINT_Q = {"en": "What symptoms are you having, and since when?", "hi": "आपको क्या तकलीफ़ है, और कब से?"}
+_DESCRIBE = {"en": "Please tell me what symptoms you have and since when.", "hi": "कृपया बताएं कि आपको क्या तकलीफ़ है और कब से।"}
+_YES_NO = {"en": ("Yes", "No"), "hi": ("हाँ", "नहीं")}
 
 
 def _lang_key(lang: Optional[str]) -> str:
@@ -95,25 +95,37 @@ def assistant_text(content: str) -> str:
     return f"(Assessment: {p['severity']}) {text}" if p.get("severity") else text
 
 
-def to_turns(messages: list[Message]) -> tuple[list[Turn], bool]:
-    """Engine turns + whether a final assessment was already given."""
+@dataclass
+class Transcript:
+    turns: list[Turn]
+    had_final: bool  # an assessment was already given
+    just_asked: bool  # the latest assistant turn asked questions (they are being answered now)
+
+
+def to_turns(messages: list[Message]) -> Transcript:
     turns: list[Turn] = []
-    had_final = False
+    had_final = just_asked = False
     legacy = 0
     for m in messages:
         if m.role == "user":
-            turns.append(Turn("user", m.content))
+            a = m.answers
+            turns.append(Turn("user", m.content, answers=[i.model_dump() for i in a.items] if a else None,
+                              note=a.note if a else None))
         elif m.role == "assistant":
             p = _parse(m.content) or {}
             meta = p.get("triage") if isinstance(p.get("triage"), dict) else {}
-            slot = meta.get("slot") if meta.get("mode") == "ask" else None
-            if not meta and p.get("followUpQuestions"):
+            # A questions turn, once the problem was known ("what's wrong?" does not use up the round).
+            asked = (meta.get("mode") == "ask" and meta.get("complaint", True)) or (not meta and bool(p.get("followUpQuestions")))
+            # Engine v2 asked one slot at a time: a reply to it is still parsed for that slot.
+            slot = meta.get("slot") if meta.get("mode") == "ask" and isinstance(meta.get("slot"), str) else None
+            if not meta and asked:
                 legacy += 1
-                slot = f"legacy#{legacy}"  # counts toward the question limit
+                slot = f"legacy#{legacy}"
             if p.get("severity") in SEVERITIES:
                 had_final = True
+            just_asked = asked
             turns.append(Turn("assistant", assistant_text(m.content), slot=slot))
-    return turns, had_final
+    return Transcript(turns, had_final, just_asked)
 
 
 def _profile_age(profile: Optional[PatientProfile]) -> Optional[float]:
@@ -128,43 +140,30 @@ def _profile_age(profile: Optional[PatientProfile]) -> Optional[float]:
 
 @dataclass
 class Decision:
-    mode: str  # "ask" | "final"
-    severity: Optional[str]  # final severity (None while asking)
-    provisional: str  # best guess right now (model + rules)
+    severity: str  # model + rules; authoritative for any assessment
     confidence: float
     source: str  # "model" | "rules"
     reasons: list[str]
-    slot: Optional[str]
-    stop: str
     prediction: Prediction
     features: Features
+    may_ask: bool  # whether the LLM may ask questions this turn
+    why: str  # emergency | red_flag | answered | follow_up | open
     after_final: bool = False
-    scores: dict = field(default_factory=dict)
 
 
-def decide(f: Features, pred: Prediction, *, had_final: bool, rng: random.Random) -> Decision:
+def decide(f: Features, pred: Prediction, t: Transcript) -> Decision:
     model_sev = "EMERGENCY" if pred.probs["EMERGENCY"] >= EMERGENCY_PROB_FLOOR else pred.severity
-    final_sev, source, reasons = red_flags.apply_floor(model_sev, f)
-    confidence = 1.0 if source == "rules" and final_sev == "EMERGENCY" else float(pred.probs.get(final_sev, 0.0))
-
-    def final(stop: str) -> Decision:
-        return Decision("final", final_sev, final_sev, confidence, source, reasons, None, stop, pred, f, had_final)
-
-    if final_sev == "EMERGENCY":
-        return final("emergency")
-    if source == "rules":
-        return final("red_flag")  # a HIGH floor: urgent advice is never delayed by questions
-    if had_final:
-        return final("follow_up")
-    if not has_complaint(f) and "complaint" not in f.asked:
-        return Decision("ask", None, final_sev, confidence, source, reasons, "complaint", "no_complaint", pred, f)
-    choice = question_policy.choose(get_model(), f, confidence, weight=bandit_service.slot_weight, rng=rng)
-    if choice.slot is None:
-        d = final(choice.reason)
-        d.scores = choice.scores
-        return d
-    return Decision("ask", None, final_sev, confidence, source, reasons, choice.slot.id, choice.reason, pred, f,
-                    scores=choice.scores)
+    severity, source, reasons = red_flags.apply_floor(model_sev, f)
+    confidence = 1.0 if source == "rules" and severity == "EMERGENCY" else float(pred.probs.get(severity, 0.0))
+    if severity == "EMERGENCY":
+        may_ask, why = False, "emergency"
+    elif source == "rules":
+        may_ask, why = False, "red_flag"  # urgent advice is never delayed by questions
+    elif t.just_asked:
+        may_ask, why = False, "answered"  # one round of questions, then the assessment
+    else:
+        may_ask, why = True, "follow_up" if t.had_final else "open"
+    return Decision(severity, confidence, source, reasons, pred, f, may_ask, why, t.had_final)
 
 
 def risk_score(severity: str, probs: dict[str, float]) -> int:
@@ -192,11 +191,10 @@ def _state_lines(d: Decision, profile: Optional[PatientProfile], image_findings:
         if getattr(f, k) is not None:
             known.append(f"{label} {getattr(f, k)}")
     lines = [
-        f"- Severity: {d.severity or 'not decided yet (still gathering information)'}"
+        f"- Severity: {d.severity}"
         + (f" — decided by safety rules: {', '.join(d.reasons)}" if d.source == "rules" else " — decided by the triage model"),
-        f"- Model probabilities: {probs}; current best estimate {d.provisional} ({round(d.confidence * 100)}% confident)",
+        f"- Model probabilities: {probs} ({round(d.confidence * 100)}% confident)",
         f"- Known so far: {'; '.join(known) or 'only the description'}",
-        f"- Questions asked so far: {len(f.asked)} of at most {config.TRIAGE_MAX_QUESTIONS}",
     ]
     if profile:
         lines.append(
@@ -221,29 +219,42 @@ _RULES = """RULES:
 - 'reasoning' is one or two sentences explaining WHY the severity is what it is, citing their details. No hidden reasoning, no chain-of-thought.
 - Never claim to be a doctor."""
 
+_ASSESSMENT_JSON = ('{"type": "assessment", "reasoning": "...", "advice": "...", "likelyCauses": ["..."], "homeCare": ["..."], '
+                    '"warningSigns": ["<signs that mean they must seek care sooner>"], '
+                    '"seekCare": "<when and where to get care: e.g. self-care / clinic in 24-48 h / urgent care today / call 108 now>"}')
+_QUESTIONS_JSON = ('{"type": "questions", "intro": "<one short sentence: why you ask>", "questions": [{"label": "<2-4 word '
+                   'summary, e.g. How long>", "question": "...", "kind": "yes_no" | "choice" | "text", "options": ["..."], '
+                   '"allowOther": true}]}')
+_WHY_NOT_ASK = {
+    "emergency": "This is an emergency: give the assessment now, with no questions.",
+    "red_flag": "A safety rule requires urgent care: give the assessment now, with no questions.",
+    "answered": "They have just answered your questions: give the assessment now, with no more questions.",
+}
+
 
 def build_prompt(d: Decision, variant: str, profile: Optional[PatientProfile], image_findings: list[dict], lang: Optional[str]) -> str:
-    head = ("You are SankatAI, a careful medical triage assistant for people in India. "
-            "A triage engine has already assessed the conversation; you EXPLAIN its decision and talk to the person. "
-            "You do not decide severity.")
+    head = ("You are SankatAI, a careful medical triage assistant for people in India. A triage engine has already "
+            "decided the severity; you talk to the person and explain it. You do not decide severity.")
     state = f"TRIAGE ENGINE STATE (authoritative):\n{_state_lines(d, profile, image_findings)}"
-    style = PROMPT_VARIANTS[d.mode][variant]
-    if d.mode == "ask" and d.slot == "complaint":
-        task = ('TASK: The person has not described a health problem yet. Greet them briefly and ask what symptoms they have '
-                'and since when. Output JSON only: {"question": "...", "reasoning": ""}')
-    elif d.mode == "ask":
-        slot = SLOTS[d.slot]
-        task = (f"TASK: Ask exactly ONE follow-up question to learn {slot.purpose}. Suggested wording: \"{slot.question_en}\". "
-                "Adapt it to their situation; never ask something they already answered; no assessment yet. "
-                'Output JSON only: {"question": "...", "reasoning": "<one short sentence: why this matters for them>"}')
+    follow = (" They already received an assessment; if their message is a follow-up question, answer it inside "
+              "'advice', keeping the assessment consistent.") if d.after_final else ""
+    if d.may_ask:
+        task = (
+            "TASK: Reply in ONE of two ways." + follow + "\n"
+            f"(a) If you need more details to give specific, safe advice, ask up to {config.TRIAGE_MAX_QUESTIONS} short "
+            "follow-up questions together, in this one message: only what you really need, never what they already told "
+            "you. The app shows tappable answers, so make every question answerable with a tap: kind \"yes_no\" for a "
+            "yes/no question; kind \"choice\" with 2-6 short options (and \"allowOther\": true when they may need their own "
+            "words); kind \"text\" only when options cannot work. If they have not described a health problem yet, ask "
+            f"what is wrong (kind \"text\"). Output: {_QUESTIONS_JSON}\n"
+            f"(b) Otherwise give the assessment. Output: {_ASSESSMENT_JSON}\n"
+            f"The triage model is {round(d.confidence * 100)}% confident. When it is at least "
+            f"{round(config.TRIAGE_CONFIDENCE_THRESHOLD * 100)}% confident and you know their key details, assess now."
+        )
     else:
-        follow = (" The person already received an assessment; their latest message may be a follow-up question. "
-                  "Answer it directly inside 'advice', keeping the assessment consistent.") if d.after_final else ""
-        task = ("TASK: Write the final assessment for this person." + follow + " Output JSON only:\n"
-                '{"reasoning": "...", "advice": "...", "likelyCauses": ["..."], "homeCare": ["..."], '
-                '"warningSigns": ["<signs that mean they must seek care sooner>"], '
-                '"seekCare": "<when and where to get care: e.g. self-care / clinic in 24-48 h / urgent care today / call 108 now>"}')
-    prompt = f"{head}\n\n{state}\n\n{task}\nSTYLE: {style}\n\n{_RULES}\nKeep JSON keys in English."
+        task = f"TASK: {_WHY_NOT_ASK.get(d.why, 'Give the assessment now.')}{follow} Output JSON only: {_ASSESSMENT_JSON}"
+    prompt = (f"{head}\n\n{state}\n\n{task}\nSTYLE for an assessment: {PROMPT_VARIANTS[variant]}\n\n{_RULES}\n"
+              "Output JSON only. Keep JSON keys and kind values in English.")
     if lang:
         prompt += f"\n\nLANGUAGE:\n{language_directive(lang)}"
     return prompt
@@ -278,11 +289,36 @@ def _list(value, limit: int = 6) -> list[str]:
     return [s for s in (_str(v, 220) for v in value[:limit]) if s]
 
 
-def _template(d: Decision, lang_key: str) -> dict:
-    """Used when the LLM is unavailable or returned nothing usable."""
-    if d.mode == "ask":
-        q = _COMPLAINT_Q[lang_key] if d.slot == "complaint" else (SLOTS[d.slot].question_hi if lang_key == "hi" else SLOTS[d.slot].question_en)
-        return {"question": q, "reasoning": ""}
+def _question_item(i: int, q: dict, lang_key: str) -> Optional[dict]:
+    """One of the LLM's questions, made safe to render: bounded text, a known
+    kind, yes/no as exactly two options, choices as 2-6 distinct options."""
+    text = _str(q.get("question"), 300)
+    if not text:
+        return None
+    kind = q.get("kind") if q.get("kind") in KINDS else ("choice" if q.get("options") else "text")
+    options = list(dict.fromkeys(o for o in (_str(x, 80) for x in (q.get("options") or [])) if o))[:6]
+    allow_other = False
+    if kind == "yes_no":
+        options = options if len(options) == 2 else list(_YES_NO[lang_key])
+    elif kind == "choice" and len(options) >= 2:
+        allow_other = q.get("allowOther") is not False
+    else:
+        kind, options = "text", []
+    item = {"id": f"q{i}", "short": _str(q.get("label"), 40) or text[:40], "question": text, "kind": kind,
+            "options": [{"value": o, "label": o} for o in options]}
+    if allow_other:
+        item["allowOther"] = True
+    return item
+
+
+def llm_questions(llm: dict, lang_key: str) -> list[dict]:
+    raw = llm.get("questions") if isinstance(llm.get("questions"), list) else []
+    items = [_question_item(i, q, lang_key) for i, q in enumerate(raw, 1) if isinstance(q, dict)]
+    return [it for it in items if it][: config.TRIAGE_MAX_QUESTIONS]
+
+
+def _template(d: Decision) -> dict:
+    """The assessment when the LLM is unavailable or returned nothing usable."""
     sev = d.severity
     why = f" because of: {', '.join(d.reasons)}" if d.reasons else ""
     advice = {
@@ -300,7 +336,6 @@ def _template(d: Decision, lang_key: str) -> dict:
     return {
         "reasoning": f"Assessed as {sev.lower()} from what you described{why}.",
         "advice": advice,
-        "likelyCauses": [],
         "homeCare": ["Rest", "Drink plenty of fluids", "Note any change in your symptoms"] if sev in ("LOW", "MODERATE") else [],
         "warningSigns": ["Trouble breathing", "Chest pain", "Fainting or confusion", "Severe or rapidly worsening pain",
                          "Bleeding that will not stop"],
@@ -308,26 +343,30 @@ def _template(d: Decision, lang_key: str) -> dict:
     }
 
 
-def assemble(d: Decision, llm: dict, *, variant: str, lang_key: str) -> dict:
-    triage = {
-        "v": ENGINE_VERSION, "mode": d.mode, "slot": d.slot, "asked": list(d.features.asked),
-        "questionCount": len(d.features.asked) + (1 if d.mode == "ask" else 0),
-        "modelVersion": d.prediction.model_version, "source": d.source, "stop": d.stop,
-        "probs": d.prediction.probs, "modelSeverity": d.prediction.severity, "provisional": d.provisional,
-        "reasons": d.reasons, "variant": variant, "features": d.features.summary(),
+def _meta(d: Decision, mode: str, variant: str, count: int = 0) -> dict:
+    return {
+        "v": ENGINE_VERSION, "mode": mode, "questions": count, "modelVersion": d.prediction.model_version,
+        "source": d.source, "stop": d.why, "probs": d.prediction.probs, "modelSeverity": d.prediction.severity,
+        "provisional": d.severity, "reasons": d.reasons, "variant": variant, "features": d.features.summary(),
     }
-    if d.mode == "ask":
-        question = _str(llm.get("question"), 400) or _template(d, lang_key)["question"]
-        note = None
-        if d.provisional == "HIGH" or d.prediction.probs.get("EMERGENCY", 0) >= 0.15:
-            note = "If it gets worse while we talk (trouble breathing, chest pain, fainting), call 108 straight away."
-        return {
-            "reasoning": _str(llm.get("reasoning"), 300), "followUpQuestions": [question], "severity": None,
-            "riskScore": None, "advice": "", "safetyNote": note, "disclaimer": DISCLAIMER,
-            "confidence": round(d.confidence, 3), "triage": triage,
-        }
 
-    tpl = _template(d, lang_key)
+
+def ask_reply(d: Decision, items: list[dict], intro: str, variant: str) -> dict:
+    note = None
+    if d.severity == "HIGH" or d.prediction.probs.get("EMERGENCY", 0) >= 0.15:
+        note = "If it gets worse while we talk (trouble breathing, chest pain, fainting), call 108 straight away."
+    return {
+        "reasoning": intro,
+        # The same questions as a plain list, for clients without the questionnaire UI (mobile).
+        "followUpQuestions": [it["question"] for it in items], "questionnaire": items,
+        "severity": None, "riskScore": None, "advice": "", "safetyNote": note, "disclaimer": DISCLAIMER,
+        "confidence": round(d.confidence, 3),
+        "triage": {**_meta(d, "ask", variant, len(items)), "complaint": has_complaint(d.features)},
+    }
+
+
+def assessment_reply(d: Decision, llm: dict, *, variant: str, lang_key: str) -> dict:
+    tpl = _template(d)
     sev = d.severity
     advice = _str(llm.get("advice"), 1200) or tpl["advice"]
     if sev == "EMERGENCY" and "108" not in advice and "112" not in advice:
@@ -335,20 +374,31 @@ def assemble(d: Decision, llm: dict, *, variant: str, lang_key: str) -> dict:
     if red_flags.is_self_harm(d.features) and "14416" not in advice:
         advice = f"{advice} {_SELF_HARM_LINE}"
     home = _list(llm.get("homeCare")) if sev in ("LOW", "MODERATE") else []
+    risk = risk_score(sev, d.prediction.probs)
     return {
         "reasoning": _str(llm.get("reasoning"), 500) or tpl["reasoning"],
         "followUpQuestions": [],
         "severity": sev,
-        "riskScore": risk_score(sev, d.prediction.probs) if d.source == "model" else max(risk_score(sev, d.prediction.probs), RISK_BANDS[sev][0]),
+        "riskScore": risk if d.source == "model" else max(risk, RISK_BANDS[sev][0]),
         "advice": advice,
         "likelyCauses": _list(llm.get("likelyCauses"), 4),
-        "homeCare": home or (tpl["homeCare"] if sev in ("LOW", "MODERATE") and not llm else home),
+        "homeCare": home or (tpl["homeCare"] if not llm else []),
         "warningSigns": _list(llm.get("warningSigns")) or tpl["warningSigns"],
         "seekCare": _str(llm.get("seekCare"), 300) or tpl["seekCare"],
         "disclaimer": DISCLAIMER,
         "confidence": round(d.confidence, 3),
-        "triage": triage,
+        "triage": _meta(d, "final", variant),
     }
+
+
+def offline_reply(d: Decision, variant: str) -> dict:
+    """No LLM: an estimate with the same severity. Never questions of our own;
+    only a request to describe the problem when nothing was described."""
+    if d.may_ask and not d.after_final and not has_complaint(d.features):
+        return {"reasoning": "", "followUpQuestions": [_DESCRIBE["en"]], "severity": None, "riskScore": None,
+                "advice": "", "disclaimer": DISCLAIMER, "confidence": round(d.confidence, 3),
+                "triage": _meta(d, "describe", variant)}
+    return assessment_reply(d, {}, variant=variant, lang_key="en")  # template text is English (stored as en-IN)
 
 
 # --- entry point ----------------------------------------------------------
@@ -363,6 +413,21 @@ class EngineResult:
         return json.dumps(self.reply, ensure_ascii=False)
 
 
+def _call_llm(provider, d, variant, profile, images, messages, lang, seed, deadline) -> dict:
+    remaining = (deadline - time.monotonic()) if deadline else config.AI_TIMEOUT
+    if provider is None or remaining < 3:
+        return {}
+    try:
+        system = build_prompt(d, variant, profile, images, lang)
+        raw = provider.generate(build_messages(system, messages, lang), seed=seed, timeout=min(config.AI_TIMEOUT, remaining))
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception as error:  # noqa: BLE001 - offline reply below
+        from app.services.triage_service import classify_provider_error
+        logger.exception("AI generation failed [%s]: %s", classify_provider_error(error), type(error).__name__)
+        return {}
+
+
 def run(
     messages: list[Message],
     profile: Optional[PatientProfile],
@@ -374,32 +439,26 @@ def run(
     deadline: Optional[float] = None,
 ) -> EngineResult:
     images = [i for i in (image_findings or []) if isinstance(i, dict) and i.get("isMedical", True)]
-    turns, had_final = to_turns(messages)
+    t = to_turns(messages)
     f = build_features(
-        turns, profile_age=_profile_age(profile), profile_conditions=profile.conditions if profile else None,
+        t.turns, profile_age=_profile_age(profile), profile_conditions=profile.conditions if profile else None,
         profile_gender=profile.gender if profile else None, image_findings=images,
     )
     seed = session_seed(session_id)
     rng = random.Random((seed or 0) + len(messages))
-    d = decide(f, get_model().predict(f), had_final=had_final, rng=rng)
-    variant = bandit_service.pick(PROMPT_VARIANTS[d.mode], rng)
+    d = decide(f, get_model().predict(f), t)
+    variant = bandit_service.pick(PROMPT_VARIANTS, rng)
     lang_key = _lang_key(lang)
 
-    llm: dict = {}
-    remaining = (deadline - time.monotonic()) if deadline else config.AI_TIMEOUT
-    if provider is not None and remaining >= 3:
-        try:
-            system = build_prompt(d, variant, profile, images, lang)
-            raw = provider.generate(build_messages(system, messages, lang), seed=seed, timeout=min(config.AI_TIMEOUT, remaining))
-            parsed = json.loads(raw)
-            llm = parsed if isinstance(parsed, dict) else {}
-        except Exception as error:  # noqa: BLE001 - template reply below
-            from app.services.triage_service import classify_provider_error
-            logger.exception("AI generation failed [%s]: %s", classify_provider_error(error), type(error).__name__)
-            llm = {}
-    usable = bool(llm.get("question") if d.mode == "ask" else llm.get("advice"))
-    # Template text is English: offline replies are stored as en-IN (read-aloud, translate).
-    reply = assemble(d, llm if usable else {}, variant=variant, lang_key=lang_key if usable else "en")
-    logger.info("triage turn mode=%s severity=%s source=%s stop=%s slot=%s conf=%.2f model=%s llm=%s",
-                d.mode, d.severity, d.source, d.stop, d.slot, d.confidence, d.prediction.model_version, usable)
-    return EngineResult(reply, usable)
+    llm = _call_llm(provider, d, variant, profile, images, messages, lang, seed, deadline)
+    items = llm_questions(llm, lang_key) if d.may_ask and llm.get("type") != "assessment" else []
+    if items:
+        reply, used = ask_reply(d, items, _str(llm.get("intro"), 300), variant), True
+    elif llm.get("advice"):
+        reply, used = assessment_reply(d, llm, variant=variant, lang_key=lang_key), True
+    else:
+        reply, used = offline_reply(d, variant), False
+    logger.info("triage turn mode=%s severity=%s source=%s why=%s questions=%d conf=%.2f model=%s llm=%s",
+                reply["triage"]["mode"], d.severity, d.source, d.why, len(items), d.confidence,
+                d.prediction.model_version, used)
+    return EngineResult(reply, used)

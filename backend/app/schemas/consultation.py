@@ -6,6 +6,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.triage import TriageAnswers
+
 
 class CreateConsultationRequest(BaseModel):
     title: Optional[str] = None
@@ -21,6 +23,8 @@ class PostMessageRequest(BaseModel):
     # Voice input sends the language Transcribe identified (BCP-47, e.g. hi-IN).
     lang: Optional[str] = Field(default=None, max_length=16, pattern=r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
     inputMode: Literal["voice", "text"] = "text"
+    # Answers picked in a follow-up questionnaire; `content` is their readable summary.
+    answers: Optional[TriageAnswers] = None
 
 
 class ConsultationView(BaseModel):
@@ -45,6 +49,7 @@ class MessageView(BaseModel):
     isOfflineFallback: bool = False
     lang: Optional[str] = None  # language of this message (assistant: the reply language)
     inputMode: Optional[str] = None  # "voice" | "text" (user messages)
+    answers: Optional[dict] = None  # user messages sent from a questionnaire: {values, other, note}
 
 
 class PostMessageResponse(BaseModel):
