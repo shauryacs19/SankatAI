@@ -801,7 +801,8 @@ Sonar S6249, NOT applied yet**; access logging off by a reviewed `NOSONAR(terraf
 `test_feedback.py` (11), `test_severity_cli.py` (6, the CLI end to end on moto) → 237 total; web
 `features/chat/triage.test.jsx` (7) → 155. CI now measures `--cov=app --cov=scripts` (scripts were tested but
 reported 0 %). Regexes run on user text avoid overlapping quantifiers (Sonar S8786, linear matching).
-⚠️ `src/app/auth.test.jsx` "throttles after five failures" is timing-flaky under full-suite load (pre-existing). conftest autouse
+`src/app/auth.test.jsx` "throttles after five failures" was flaky under CI load (clicked "Sign in" while it
+still read "Signing in…"); fixed 2026-10-20. Workflow YAML: never put `: ` in a plain `run:` value (use `run: |`). conftest autouse
 `_triage_offline` (no S3, no feedback table, uniform bandit).
 **Known limits:** labels are heuristic (bootstrap) until enough feedback/clinician review; English-centric TF-IDF
 (Hindi templates are few); name scrubbing is pattern-based; vision findings are only as good as gemma4 and are never
