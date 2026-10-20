@@ -141,7 +141,8 @@ def set_message_feedback(
     taken from the verified token — never the client — and the message must live
     in the caller's own conversation and be an assistant response."""
     outcome, view = consultation_service.set_message_feedback(
-        user.user_id, consultation_id, message_id, body.feedback
+        user.user_id, consultation_id, message_id, body.feedback,
+        reason=body.reason, direction=body.direction, comment=(body.comment or "").strip() or None,
     )
     if outcome == "not_found":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found.")

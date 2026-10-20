@@ -24,7 +24,8 @@ logger = logging.getLogger("sankatai.translation")
 
 limiter = SlidingWindowLimiter(lambda: config.TRANSLATIONS_PER_MINUTE)
 
-_TEXT_KEYS = ("reasoning", "advice", "disclaimer")
+_TEXT_KEYS = ("reasoning", "advice", "disclaimer", "seekCare", "safetyNote")
+_LIST_KEYS = ("followUpQuestions", "likelyCauses", "homeCare", "warningSigns")
 
 
 class TranslationError(Exception):
@@ -53,11 +54,11 @@ def _merge(original: dict, translated: dict) -> dict:
     for key in _TEXT_KEYS:
         if isinstance(original.get(key), str) and isinstance(translated.get(key), str) and translated[key].strip():
             merged[key] = translated[key]
-    questions = original.get("followUpQuestions")
-    new_questions = translated.get("followUpQuestions")
-    if (isinstance(questions, list) and isinstance(new_questions, list) and len(questions) == len(new_questions)
-            and all(isinstance(q, str) for q in new_questions)):
-        merged["followUpQuestions"] = new_questions
+    for key in _LIST_KEYS:
+        items, new_items = original.get(key), translated.get(key)
+        if (isinstance(items, list) and isinstance(new_items, list) and len(items) == len(new_items)
+                and all(isinstance(q, str) for q in new_items)):
+            merged[key] = new_items
     return merged
 
 
@@ -67,7 +68,10 @@ def _translate(content: str, target: str) -> str:
     except (TypeError, ValueError):
         original = None
     structured = isinstance(original, dict)
-    payload = json.dumps(original if structured else {"text": content}, ensure_ascii=False)
+    # Only the text a person reads goes to the model (not severity, scores or
+    # the triage metadata); _merge puts it back into the original reply.
+    texts = {k: original[k] for k in (*_TEXT_KEYS, *_LIST_KEYS) if original.get(k)} if structured else None
+    payload = json.dumps(texts if structured else {"text": content}, ensure_ascii=False)
     translated = json.loads(get_provider().translate(payload, target))
     if not isinstance(translated, dict):
         raise ValueError("translation is not an object")

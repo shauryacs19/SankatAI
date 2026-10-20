@@ -168,3 +168,19 @@ output "app_url" {
 output "ses_sender_email" {
   value = var.ses_sender_email
 }
+
+# ── Triage ML ────────────────────────────────────────────────────────────────
+output "ml_artifacts_bucket_name" {
+  description = "Severity-model registry + artifacts (ML_ARTIFACTS_BUCKET)."
+  value       = module.triage_ml.ml_artifacts_bucket_name
+}
+
+output "triage_feedback_table_name" {
+  description = "Anonymised triage feedback + bandit counters (TRIAGE_FEEDBACK_TABLE)."
+  value       = module.triage_ml.triage_feedback_table_name
+}
+
+output "model_retrain_role_arn" {
+  description = "Set as the GitHub secret AWS_RETRAIN_ROLE_ARN (retrain workflow)."
+  value       = module.triage_ml.model_retrain_role_arn
+}

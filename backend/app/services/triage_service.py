@@ -122,26 +122,30 @@ def run_triage(
     patient_profile: Optional[PatientProfile],
     provider: Optional[AIProvider] = None,
     lang: Optional[str] = None,
+    *,
+    session_id: Optional[str] = None,
+    image_findings: Optional[list[dict]] = None,
+    deadline: Optional[float] = None,
 ) -> tuple[str, bool]:
-    """Run an assessment. Returns ``(text, is_offline_fallback)``.
+    """Run one triage turn. Returns ``(reply_json, is_offline_fallback)``.
 
-    No usable API key -> straight to fallback; any provider error -> graceful
-    fallback. The fallback is a deliberate safety net, but it is never silent:
-    every path logs its failure class and returns ``is_offline_fallback=True``
-    so the client can label the answer as an offline keyword estimate.
+    Severity always comes from the triage engine (severity model + red-flag
+    rules); the LLM only phrases the question or explains the result. No usable
+    key or any LLM failure -> the engine's template text, flagged
+    ``is_offline_fallback=True`` so clients label it. If the engine itself fails
+    (should never happen), the keyword engine below is the last resort.
     """
+    from app.services import triage_engine  # local: the engine imports this module
+
     if not ai_key_configured():
         logger.error("AI offline fallback [missing_key]: OPENAI_API_KEY is unset or still the placeholder.")
-        return emergency_fallback_analyze(messages), True
-
-    try:
+        provider = None
+    else:
         provider = provider or get_provider()
-        return provider.analyze(messages, patient_profile, lang=lang), False
-    except Exception as error:  # noqa: BLE001 - any failure => graceful fallback
-        logger.error(
-            "AI offline fallback [%s]: %s: %s",
-            classify_provider_error(error),
-            type(error).__name__,
-            str(error)[:300],
-        )
+    try:
+        result = triage_engine.run(messages, patient_profile, provider=provider, lang=lang, session_id=session_id,
+                                   image_findings=image_findings, deadline=deadline)
+        return result.content, not result.llm_used
+    except Exception as error:  # noqa: BLE001 - last-resort safety net
+        logger.exception("Triage engine failed (%s); keyword fallback.", type(error).__name__)
         return emergency_fallback_analyze(messages), True

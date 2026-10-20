@@ -102,7 +102,7 @@ def chat(guest_id: str, messages: list[GuestMessage], client_key: str) -> dict:
     reply_lang = language_service.resolve_language(text, None, previous)
     history = [ChatMessage(role=m.role, content=m.content) for m in messages][-8:]
 
-    content, offline = run_triage(history, None, lang=reply_lang)
+    content, offline = run_triage(history, None, lang=reply_lang, session_id=guest_id)
     lang = language_service.DEFAULT_FALLBACK_LANGUAGE if offline else reply_lang
     created_at = now_iso()
     return {

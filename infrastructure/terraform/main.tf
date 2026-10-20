@@ -74,6 +74,19 @@ module "iam" {
   cognito_user_pool_arn     = module.cognito.user_pool_arn
   analytics_salt_secret_arn = module.secrets.analytics_salt_arn
   ses_sender_email          = var.ses_sender_email
+
+  # Triage ML: write the feedback store, read the model registry.
+  triage_feedback_table_arn = module.triage_ml.triage_feedback_table_arn
+  ml_artifacts_bucket_arn   = module.triage_ml.ml_artifacts_bucket_arn
+}
+
+# Severity-model artifacts (versioned S3), anonymised feedback (DynamoDB) and
+# the GitHub OIDC role of the weekly retraining workflow. Pay-per-use only.
+module "triage_ml" {
+  source = "./modules/triage_ml"
+
+  project_name                   = var.project_name
+  github_assume_role_policy_json = module.ecr.github_assume_role_policy_json
 }
 
 module "network" {

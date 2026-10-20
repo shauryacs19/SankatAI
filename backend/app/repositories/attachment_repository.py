@@ -96,3 +96,19 @@ class DynamoAttachmentRepository(AttachmentRepository):
 
     def delete(self, user_id: str, attachment_id: str) -> None:
         self._table.delete_item(Key={"user_id": user_id, "attachment_id": attachment_id})
+
+    # Image triage (additive attributes; other rows are unaffected).
+    def mark_sanitized(self, user_id: str, attachment_id: str, size: int, content_type: str) -> None:
+        self._table.update_item(
+            Key={"user_id": user_id, "attachment_id": attachment_id},
+            UpdateExpression="SET #s = :s, #sz = :sz, sanitized = :t, content_type = :ct",
+            ExpressionAttributeNames={"#s": "status", "#sz": "size"},
+            ExpressionAttributeValues={":s": "uploaded", ":sz": size, ":t": True, ":ct": content_type},
+        )
+
+    def set_vision_findings(self, user_id: str, attachment_id: str, findings_json: str, model: str) -> None:
+        self._table.update_item(
+            Key={"user_id": user_id, "attachment_id": attachment_id},
+            UpdateExpression="SET vision_findings = :f, vision_model = :m",
+            ExpressionAttributeValues={":f": findings_json, ":m": model},
+        )

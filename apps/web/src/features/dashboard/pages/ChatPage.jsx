@@ -150,7 +150,7 @@ export default function ChatPage() {
             {messages.map((m) => {
               if (m.sender === 'user') return <UserMessage key={m.id} m={m} attachments={msgAttachments(m)} onOpenAtt={openAtt} onUnsend={d.unsendMessageById} />
               if (m.sender === 'error') return <ErrorMessage key={m.id} m={m} retrying={retryingId === m.id} onRetry={() => retry(m.id)} onDismiss={() => d.dismissError(m.id)} />
-              return <AssistantMessage key={m.id} m={m} onFeedback={d.submitFeedback} onShare={shareMessage} consultationId={d.activeId} />
+              return <AssistantMessage key={m.id} m={m} onFeedback={d.submitFeedback} onFeedbackDetail={d.submitFeedbackDetail} onShare={shareMessage} consultationId={d.activeId} />
             })}
             </AnimatePresence>
           )}

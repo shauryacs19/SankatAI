@@ -587,7 +587,7 @@ def _ai_section(r: _Reader) -> dict:
         "byInputType": {
             "text": metric(r.total_in_range("ai_requests_text")) if r.since("ai_requests_text") else unavailable("No text requests recorded."),
             "voice": metric(r.total_in_range("ai_requests_voice")) if r.since("ai_requests_voice") else unavailable("No voice requests recorded."),
-            "image": unavailable("The AI does not analyse images; attachments are stored, not sent to the model."),
+            "image": metric(r.total_in_range("ai_requests_image")) if r.since("ai_requests_image") else unavailable("No photo requests recorded."),
         },
         "series": [
             {"t": t, "requests": q, "responses": s, "failed": f}

@@ -31,6 +31,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.profile import router as profile_router
 from app.api.routes.security import router as security_router
 from app.api.routes.triage import router as triage_router
+from app.api.routes.triage_v2 import router as triage_v2_router
 from app.api.routes.tts import router as tts_router
 from app.api.routes.uploads import router as uploads_router
 from app.api.routes.voice import router as voice_router
@@ -52,6 +53,13 @@ async def lifespan(_app: FastAPI):
             logger.info("DynamoDB tables ensured.")
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not ensure DynamoDB tables: %s", exc)
+    # Load the severity model now (S3 registry, else the bundled baseline) so
+    # the first chat turn does not pay for it.
+    try:
+        from app.ml import severity_model
+        severity_model.refresh(force=True)
+    except Exception as exc:  # noqa: BLE001 - get_model() retries on first use
+        logger.warning("Severity model not loaded at startup: %s", type(exc).__name__)
     if not config.AUTH_ENABLED:
         logger.warning(
             "AUTH DISABLED (AUTH_ENABLED=false): every request gets a dev identity. "
@@ -98,6 +106,7 @@ app.add_exception_handler(AdminError, admin_error_handler)
 # Routers (feature-by-feature).
 app.include_router(health_router)
 app.include_router(triage_router)
+app.include_router(triage_v2_router)
 app.include_router(profile_router)
 app.include_router(consultations_router)
 app.include_router(guest_router)
