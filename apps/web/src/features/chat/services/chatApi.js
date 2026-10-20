@@ -30,6 +30,8 @@ export const fetchTts = (consultationId, messageId, variant) =>
 // The reply in another language: { content, target, lang }. Cached server-side.
 export const translateMessage = (consultationId, messageId, target) =>
   request(`/consultations/${consultationId}/messages/${messageId}/translate`, { method: 'POST', body: { target } })
-// feedback: 'like' | 'dislike' | null (null clears it)
-export const setMessageFeedback = (consultationId, messageId, feedback) =>
-  request(`/consultations/${consultationId}/messages/${messageId}/feedback`, { method: 'POST', body: { feedback } })
+// feedback: 'like' | 'dislike' | null (null clears it). With 'dislike', `extra`
+// may add { reason: 'inaccurate'|'too_generic'|'wrong_severity', direction:
+// 'higher'|'lower' (wrong_severity only), comment } — stored anonymised.
+export const setMessageFeedback = (consultationId, messageId, feedback, extra = {}) =>
+  request(`/consultations/${consultationId}/messages/${messageId}/feedback`, { method: 'POST', body: { feedback, ...extra } })

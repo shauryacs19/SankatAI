@@ -14,19 +14,39 @@ export { ageFromDob } from '@sankatai/shared'
 
 export const parseAnalysis = (raw) => { try { return JSON.parse(raw) } catch { return null } }
 
+const strings = (v) => (Array.isArray(v) ? v.filter((s) => typeof s === 'string' && s.trim()) : [])
+
+// The structured parts of an assessment (triage engine v2). Older replies have
+// none of these and render exactly as before.
+export const assessmentDetails = (p) => {
+  if (!p) return null
+  const d = {
+    seekCare: typeof p.seekCare === 'string' ? p.seekCare : '',
+    homeCare: strings(p.homeCare),
+    warningSigns: strings(p.warningSigns),
+    likelyCauses: strings(p.likelyCauses),
+    reasoning: typeof p.reasoning === 'string' ? p.reasoning : '',
+    safetyNote: typeof p.safetyNote === 'string' ? p.safetyNote : '',
+    confidence: typeof p.confidence === 'number' ? p.confidence : null,
+  }
+  const any = d.seekCare || d.homeCare.length || d.warningSigns.length || d.likelyCauses.length || d.safetyNote
+  return p.triage && any ? d : null
+}
+
 export const normalizeAssistant = (content) => {
   const p = parseAnalysis(content)
   if (!p) return { text: content, severity: null, riskScore: null }
-  if (p.followUpQuestions?.length) return { text: p.followUpQuestions.join(' '), questions: p.followUpQuestions, severity: null, riskScore: null }
-  if (p.severity) return { text: p.advice || '', severity: p.severity, riskScore: typeof p.riskScore === 'number' ? Math.round(p.riskScore) : null }
-  return { text: p.advice || content, severity: null, riskScore: null }
+  const details = assessmentDetails(p)
+  if (p.followUpQuestions?.length) return { text: p.followUpQuestions.join(' '), questions: p.followUpQuestions, severity: null, riskScore: null, details }
+  if (p.severity) return { text: p.advice || '', severity: p.severity, riskScore: typeof p.riskScore === 'number' ? Math.round(p.riskScore) : null, details }
+  return { text: p.advice || content, severity: null, riskScore: null, details }
 }
 
 export const toBubble = (m) => {
   // User messages loaded from history are persisted -> delivered ("received").
   if (m.role === 'user') return { id: m.id, sender: 'user', text: m.content, createdAt: m.createdAt, status: 'received', attachmentIds: m.attachmentIds || [] }
   const n = normalizeAssistant(m.content)
-  return { id: m.id, sender: 'bot', text: n.text, questions: n.questions || null, severity: n.severity, riskScore: n.riskScore, raw: m.content, lang: m.lang || null, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
+  return { id: m.id, sender: 'bot', text: n.text, questions: n.questions || null, details: n.details || null, severity: n.severity, riskScore: n.riskScore, raw: m.content, lang: m.lang || null, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
 }
 
 export const relTime = (iso) => {

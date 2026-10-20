@@ -58,6 +58,8 @@ jobs:
       analytics_events_table_name: ${{ steps.tf.outputs.analytics_events_table_name }}
       analytics_agg_table_name: ${{ steps.tf.outputs.analytics_agg_table_name }}
       analytics_salt_secret_name: ${{ steps.tf.outputs.analytics_salt_secret_name }}
+      ml_artifacts_bucket_name: ${{ steps.tf.outputs.ml_artifacts_bucket_name }}
+      triage_feedback_table_name: ${{ steps.tf.outputs.triage_feedback_table_name }}
       api_gateway_id: ${{ steps.tf.outputs.api_gateway_id }}
       app_url: ${{ steps.tf.outputs.app_url }}
       ses_sender_email: ${{ steps.tf.outputs.ses_sender_email }}
@@ -176,5 +178,8 @@ jobs:
           API_GATEWAY_ID: ${{ needs.terraform-outputs.outputs.api_gateway_id }}
           APP_URL: ${{ needs.terraform-outputs.outputs.app_url }}
           SES_SENDER_EMAIL: ${{ needs.terraform-outputs.outputs.ses_sender_email }}
+          # Optional: empty before the triage_ml apply; the backend then derives the same names.
+          ML_ARTIFACTS_BUCKET: ${{ needs.terraform-outputs.outputs.ml_artifacts_bucket_name }}
+          TRIAGE_FEEDBACK_TABLE: ${{ needs.terraform-outputs.outputs.triage_feedback_table_name }}
           TAG: ${{ github.sha }}
         run: bash .github/scripts/deploy-backend.sh

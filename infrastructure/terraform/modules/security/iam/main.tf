@@ -185,6 +185,32 @@ resource "aws_iam_role_policy" "backend" {
         Action   = ["cloudwatch:GetMetricData"]
         Resource = "*"
       },
+      # ── Triage ML ─────────────────────────────────────────────────────────
+      # Feedback rows (upsert / delete on re-vote) and bandit counters. Reads
+      # are GetItem/Query only — retraining runs elsewhere with its own role.
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query",
+        ]
+        Resource = var.triage_feedback_table_arn
+      },
+      # The current severity model: read-only. Only the retrain role (and an
+      # operator) can publish or promote a model.
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${var.ml_artifacts_bucket_arn}/severity/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = var.ml_artifacts_bucket_arn
+      },
       ],
       # Invitation email: SendEmail only, only From the configured sender.
       # Resource is any identity so sandbox recipient checks pass; the

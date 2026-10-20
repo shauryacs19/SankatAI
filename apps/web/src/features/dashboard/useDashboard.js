@@ -16,6 +16,7 @@ import {
 } from '../chat/services/chatApi'
 import { ageFromDob, toBubble } from '../chat/utils/format.jsx'
 import { uploadFile, listUploads } from '../../services/uploads'
+import { ImageCheckError, uploadTriageImage } from '../chat/services/triageImages'
 import { useToast } from '../../components/ui'
 import { errText } from '../../utils/errText'
 import { useVoiceInput } from '../chat/voice/useVoiceInput'
@@ -263,11 +264,49 @@ export function useDashboard() {
   // Leave the protected area first, then clear the session and app state.
   const handleSignOut = async () => { navigate('/', { replace: true }); await signOut() }
 
+  // "No" follow-up: the reason/comment, sent with the same vote. Returns false
+  // on failure so the form stays open.
+  const submitFeedbackDetail = async (messageId, extra) => {
+    if (!activeId || !messageId) return false
+    try {
+      await setMessageFeedback(activeId, messageId, 'dislike', extra)
+      return true
+    } catch (err) {
+      toast.error(errText(err, 'Could not send your feedback.'))
+      return false
+    }
+  }
+
+  // Photos go through image triage (v2): stripped of EXIF in the browser,
+  // validated server-side, and analysed with the message. A photo can start a
+  // conversation: without an open chat the server creates one.
+  const onPhotosSelected = async (picked) => {
+    let cid = activeId
+    for (const f of picked) {
+      const localId = `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+      const previewUrl = URL.createObjectURL(f)
+      setAttachments((prev) => [...prev, { localId, name: f.name, kind: 'photo', status: 'uploading', previewUrl }])
+      try {
+        const rec = await uploadTriageImage(f, cid)
+        if (!cid) {
+          cid = rec.consultationId
+          setActiveId(cid); setMessages([]); setIsEmergency(false); setLastReply(null)
+          void loadConsultations()
+        }
+        setAttachments((prev) => prev.map((a) => (a.localId === localId ? { ...a, status: 'uploaded', attachmentId: rec.imageId } : a)))
+      } catch (err) {
+        setAttachments((prev) => prev.map((a) => (a.localId === localId ? { ...a, status: 'failed' } : a)))
+        toast.error(err instanceof ImageCheckError ? err.message : errText(err, `Could not upload ${f.name}.`))
+      }
+    }
+  }
+
   // Chat attachments upload directly to the transient chat bucket (scope=chat).
   const onFilesSelected = (kind) => async (e) => {
     const picked = Array.from(e.target.files || [])
     e.target.value = ''
     if (!picked.length) return
+    if (kind === 'photo') { await onPhotosSelected(picked); return }
     if (!activeId) { toast.info('Start or open a chat before attaching files.'); return }
     for (const f of picked) {
       const localId = `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -329,7 +368,7 @@ export function useDashboard() {
     attachments, removeAttachment, voice, chatAttachmentMap,
     search, setSearch, searching, visibleConsultations, onFilesSelected,
     selectConsultation, startNewConsultation, startDraft, deleteChat, openRename, closeRename, renameTarget, renameChat,
-    handleSend, sendQuick, retrySend, dismissError, handleFindHospitals, handleSendLocationAlert, submitFeedback,
+    handleSend, sendQuick, retrySend, dismissError, handleFindHospitals, handleSendLocationAlert, submitFeedback, submitFeedbackDetail,
     handleSignOut, goEditProfile, goChat, unsendMessageById, triggerSos,
   }
 }

@@ -116,12 +116,26 @@ def build_messages(messages: list[Message], profile: Optional[PatientProfile], l
 
 def build_translation_prompt(target: str) -> str:
     return (
-        "You translate a medical triage reply written for a patient. The input is JSON. Translate the text "
-        'values of "reasoning", "advice", "disclaimer", "text" and every item of "followUpQuestions" into '
+        "You translate a medical triage reply written for a patient. The input is JSON. Translate every text "
+        "value and every item of every list (keep the number of items) into "
         f"{TRANSLATION_TARGETS[target]}. Keep every key. Keep \"severity\" and \"riskScore\" exactly as they are. "
         "Keep medical terms accurate and drug names in English. Do not add, remove or soften any advice. "
         "Return only the JSON."
     )
+
+
+VISION_PROMPT = """You look at ONE photo a patient sent to a medical triage assistant. Describe only what is visible; never diagnose.
+Return JSON only:
+{
+  "isMedical": true | false,             // false for screenshots, documents, objects, or no visible body part
+  "imageQuality": "good" | "poor",
+  "bodyRegion": "<e.g. left forearm, face, eye, mouth, foot; empty if unclear>",
+  "visibleSigns": ["<short observable findings, e.g. redness, swelling, open wound, blister, rash with raised spots, yellow skin>"],
+  "severityCues": ["<observable cues that matter for urgency, e.g. wound edges gaping, heavy active bleeding, large burn area, spreading redness>"],
+  "redFlags": ["<only if clearly visible: heavy bleeding, bone visible, deep wound, large or facial burn, blue lips, swollen tongue or lips>"],
+  "severityCue": "none" | "mild" | "moderate" | "severe",
+  "summary": "<one neutral sentence describing the image>"
+}"""
 
 
 class AIProvider(ABC):
@@ -136,6 +150,14 @@ class AIProvider(ABC):
     def translate(self, payload: str, target: str) -> str:
         """Translate the text values of a reply JSON into `target` (a key of
         TRANSLATION_TARGETS). Returns the model's JSON string; raises on failure."""
+
+    def generate(self, messages: list[dict], *, seed: Optional[int] = None, timeout: Optional[float] = None) -> str:
+        """Triage-engine turn (question or explanation). JSON string; raises on failure."""
+        raise NotImplementedError
+
+    def analyze_image(self, image_b64: str, mime: str, *, timeout: Optional[float] = None) -> str:
+        """Structured findings for one photo (VISION_PROMPT). JSON string; raises on failure."""
+        raise NotImplementedError
 
 
 class OpenAIProvider(AIProvider):
@@ -170,6 +192,46 @@ class OpenAIProvider(AIProvider):
                 {"role": "user", "content": payload},
             ],
             temperature=0.1,
+            response_format={"type": "json_object"},
+        )
+        return _extract_json(response.choices[0].message.content)
+
+    def generate(self, messages: list[dict], *, seed: Optional[int] = None, timeout: Optional[float] = None) -> str:
+        # Sampling is deliberately varied (0.6-0.8 / top_p 0.9) so wording and
+        # questions are not canned; the per-session seed keeps one conversation
+        # stable on retry. Severity is NOT decided here (see triage_engine).
+        client = self._client().with_options(timeout=timeout) if timeout else self._client()
+        kwargs = {"seed": seed} if seed is not None else {}
+        response = client.chat.completions.create(
+            model=config.AI_MODEL,
+            messages=messages,
+            temperature=config.AI_TEMPERATURE,
+            top_p=config.AI_TOP_P,
+            response_format={"type": "json_object"},
+            **kwargs,
+        )
+        return _extract_json(response.choices[0].message.content)
+
+    @lru_cache(maxsize=1)
+    def _vision_client(self) -> OpenAI:
+        if (config.AI_VISION_BASE_URL or None) == (config.AI_BASE_URL or None):
+            return self._client()
+        # A self-hosted Ollama (llava) needs no key; the SDK insists on one.
+        return OpenAI(api_key=os.getenv("OPENAI_API_KEY") or "ollama", base_url=config.AI_VISION_BASE_URL,
+                      timeout=config.AI_VISION_TIMEOUT)
+
+    def analyze_image(self, image_b64: str, mime: str, *, timeout: Optional[float] = None) -> str:
+        client = self._vision_client().with_options(timeout=timeout or config.AI_VISION_TIMEOUT)
+        response = client.chat.completions.create(
+            model=config.AI_VISION_MODEL,
+            messages=[
+                {"role": "system", "content": VISION_PROMPT},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "Describe this photo for triage. JSON only."},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{image_b64}"}},
+                ]},
+            ],
+            temperature=0.1,  # findings should be reproducible
             response_format={"type": "json_object"},
         )
         return _extract_json(response.choices[0].message.content)

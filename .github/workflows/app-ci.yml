@@ -30,6 +30,7 @@ jobs:
           cache-dependency-path: |
             backend/requirements.txt
             backend/requirements-dev.txt
+            backend/requirements-ml.txt
       
       - name: Install dependencies
         working-directory: backend

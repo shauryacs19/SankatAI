@@ -159,4 +159,13 @@ def ensure_tables() -> None:
                 {"AttributeName": "attachment_id", "AttributeType": "S"},
             ],
         )
+    # Triage feedback + bandit counters (Terraform modules/triage_ml).
+    feedback_table = getattr(config, "TRIAGE_FEEDBACK_TABLE", "")
+    if feedback_table and feedback_table not in existing:
+        client.create_table(
+            TableName=feedback_table,
+            BillingMode="PAY_PER_REQUEST",
+            KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
+            AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"}, {"AttributeName": "sk", "AttributeType": "S"}],
+        )
     ensure_admin_tables(client)

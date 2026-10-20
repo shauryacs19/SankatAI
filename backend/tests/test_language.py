@@ -84,13 +84,15 @@ def chat(monkeypatch):
         repo = FakeRepo(earlier)
         seen = {}
 
-        def fake_triage(history, profile, provider=None, lang=None):
+        def fake_triage(history, profile, provider=None, lang=None, **_kw):
             seen["lang"] = lang
             seen["history"] = history
             return '{"severity": "LOW", "riskScore": 10, "advice": "Rest."}', offline
         monkeypatch.setattr(consultation_service, "repo", repo)
         monkeypatch.setattr(consultation_service.profile_repository, "get_profile", lambda uid: None)
         monkeypatch.setattr(consultation_service, "run_triage", fake_triage)
+        # Attachments here are documents (no photo -> no vision, no AI turn).
+        monkeypatch.setattr(consultation_service.vision_service, "photo_items", lambda uid, ids: [])
         return repo, seen
     return setup
 

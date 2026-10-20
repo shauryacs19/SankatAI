@@ -3,7 +3,7 @@
 > **Purpose:** single source of truth so Claude can get up to speed without
 > re-reading the whole codebase. **Claude updates this file after every completed
 > task** (append to the Changelog + adjust the relevant sections).
-> Last updated: 2026-10-18 (guest chat on the home page + product showcase; web redesign).
+> Last updated: 2026-10-19 (triage engine v2: severity model, adaptive questions, image triage, feedback loop — §9h).
 
 ---
 
@@ -78,6 +78,9 @@ Names (Terraform `project_name=sankatai`; also in `backend/.env.aws.example`):
   `sankatai-analytics-events` (hash `event_id`, TTL), `sankatai-analytics-daily-agg` (pk/sk, TTL).
   Secret `sankatai/dev/analytics_salt` (PLACEHOLDER until set). SES identity from
   `var.ses_sender_email` (root `email.tf`, count 0 when empty).
+- **Triage ML (§9h, Terraform `modules/triage_ml`, APPLIED 2026-10-19):** S3 `sankatai-ml-artifacts` (versioned;
+  severity model registry + artifacts), DynamoDB `sankatai-triage-feedback` (pk/sk, TTL `ttl`), IAM role
+  `sankatai-model-retrain` (GitHub OIDC, main only).
 - **Amazon Transcribe Streaming** (voice input, §9b), **Amazon Polly** (read-aloud, §9d; Kajal
   neural, en-IN + hi-IN) and **Amazon Comprehend** (`DetectDominantLanguage`, §9c). All three
   are called as the backend role and have no resources. The TTS cache reuses the chat-uploads
@@ -90,6 +93,7 @@ uploads, voice. CORS middleware uses explicit `CORS_ALLOWED_ORIGINS` and credent
 Cognito token.
 
 Endpoints: `GET /api/health`; `POST /api/guest/chat` (**public**, see §10 2026-10-18); `POST /api/guest/save`;
+`POST /api/v2/triage/images` + `/{id}/complete` (image-first triage, §9h);
 `GET/PUT /api/profile`;
 `GET/POST /api/consultations`, `PATCH …/{id}` (rename), `DELETE`,
 `GET/POST …/{id}/messages`, `POST …/{id}/messages/{msgId}/feedback`;
@@ -571,8 +575,8 @@ cast after LIVE_SINCE); `mark_uploaded` DOCUMENT_UPLOADED{scope,kind} once; `mai
 middleware → `touch_user` for any request with `x-user-id` (per-day + 5-min distinct sets
 `SET#active_users#<shard>` (SS of 16-hex salted hashes, 4 shards ≈ 92k/day), first-seen
 marker → USER_REGISTERED, only after `META/BACKFILL=done`). USER_LOGIN is accepted by the
-schema but NOT emitted (no real login signal: Cognito is client-side). Image input =
-"Unavailable" (the model never sees images). No salt → per-user metrics Unavailable.
+schema but NOT emitted (no real login signal: Cognito is client-side). Image input is
+recorded since 2026-10-19 (photo turns, §9h). No salt → per-user metrics Unavailable.
 
 **Read path.** Query/BatchGet only, no Scan. Total users = Cognito
 `EstimatedNumberOfUsers` (cached 60 s). WAU/MAU = unions of daily sets (ranges ≤ 92 d).
@@ -705,7 +709,106 @@ SecureStore key `sankatai_username` (was email). Pool/client defaults in `src/co
 **Backend**: unchanged request path. `bootstrap_admin.py` first retires admin rows whose Cognito
 user no longer exists (`retire_orphaned_admins`). Root re-bootstrapped in the new pool 2026-09-26.
 
+## 9h. Triage engine v2: severity model, adaptive questions, image triage, feedback loop (2026-10-19)
+
+**Audit (before):** no severity model existed. "Severity" was the LLM's own JSON `severity` field (prompt rules in
+`openai_provider.build_system_prompt`, temperature 0.1, so near-deterministic), or the regex keyword fallback
+(`triage_service.emergency_fallback_analyze`). The "follow-up questions" were the LLM's step-4 output. Yes/No only set
+`feedback` on the chat message (admin vote counters); nothing learned from it.
+
+**Now (`services/triage_engine.py`, called by `run_triage`; same `(text, offline)` contract for consultations,
+guest chat and `/api/analyze`):** transcript → `ml/features.build_features` (regex, en/Hinglish/Devanagari:
+duration, age band (profile age unless the text is about someone else), pain, vitals, tri-state flags with clause-
+scoped negation, slot answers parsed against the question asked, photo findings) → `ml/severity_model` →
+`ml/red_flags.apply_floor` → decide. **Rules set a floor:** EMERGENCY rules (chest pain, stroke, breathing difficulty,
+heavy bleeding, unconscious, seizure, anaphylaxis, poisoning, self-harm (+Tele-MANAS 14416), severe burn, snake bite,
+head injury+signs, meningitis, thunderclap, pregnancy bleeding, SpO2<90, SBP<90, HR>140/<40, RR>30, T≥41, fever
+<3 months) can never be lowered; HIGH rules (fracture, animal bite, fainting, severe abdominal pain, blood in urine,
+SpO2<94, T≥40, fever <1 y, severe photo) → final at once. Model P(EMERGENCY)≥0.4 also = EMERGENCY.
+**Questions:** `ml/question_policy.choose` = expected information gain over the severity distribution for each
+unknown, relevant slot (`ml/slots.py`: duration, age, pain, fever, temperature, breathing, vomiting, bleeding,
+worsening, chronic, pregnant, spreading; "complaint" for a symptom-free opener) × bandit weight (0.5–1.5). Stops at
+confidence ≥ `TRIAGE_CONFIDENCE_THRESHOLD` (0.75), `TRIAGE_MAX_QUESTIONS` (5), gain < 0.01 nats, or nothing left.
+After a final answer, later turns are answered (no new questionnaire). **LLM** only phrases the question / explains:
+`provider.generate` with `AI_TEMPERATURE` 0.7, `AI_TOP_P` 0.9, `seed` = sha256(session id) (consultation id / guest
+id), system prompt = engine state + features + prompt variant; severity/riskScore are overwritten; EMERGENCY advice
+gets the 108/112 line if missing; HIGH/EMERGENCY never get home care. LLM failure/no key → template text (English,
+`isOfflineFallback`), same severity. Turn budget `TRIAGE_TIME_BUDGET_SECONDS` 26 (API GW 30 s cap).
+**Reply JSON** keeps `reasoning/followUpQuestions/severity/riskScore/advice/disclaimer` (mobile unchanged; questions =
+one item, severity null) and adds `likelyCauses, homeCare, warningSigns, seekCare, confidence, safetyNote, triage`
+(`{v:2, mode, slot, asked, modelVersion, source, stop, probs, modelSeverity, provisional, reasons, variant, features}` —
+also the state for the next turn; guest replies are HMAC-signed so it can't be forged). Translation now sends only the
+text keys and merges the new lists back.
+
+**Model:** TF-IDF (own analyzer, 1-2 grams, sublinear) + 44 structured features → multinomial LogisticRegression,
+case-mix prior LOW 40 / MOD 33 / HIGH 19 / EMR 8 % (balanced weights made vague openers HIGH), temperature-scaled.
+Trained with scikit-learn **offline**, exported as **JSON** and scored in pure Python (no sklearn/scipy in the
+1 GB t3.micro image; never unpickled). Parity with sklearn is asserted at export (~2e-7). Bootstrap data:
+`gretelai/symptom_to_diagnosis` (Apache-2.0, 1,065 rows; diagnosis → base severity) + 106 template vignettes
+(en/Hinglish/Devanagari); each example samples a hidden full patient state, labels it with a clinical heuristic
+(`scripts/triage_ml/dataset.label`, **not clinician-validated**) and reveals only part (opener / Q&A), so the model
+learns P(severity | partial info). Bundled baseline `app/ml/artifacts/severity_baseline.json` (392 KB,
+v`20261019T105718Z-593b0d`): test macro-F1 0.67, under-triage 0.21 on partial-information rows, 23/23 red-flag
+safety cases EMERGENCY. **Loading:** `s3://ML_ARTIFACTS_BUCKET/severity/registry.json` → `models/<v>/model.json`,
+sha256-checked, re-read every `SEVERITY_MODEL_REFRESH_SECONDS` (600) and at startup; any failure keeps the model in
+memory, else the bundled baseline.
+**Train / version / promote / rollback (`backend/scripts/severity_model.py`, needs `requirements-ml.txt`):**
+`train --download --bundle`; `retrain --bucket --table --download --promote` (feedback rows: Yes = label, wrong
+severity higher/lower = ±1 at weight 0.5, never below the rule floor, reviewed `label` attr = weight 2); gate vs the
+current model on the same data: macro-F1, under-triage, HIGH+ recall, feedback accuracy (n≥30) within 0.01, and
+safety cases 100 % EMERGENCY; `promote VERSION` (still safety-gated), `rollback [--to]` (promoted versions only),
+`list`. Weekly job `.github/workflows/triage-model-retrain.yml` (Mon 03:00 IST, GitHub runner, secret
+`AWS_RETRAIN_ROLE_ARN` = output `model_retrain_role_arn`).
+
+**Image-first triage:** `POST /api/v2/triage/images {contentType jpeg|png|webp, size, consultationId?}` creates the
+consultation if absent and returns a presigned PUT with Content-Type **and Content-Length signed**;
+`…/{id}/complete` = HeadObject size check, Pillow decode (type from content, 40 MP cap), EXIF/GPS stripped by
+re-encoding from pixels, overwrite, `mark_sanitized`, background vision prefetch. Rows are normal chat attachments
+(`source=triage-v2`). `post_message` now runs an AI turn for a **photo-only** message (documents-only still none);
+`services/vision_service` analyses up to 3 photos per conversation (cached as `vision_findings` on the attachment
+row, also for v1/mobile photos) → findings feed features/text/red flags. Vision = `AI_VISION_MODEL` on
+`AI_VISION_BASE_URL`: default **`gemma4:31b` on Ollama Cloud**, because Ollama Cloud does not serve llava /
+llama3.2-vision and the t3.micro cannot run them on CPU; set `AI_VISION_BASE_URL=http://<host>:11434/v1`,
+`AI_VISION_MODEL=llava` for a self-hosted Ollama. Web: photo attach works without an open chat; the browser
+re-encodes to JPEG ≤2048 px (drops EXIF) first (`features/chat/services/triageImages.js`).
+
+**Feedback loop:** existing `POST …/messages/{mid}/feedback` gains optional `reason` (inaccurate | too_generic |
+wrong_severity, dislike only), `direction` (higher|lower, wrong_severity only), `comment` (≤280) — additive, 422 on
+misuse. `services/feedback_service.record` (best-effort, never fails the vote): one row per rated reply in
+`TRIAGE_FEEDBACK_TABLE` (pk `FB#YYYY-MM`, sk `<reply time>#<msg ref>`): keyed-hash `session_id`/`message_ref` (no
+user id), PII-scrubbed (`ml/pii.scrub`: emails, URLs, PAN, 6+ digit runs, "my name is …") model input `query`,
+features, predicted/final severity, confidence, probs, model version, prompt variant, slots asked, scrubbed response,
+vote, reason/direction/comment, timestamps, TTL 365 d. Re-vote overwrites, clear deletes. Bandit counters
+(pk `BANDIT`, sk `prompt#<variant>` / `slot#<id>`, standing votes moved old→new) → `bandit_service` Thompson
+sampling (cache 300 s): prompt variant per turn + slot weights. Web: "No" opens reason chips (+ more/less serious) and
+an optional comment; v2 replies show When to get care / What you can do now / Get help sooner if / Possible causes /
+Why this rating + "NN% confident"; the disclaimer shows on every reply incl. questions. Admin analytics:
+`byInputType.image` is now recorded (`input_type=image` for photo turns).
+
+**Infra (`modules/triage_ml`) — APPLIED 2026-10-19** (`-target=module.triage_ml -target=module.iam -target=module.ecr`, 8 add, 1 in-place, 0 destroy; re-plan = no changes; verified: bucket versioned/AES256/public-blocked/90 d noncurrent, table ACTIVE + TTL + PITR, backend policy 15 → 18 statements, retrain role trust = repo main only). Registry is still EMPTY, so the backend serves the bundled baseline until a model is promoted. **To do:** GitHub secret `AWS_RETRAIN_ROLE_ARN` = `arn:aws:iam::945139114868:role/sankatai-model-retrain`.
+bucket (versioned, SSE, public-access block, noncurrent 90 d), table (on-demand, SSE, PITR, TTL), retrain role
+(Query feedback; Get/Put `severity/*`; ListBucket); backend role + feedback Get/Put/Update/Delete/Query + S3 Get
+`severity/*` + ListBucket. `ecr` module outputs `github_assume_role_policy_json`. CD passes `ML_ARTIFACTS_BUCKET` /
+`TRIAGE_FEEDBACK_TABLE` **optionally** (empty before the apply; config defaults `{PROJECT_NAME}-ml-artifacts` /
+`-triage-feedback` already match because the container gets `PROJECT_NAME=sankatai`). Cost: cents/month.
+**Deps:** backend `Pillow`; `requirements-ml.txt` (scikit-learn, numpy) for training + CI only; dev `moto[s3]`.
+**Tests:** backend `test_severity_model.py` (20), `test_triage_engine.py` (40), `test_triage_images.py` (7),
+`test_feedback.py` (11) → 230 total; web `features/chat/triage.test.jsx` (6) → 154. conftest autouse
+`_triage_offline` (no S3, no feedback table, uniform bandit).
+**Known limits:** labels are heuristic (bootstrap) until enough feedback/clinician review; English-centric TF-IDF
+(Hindi templates are few); name scrubbing is pattern-based; vision findings are only as good as gemma4 and are never
+a diagnosis; in-process bandit cache/vision executor per instance. **Not verified:** real Ollama generate/vision calls,
+the S3 registry against real AWS, the retrain workflow run, mobile UI (unchanged; reads the old keys).
+
 ## 10. Changelog (most recent first)
+- **Triage engine v2 (2026-10-19):** see §9h. Real severity model + red-flag floor, adaptive information-gain
+  questions (max 5), Ollama sampling 0.7/0.9 + per-session seed, image-first triage (v2 upload, EXIF strip, vision),
+  anonymised feedback store + bandit + gated weekly retraining with S3 versioning/rollback. Terraform APPLIED
+  2026-10-19 (8 add, 1 change, 0 destroy); backend code NOT deployed (nothing committed). Backend 230 tests, web 154 tests, build OK, lint = 7 pre-existing errors
+  (AuthContext, ProfileContext, vite.config.js — none touched).
+- **Home page: no phone numbers in the product screenshots (2026-10-19):** the dev preview's showcase mode hides the
+  sample profile phone row and the emergency contact's number (`src/dev/preview.jsx`, CSS only, the contact stays so
+  its features still show); all 14 `src/assets/showcase/*.webp` re-captured (`PREVIEW_ORIGIN=http://localhost:5180`).
 - **Guest chat on the home page + animated product showcase (2026-10-18):**
   - **Guest chat (user request):** visitors chat with the AI from the home page without an account; nothing
     is stored server-side (no DynamoDB write, no analytics event, no message text in logs). Backend:

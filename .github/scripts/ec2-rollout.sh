@@ -9,6 +9,7 @@
 #   COGNITO_USER_POOL_ID COGNITO_APP_CLIENT_ID ADMINS_TABLE ADMIN_INVITATIONS_TABLE
 #   ADMIN_AUDIT_TABLE ANALYTICS_EVENTS_TABLE ANALYTICS_AGG_TABLE
 #   ANALYTICS_SALT_SECRET_ID API_GATEWAY_ID APP_URL SES_SENDER_EMAIL (may be empty)
+# Optional: ML_ARTIFACTS_BUCKET TRIAGE_FEEDBACK_TABLE (empty = backend defaults)
 set -euxo pipefail
 
 # Ubuntu 24.04 does not ship the AWS CLI and user_data installs only
@@ -52,6 +53,14 @@ docker rm -f sankatai-backend 2>/dev/null || true
 # Table and bucket names arrive from `terraform output` - they are NOT defaulted
 # here. USERS_TABLE in particular cannot be defaulted at all, because config.py
 # derives "<project>-users" while the real table is sankatai-user-profile-table.
+#
+# The triage-ML names are the exception: optional, passed only when set, and
+# their config.py defaults (sankatai-ml-artifacts / sankatai-triage-feedback)
+# already match Terraform, so a deploy before that apply still works.
+OPTIONAL_ENV=()
+if [ -n "${ML_ARTIFACTS_BUCKET:-}" ]; then OPTIONAL_ENV+=(-e "ML_ARTIFACTS_BUCKET=${ML_ARTIFACTS_BUCKET}"); fi
+if [ -n "${TRIAGE_FEEDBACK_TABLE:-}" ]; then OPTIONAL_ENV+=(-e "TRIAGE_FEEDBACK_TABLE=${TRIAGE_FEEDBACK_TABLE}"); fi
+
 docker run -d \
   --name sankatai-backend \
   --restart unless-stopped \
@@ -79,6 +88,7 @@ docker run -d \
   -e API_GATEWAY_ID="$API_GATEWAY_ID" \
   -e APP_URL="$APP_URL" \
   -e SES_SENDER_EMAIL="$SES_SENDER_EMAIL" \
+  "${OPTIONAL_ENV[@]}" \
   "$IMAGE"
 
 # Smoke test from inside the box. The instance is private with no public IP, so

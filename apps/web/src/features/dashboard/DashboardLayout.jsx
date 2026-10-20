@@ -182,7 +182,7 @@ export default function DashboardLayout() {
 
       {/* hidden file pickers (shared by the chat attach menu) */}
       <input ref={docInputRef} type="file" multiple hidden accept=".pdf,.doc,.docx,.txt,.rtf,.odt,.ppt,.pptx,.xls,.xlsx,.csv" onChange={d.onFilesSelected('document')} />
-      <input ref={photoInputRef} type="file" multiple hidden accept="image/*" onChange={d.onFilesSelected('photo')} />
+      <input ref={photoInputRef} type="file" multiple hidden accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={d.onFilesSelected('photo')} />
 
       <RenameChatModal target={d.renameTarget} onClose={d.closeRename} onRename={d.renameChat} />
     </div>

@@ -13,7 +13,7 @@ import SpeakerButton from '../tts/SpeakerButton.jsx'
 import {
   AI_DISCLAIMER, EMERGENCY_CALLOUT, TRANSLATION_LABELS, TRANSLATION_NAMES, nextTranslation, replyLanguageOf,
 } from '@sankatai/shared'
-import { Alert, Button, IconButton, Menu, SeverityBadge, severityUi, messageEnter, useToast } from '../../../components/ui'
+import { Alert, Button, Chip, IconButton, Input, Menu, SeverityBadge, severityUi, messageEnter, useToast } from '../../../components/ui'
 import { errText } from '../../../utils/errText'
 import { translateMessage } from '../services/chatApi'
 import { formatBold, fmtTime, normalizeAssistant } from '../utils/format.jsx'
@@ -69,7 +69,7 @@ function useTranslationCycle(m, consultationId) {
   const original = replyLanguageOf(m.lang, m.raw)
   const [shown, setShown] = useState(original)
   const [busy, setBusy] = useState(false)
-  const texts = useRef({ [original]: { text: m.text, questions: m.questions } })
+  const texts = useRef({ [original]: { text: m.text, questions: m.questions, details: m.details } })
   const next = nextTranslation(shown)
   const advance = async () => {
     if (busy) return
@@ -78,7 +78,7 @@ function useTranslationCycle(m, consultationId) {
       try {
         const res = await translateMessage(consultationId, m.id, next)
         const n = normalizeAssistant(res.content)
-        texts.current[next] = { text: n.text, questions: n.questions }
+        texts.current[next] = { text: n.text, questions: n.questions, details: n.details }
       } catch (e) {
         toast.error(errText(e, 'Couldn’t translate this reply. Try again.'))
         return
@@ -89,14 +89,91 @@ function useTranslationCycle(m, consultationId) {
     setShown(next)
   }
   const translated = shown !== original
-  const cur = translated ? texts.current[shown] : { text: m.text, questions: m.questions }
-  return { text: cur.text, questions: cur.questions, shown, next, busy, advance, translated }
+  const cur = translated ? texts.current[shown] : { text: m.text, questions: m.questions, details: m.details }
+  return { text: cur.text, questions: cur.questions, details: cur.details || m.details, shown, next, busy, advance, translated }
+}
+
+// The structured parts of a v2 assessment. Home care only for LOW/MODERATE
+// (the engine never sends it for HIGH/EMERGENCY either).
+function AssessmentDetails({ d, severity, lang }) {
+  const lists = [
+    ['What you can do now', severity === 'LOW' || severity === 'MODERATE' ? d.homeCare : []],
+    ['Get help sooner if', d.warningSigns],
+    ['Possible causes', d.likelyCauses],
+  ].filter(([, items]) => items.length)
+  return (
+    <div className="msg-ai-details" lang={lang}>
+      {d.seekCare && <div className="msg-ai-sec msg-ai-sec--care"><h3>When to get care</h3><p>{d.seekCare}</p></div>}
+      {lists.map(([title, items]) => (
+        <div key={title} className="msg-ai-sec"><h3>{title}</h3><ul className="ui-list">{items.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+      ))}
+      {d.reasoning && <div className="msg-ai-sec"><h3>Why this rating</h3><p>{d.reasoning}</p></div>}
+    </div>
+  )
+}
+
+const FEEDBACK_REASONS = [
+  { key: 'inaccurate', label: 'Inaccurate' },
+  { key: 'too_generic', label: 'Too generic' },
+  { key: 'wrong_severity', label: 'Wrong severity' },
+]
+
+// Shown after "No": an optional reason (and for a wrong severity, which way),
+// plus an optional comment. Everything is stored anonymised to improve triage.
+export function FeedbackFollowUp({ messageId, onSubmit, onClose }) {
+  const [reason, setReason] = useState(null)
+  const [direction, setDirection] = useState(null)
+  const [comment, setComment] = useState('')
+  const [busy, setBusy] = useState(false)
+  const send = async () => {
+    setBusy(true)
+    const ok = await onSubmit({
+      ...(reason && { reason }),
+      ...(reason === 'wrong_severity' && direction && { direction }),
+      ...(comment.trim() && { comment: comment.trim() }),
+    })
+    setBusy(false)
+    if (ok !== false) onClose(true)
+  }
+  return (
+    <div className="msg-fb-more" role="group" aria-labelledby={`fbm-${messageId}`}>
+      <p className="msg-fb-more-title" id={`fbm-${messageId}`}>What was wrong? <span>(optional)</span></p>
+      <div className="msg-fb-chips">
+        {FEEDBACK_REASONS.map((r) => (
+          <Chip key={r.key} aria-pressed={reason === r.key} onClick={() => setReason(reason === r.key ? null : r.key)}>{r.label}</Chip>
+        ))}
+      </div>
+      {reason === 'wrong_severity' && (
+        <div className="msg-fb-chips" role="group" aria-label="It should have been">
+          <span className="msg-fb-more-sub">It should have been</span>
+          <Chip aria-pressed={direction === 'higher'} onClick={() => setDirection('higher')}>More serious</Chip>
+          <Chip aria-pressed={direction === 'lower'} onClick={() => setDirection('lower')}>Less serious</Chip>
+        </div>
+      )}
+      <Input value={comment} onChange={(e) => setComment(e.target.value.slice(0, 280))} maxLength={280}
+        placeholder="Anything else? Please leave out names and phone numbers." aria-label="Comment (optional)" />
+      <div className="msg-fb-actions">
+        <Button size="sm" variant="secondary" onClick={send} loading={busy} loadingText="Sending…" disabled={!reason && !comment.trim()}>Send</Button>
+        <Button size="sm" variant="ghost" onClick={() => onClose(false)}>Skip</Button>
+      </div>
+    </div>
+  )
 }
 
 // `guest`: a home-page guest reply. Feedback, translation and read-aloud need an
 // account (they are stored per message), so a guest gets Share only.
-export function AssistantMessage({ m, onFeedback, onShare, consultationId, guest = false }) {
+export function AssistantMessage({ m, onFeedback, onFeedbackDetail, onShare, consultationId, guest = false }) {
   const tr = useTranslationCycle(m, consultationId)
+  const [fbMore, setFbMore] = useState(false)
+  const [fbThanks, setFbThanks] = useState(false)
+  const details = tr.details
+  const confidence = m.severity && details?.confidence != null ? Math.round(details.confidence * 100) : null
+  const replyLang = tr.shown === 'hi' ? 'hi' : 'en'
+  const vote = (value) => {
+    onFeedback(m.id, value)
+    setFbThanks(false)
+    setFbMore(value === 'dislike' && m.feedback !== 'dislike' && Boolean(onFeedbackDetail))
+  }
   const sev = m.severity ? severityUi(m.severity) : null
   const offline = Boolean(m.offline)
   const cls = ['msg-ai', sev && !offline ? `msg-ai--sev msg-ai--${sev.cls}` : '', offline ? 'msg-ai--offline' : ''].join(' ')
@@ -111,7 +188,12 @@ export function AssistantMessage({ m, onFeedback, onShare, consultationId, guest
           <span className="msg-ai-name">{offline ? 'Offline estimate' : 'SankatAI'}</span>
           <time className="msg-ai-time" dateTime={m.createdAt}>{fmtTime(m.createdAt)}</time>
         </span>
-        {sev && <SeverityBadge severity={m.severity} score={m.riskScore} size="lg" />}
+        {sev && (
+          <span className="msg-ai-sev">
+            <SeverityBadge severity={m.severity} score={m.riskScore} size="lg" />
+            {confidence != null && <span className="msg-ai-conf" title="How sure the triage model is about this rating">{confidence}% confident</span>}
+          </span>
+        )}
       </header>
 
       {offline && (
@@ -128,6 +210,10 @@ export function AssistantMessage({ m, onFeedback, onShare, consultationId, guest
       ) : (
         tr.text && <RichText className="msg-ai-body" text={tr.text} lang={tr.shown === 'hi' ? 'hi' : 'en'} />
       )}
+      {details?.safetyNote && !m.severity && (
+        <p className="msg-ai-note"><AlertTriangle size={16} aria-hidden="true" /><span>{details.safetyNote} <a href="tel:108"><strong>Call 108</strong></a></span></p>
+      )}
+      {m.severity && details && <AssessmentDetails d={details} severity={m.severity} lang={replyLang} />}
       {tr.translated && <p className="msg-ai-translated">Translated to {TRANSLATION_NAMES[tr.shown]}</p>}
 
       {m.severity === 'EMERGENCY' && (
@@ -145,9 +231,8 @@ export function AssistantMessage({ m, onFeedback, onShare, consultationId, guest
       )}
       {m.followUp && <RichText className="msg-ai-body" text={m.followUp} />}
 
-      {m.severity && (
-        <p className="msg-ai-disclaimer"><ShieldCheck size={14} aria-hidden="true" /><span>{AI_DISCLAIMER}</span></p>
-      )}
+      {/* Always shown, questions included: guidance, never a diagnosis. */}
+      <p className="msg-ai-disclaimer"><ShieldCheck size={14} aria-hidden="true" /><span>{AI_DISCLAIMER}</span></p>
 
       {guest && (
         <footer className="msg-ai-foot">
@@ -158,8 +243,8 @@ export function AssistantMessage({ m, onFeedback, onShare, consultationId, guest
         <footer className="msg-ai-foot">
           <span className="msg-ai-foot-label" id={`fb-${m.id}`}>Was this helpful?</span>
           <div role="group" aria-labelledby={`fb-${m.id}`} className="msg-ai-fb">
-            <Button size="sm" variant="ghost" icon={ThumbsUp} aria-pressed={m.feedback === 'like'} onClick={() => onFeedback(m.id, 'like')}>Yes</Button>
-            <Button size="sm" variant="ghost" icon={ThumbsDown} aria-pressed={m.feedback === 'dislike'} onClick={() => onFeedback(m.id, 'dislike')}>No</Button>
+            <Button size="sm" variant="ghost" icon={ThumbsUp} aria-pressed={m.feedback === 'like'} onClick={() => vote('like')}>Yes</Button>
+            <Button size="sm" variant="ghost" icon={ThumbsDown} aria-pressed={m.feedback === 'dislike'} onClick={() => vote('dislike')}>No</Button>
           </div>
           <Button size="sm" variant="ghost" icon={Languages} className="msg-ai-translate" onClick={tr.advance}
             loading={tr.busy} loadingText="Translating…" aria-label={`Show this reply in ${TRANSLATION_NAMES[tr.next]}`}
@@ -170,6 +255,11 @@ export function AssistantMessage({ m, onFeedback, onShare, consultationId, guest
           <IconButton className="msg-ai-share" label="Share this response" icon={Share2} size={16} onClick={() => onShare(m)} tooltipAlign="end" />
         </footer>
       )}
+      {!guest && fbMore && m.feedback === 'dislike' && (
+        <FeedbackFollowUp messageId={m.id} onSubmit={(extra) => onFeedbackDetail(m.id, extra)}
+          onClose={(sent) => { setFbMore(false); setFbThanks(sent) }} />
+      )}
+      {!guest && fbThanks && <p className="msg-fb-thanks" role="status">Thank you — this helps SankatAI give better answers.</p>}
     </motion.article>
   )
 }

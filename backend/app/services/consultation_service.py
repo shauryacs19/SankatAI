@@ -17,8 +17,11 @@ from app.repositories import consultation_repository as repo
 from app.repositories import profile_repository
 from app.schemas.triage import Message as ChatMessage
 from app.schemas.triage import PatientProfile
-from app.services import analytics_service, language_service
+from app.core import config
+from app.services import analytics_service, feedback_service, language_service, vision_service
 from app.services.triage_service import run_triage
+
+PHOTO_PLACEHOLDER = "[Sent a photo]"  # stands in for a photo-only turn in the AI's context
 
 
 # --- helpers ---------------------------------------------------------------
@@ -96,13 +99,18 @@ def rename_consultation(user_id: str, consultation_id: str, title: str) -> Optio
 
 
 def set_message_feedback(
-    user_id: str, consultation_id: str, message_id: str, feedback: Optional[str]
+    user_id: str, consultation_id: str, message_id: str, feedback: Optional[str],
+    reason: Optional[str] = None, direction: Optional[str] = None, comment: Optional[str] = None,
 ) -> tuple[str, Optional[dict]]:
     """Record like/dislike on an AI message. Ownership is enforced by scoping to
-    the caller's user_id partition in the repository."""
+    the caller's user_id partition in the repository. The vote (with an optional
+    reason / comment) also goes, anonymised, to the triage feedback loop."""
     outcome, view, (old, old_at) = repo.set_message_feedback(user_id, consultation_id, message_id, feedback)
     if outcome == "ok" and old != feedback:
         _emit_feedback_change(user_id, old, old_at, feedback)
+    if outcome == "ok" and (old != feedback or reason or comment):
+        feedback_service.record(user_id, consultation_id, view, repo.list_messages(user_id, consultation_id),
+                                old=old, new=feedback, reason=reason, direction=direction, comment=comment)
     return outcome, view
 
 
@@ -123,14 +131,16 @@ def post_message(user_id: str, consultation_id: str, content: str,
                  attachment_ids: Optional[list] = None, lang: Optional[str] = None,
                  input_mode: Optional[str] = None) -> Optional[dict]:
     """Persist the user's message (optionally with attachments). If the message
-    has text, run triage and store the reply; an attachment-only message is just
-    recorded (no AI turn). Returns ``{userMessage, assistantMessage,
-    isOfflineFallback}`` or None when there's nothing to send.
+    has text OR a photo, run triage and store the reply (a session can start with
+    a photo); a message with only documents is just recorded (no AI turn).
+    Returns ``{userMessage, assistantMessage, isOfflineFallback}`` or None when
+    there's nothing to send.
 
     The reply language is resolved per message (voice `lang`, else Comprehend on
     the text, else the conversation's last language, else en-IN) and stored on
     both messages; the assistant's drives read-aloud.
     """
+    deadline = time.monotonic() + config.TRIAGE_TIME_BUDGET_SECONDS
     text = (content or "").strip()
     attachment_ids = list(attachment_ids or [])
     if not text and not attachment_ids:
@@ -138,6 +148,7 @@ def post_message(user_id: str, consultation_id: str, content: str,
 
     earlier = repo.list_messages(user_id, consultation_id)
     reply_lang = language_service.resolve_language(text, lang, language_service.last_language(earlier)) if text else None
+    photos = vision_service.photo_items(user_id, attachment_ids) if attachment_ids else []
 
     # Persist the user's message (with any attachment references).
     user_msg = repo.add_message(
@@ -147,28 +158,39 @@ def post_message(user_id: str, consultation_id: str, content: str,
     history_items = [*earlier, user_msg]
     analytics_service.touch_chat(consultation_id)
 
-    # Attachment-only message: record it, no AI turn.
-    if not text:
+    # Documents only: record it, no AI turn.
+    if not text and not photos:
         is_first_user_msg = sum(1 for m in history_items if m["role"] == "user") == 1
         if is_first_user_msg:
             repo.touch_consultation(user_id, consultation_id, title="Shared an attachment")
         else:
             repo.touch_consultation(user_id, consultation_id)
         return {"userMessage": user_msg, "assistantMessage": None, "isOfflineFallback": False}
+    if not text:
+        reply_lang = language_service.last_language(earlier) or language_service.DEFAULT_FALLBACK_LANGUAGE
 
-    # Build the conversation history (last 8 turns) for the AI.
+    # Build the conversation history (last 8 turns) for the AI. A photo-only
+    # turn gets a placeholder so the turn order stays intact.
     history = [
-        ChatMessage(role=m["role"], content=m["content"])
+        ChatMessage(role=m["role"], content=(m.get("content") or "").strip() or PHOTO_PLACEHOLDER)
         for m in history_items
-        if m["role"] in ("user", "assistant") and (m.get("content") or "").strip()
+        if m["role"] in ("user", "assistant")
+        and ((m.get("content") or "").strip() or (m["role"] == "user" and m.get("attachmentIds")))
     ][-8:]
+
+    # Findings for every photo in this conversation (cached per photo).
+    session_photo_ids = [a for m in history_items if m["role"] == "user" for a in (m.get("attachmentIds") or [])]
+    earlier_ids = [a for a in session_photo_ids if a not in attachment_ids]
+    earlier_photos = vision_service.photo_items(user_id, earlier_ids) if earlier_ids else []
+    findings = vision_service.findings_for(user_id, [*earlier_photos, *photos], deadline) if (photos or earlier_photos) else []
 
     patient_profile = _patient_profile_from_profile(profile_repository.get_profile(user_id))
 
-    input_type = "voice" if input_mode == "voice" else "text"
+    input_type = "image" if photos else "voice" if input_mode == "voice" else "text"
     analytics_service.emit("AI_REQUEST", user_id, input_type=input_type, has_attachments=bool(attachment_ids))
     started = time.perf_counter()
-    text, is_offline = run_triage(history, patient_profile, lang=reply_lang)
+    text, is_offline = run_triage(history, patient_profile, lang=reply_lang, session_id=consultation_id,
+                                  image_findings=findings, deadline=deadline)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     # An offline-fallback answer means the AI provider failed (or has no key).
     analytics_service.emit(
@@ -212,7 +234,7 @@ def post_message(user_id: str, consultation_id: str, content: str,
     repo.touch_consultation(
         user_id,
         consultation_id,
-        title=_title_from_text(content) if is_first_user_msg else None,
+        title=(_title_from_text(content) if (content or "").strip() else "Shared a photo") if is_first_user_msg else None,
         last_severity=severity,
     )
 

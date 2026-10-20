@@ -1,0 +1,4 @@
+# Offline training only (scripts/severity_model.py, CI tests). NOT installed in
+# the Docker image: the backend scores the exported JSON model in pure Python.
+scikit-learn>=1.7
+numpy>=2.1

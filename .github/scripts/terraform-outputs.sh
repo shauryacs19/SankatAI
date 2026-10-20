@@ -55,6 +55,8 @@ app_url:app_url
 # May legitimately be empty (invitations then answer 503 until it is set).
 OPTIONAL_MAPPINGS="
 ses_sender_email:ses_sender_email
+ml_artifacts_bucket_name:ml_artifacts_bucket_name
+triage_feedback_table_name:triage_feedback_table_name
 "
 
 missing=0

@@ -67,6 +67,8 @@ apps/mobile/ios/*.xcworkspace/xcuserdata/
 *.xcuserstate
 
 # ── Python / FastAPI backend ──
+# Downloaded training data (scripts/severity_model.py --download)
+backend/ml_data/
 __pycache__/
 *.py[cod]
 *$py.class

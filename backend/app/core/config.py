@@ -225,3 +225,35 @@ _analytics_salt = _secret("ANALYTICS_SALT")
 ANALYTICS_SALT = "" if _analytics_salt in {"", "PLACEHOLDER"} else _analytics_salt
 # Day boundaries for the daily buckets. India has no DST, so a fixed offset is exact.
 ANALYTICS_UTC_OFFSET_MINUTES = int(os.getenv("ANALYTICS_UTC_OFFSET_MINUTES", "330"))
+
+# --- Triage engine: severity model, adaptive questions, feedback loop ---
+# Severity is decided by a small classifier (JSON artifact, pure-Python scoring:
+# no scikit-learn in the image) plus red-flag rules; the LLM only explains it.
+# The current model comes from s3://ML_ARTIFACTS_BUCKET/severity/registry.json
+# (refreshed every SEVERITY_MODEL_REFRESH_SECONDS); without a bucket, or if S3
+# fails, the baseline bundled in app/ml/artifacts is used.
+ML_ARTIFACTS_BUCKET = os.getenv("ML_ARTIFACTS_BUCKET", f"{PROJECT_NAME}-ml-artifacts").strip()
+SEVERITY_MODEL_REFRESH_SECONDS = int(os.getenv("SEVERITY_MODEL_REFRESH_SECONDS", "600"))
+TRIAGE_CONFIDENCE_THRESHOLD = float(os.getenv("TRIAGE_CONFIDENCE_THRESHOLD", "0.75"))
+TRIAGE_MAX_QUESTIONS = int(os.getenv("TRIAGE_MAX_QUESTIONS", "5"))
+# Generation sampling (assessment + questions). Translation keeps 0.1.
+AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", "0.7"))
+AI_TOP_P = float(os.getenv("AI_TOP_P", "0.9"))
+# Whole-turn budget: API Gateway cuts HTTP APIs off at 30 s.
+TRIAGE_TIME_BUDGET_SECONDS = float(os.getenv("TRIAGE_TIME_BUDGET_SECONDS", "26"))
+# Feedback store (anonymised) + bandit counters. Empty disables both.
+TRIAGE_FEEDBACK_TABLE = os.getenv("TRIAGE_FEEDBACK_TABLE", f"{PROJECT_NAME}-triage-feedback").strip()
+TRIAGE_FEEDBACK_TTL_DAYS = int(os.getenv("TRIAGE_FEEDBACK_TTL_DAYS", "365"))
+BANDIT_CACHE_SECONDS = int(os.getenv("BANDIT_CACHE_SECONDS", "300"))
+
+# --- Image-first triage ---
+# Ollama Cloud does not serve llava / llama3.2-vision, and the t3.micro (1 GB)
+# cannot run them on CPU, so the default is Ollama Cloud's gemma4. To use llava,
+# point AI_VISION_BASE_URL at a self-hosted Ollama (http://host:11434/v1) and set
+# AI_VISION_MODEL=llava. Same OpenAI-compatible API either way.
+AI_VISION_BASE_URL = os.getenv("AI_VISION_BASE_URL", AI_BASE_URL)
+AI_VISION_MODEL = os.getenv("AI_VISION_MODEL", "gemma4:31b")
+AI_VISION_TIMEOUT = float(os.getenv("AI_VISION_TIMEOUT", "12"))
+TRIAGE_IMAGE_MAX_BYTES = int(os.getenv("TRIAGE_IMAGE_MAX_BYTES", str(8 * 1024 * 1024)))
+TRIAGE_IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp")
+TRIAGE_IMAGE_MAX_PIXELS = 40_000_000  # decompression-bomb guard

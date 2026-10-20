@@ -65,3 +65,14 @@ variable "ses_sender_email" {
   type        = string
   default     = ""
 }
+
+# ── Triage ML ────────────────────────────────────────────────────────────────
+variable "triage_feedback_table_arn" {
+  description = "Anonymised triage feedback + bandit counters: read/write, no Scan."
+  type        = string
+}
+
+variable "ml_artifacts_bucket_arn" {
+  description = "Severity-model registry + artifacts: read-only for the backend."
+  type        = string
+}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class CreateConsultationRequest(BaseModel):
@@ -56,6 +56,19 @@ class PostMessageResponse(BaseModel):
 class FeedbackRequest(BaseModel):
     # None clears any existing feedback for the message.
     feedback: Optional[Literal["like", "dislike"]] = None
+    # Optional, additive: why a reply was not helpful (only with "dislike"), and
+    # for a wrong severity whether it should have been higher or lower.
+    reason: Optional[Literal["inaccurate", "too_generic", "wrong_severity"]] = None
+    direction: Optional[Literal["higher", "lower"]] = None
+    comment: Optional[str] = Field(default=None, max_length=280)
+
+    @model_validator(mode="after")
+    def _reason_needs_dislike(self):
+        if self.reason and self.feedback != "dislike":
+            raise ValueError("A reason can only be given with a 'No' (dislike).")
+        if self.direction and self.reason != "wrong_severity":
+            raise ValueError("direction is only valid with reason 'wrong_severity'.")
+        return self
 
 
 class TranslateRequest(BaseModel):

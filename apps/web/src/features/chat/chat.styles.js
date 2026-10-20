@@ -92,6 +92,27 @@ export const CHAT_CSS = `
 .msg-ai-fb { display: flex; gap: var(--space-1); }
 .msg-ai-share { margin-left: auto; }
 
+/* v2 assessment: severity + confidence, structured sections, safety note */
+.msg-ai-sev { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
+.msg-ai-head .msg-ai-sev .ui-sev { margin-left: 0; }
+.msg-ai-conf { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-muted); }
+.msg-ai-details { display: flex; flex-direction: column; gap: var(--space-4); }
+.msg-ai-sec { display: flex; flex-direction: column; gap: var(--space-2); }
+.msg-ai-sec h3 { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-semibold); color: var(--text-secondary); }
+.msg-ai-sec p, .msg-ai-sec li { font-size: var(--fs-md); line-height: 1.65; overflow-wrap: anywhere; }
+.msg-ai-sec--care { padding: var(--space-3) var(--space-4); border-radius: var(--radius-card); background: var(--surface-tint); }
+.msg-ai-note { display: flex; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-radius: var(--radius-card); background: var(--warning-soft); border: 1px solid var(--warning-border); font-size: var(--fs-sm); line-height: var(--lh-sm); }
+.msg-ai-note svg { color: var(--warning); flex-shrink: 0; margin-top: 0.125rem; }
+
+/* "No" follow-up: optional reason + comment */
+.msg-fb-more { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border-radius: var(--radius-card); background: var(--surface-tint); }
+.msg-fb-more-title { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--fw-semibold); }
+.msg-fb-more-title span, .msg-fb-more-sub { font-weight: var(--fw-regular, 400); color: var(--text-muted); font-size: var(--fs-sm); }
+.msg-fb-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.msg-fb-chips .ui-chip[aria-pressed="true"] { background: var(--primary-soft); color: var(--primary-text); border-color: var(--primary-border); }
+.msg-fb-actions { display: flex; gap: var(--space-2); }
+.msg-fb-thanks { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-secondary); }
+
 /* ----- error row (a failed send — not an AI message) ----- */
 .msg-error {
   display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-4) var(--space-5);

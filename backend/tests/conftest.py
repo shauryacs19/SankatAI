@@ -34,6 +34,22 @@ def _analytics_off(monkeypatch):
     monkeypatch.setattr(config, "ANALYTICS_ENABLED", False)
 
 
+@pytest.fixture(autouse=True)
+def _triage_offline(monkeypatch):
+    """No test reaches S3 for the severity model or writes triage feedback,
+    unless it opts in: the bundled baseline model, uniform bandit priors."""
+    from app.ml import severity_model
+    from app.services import bandit_service
+
+    monkeypatch.setattr(config, "ML_ARTIFACTS_BUCKET", "")
+    monkeypatch.setattr(config, "TRIAGE_FEEDBACK_TABLE", "")
+    severity_model.reset_for_tests()
+    bandit_service.reset_for_tests({})
+    yield
+    severity_model.reset_for_tests()
+    bandit_service.reset_for_tests()
+
+
 class _SigningKey:
     def __init__(self, key):
         self.key = key

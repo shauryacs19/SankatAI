@@ -30,7 +30,7 @@ def env(monkeypatch):
 
     calls = {"triage": [], "writes": []}
 
-    def fake_triage(history, profile, lang=None):
+    def fake_triage(history, profile, lang=None, **_kw):
         calls["triage"].append(([m.role for m in history], profile, lang))
         return REPLY, False
 

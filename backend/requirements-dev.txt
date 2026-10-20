@@ -1,8 +1,10 @@
 # Test-only dependencies. Not installed in the Docker image (it installs
 # requirements.txt only). httpx is required by fastapi.testclient.
 -r requirements.txt
+# Training code + the JSON-scorer parity test (tests/test_severity_model.py).
+-r requirements-ml.txt
 pytest>=8.3.0
 pytest-cov>=6.0.0
 httpx>=0.28.0
 # In-memory DynamoDB/Cognito/SES/CloudWatch for the admin + analytics tests.
-moto[cognitoidp,dynamodb]>=5.1.0
+moto[cognitoidp,dynamodb,s3]>=5.1.0

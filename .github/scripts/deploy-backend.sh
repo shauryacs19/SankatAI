@@ -48,6 +48,9 @@ INSTANCE_NAME_TAG="${INSTANCE_NAME_TAG:-sankatai-backend}"
 : "${API_GATEWAY_ID:?missing - expected from terraform output api_gateway_id}"
 : "${APP_URL:?missing - expected from terraform output app_url}"
 SES_SENDER_EMAIL="${SES_SENDER_EMAIL:-}"
+# Triage ML (optional; empty = the backend's PROJECT_NAME-derived defaults).
+ML_ARTIFACTS_BUCKET="${ML_ARTIFACTS_BUCKET:-}"
+TRIAGE_FEEDBACK_TABLE="${TRIAGE_FEEDBACK_TABLE:-}"
 
 # ── Resolve the target instance ─────────────────────────────────────────────
 if [ -n "${INSTANCE_ID:-}" ]; then
@@ -146,6 +149,8 @@ export ANALYTICS_SALT_SECRET_ID='${ANALYTICS_SALT_SECRET_ID}'
 export API_GATEWAY_ID='${API_GATEWAY_ID}'
 export APP_URL='${APP_URL}'
 export SES_SENDER_EMAIL='${SES_SENDER_EMAIL}'
+export ML_ARTIFACTS_BUCKET='${ML_ARTIFACTS_BUCKET}'
+export TRIAGE_FEEDBACK_TABLE='${TRIAGE_FEEDBACK_TABLE}'
 PRE
 )
 
