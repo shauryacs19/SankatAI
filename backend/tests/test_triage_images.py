@@ -26,6 +26,7 @@ def env(aws, monkeypatch):
     boto3.client("s3", region_name="ap-south-1").create_bucket(
         Bucket=config.CHAT_BUCKET, CreateBucketConfiguration={"LocationConstraint": "ap-south-1"})
     monkeypatch.setattr(triage_service, "ai_key_configured", lambda: False)  # no background vision unless a test wants it
+    vision_service._recent.clear()
     app = FastAPI()
     app.include_router(router)
     return TestClient(app), boto3.client("s3", region_name="ap-south-1")
@@ -137,3 +138,24 @@ def test_photo_only_message_gets_a_triage_turn_from_its_findings(env, monkeypatc
     # The next turn reuses the cached findings.
     consultation_service.post_message(USER, body["consultationId"], "it is still bleeding a bit")
     assert ai.images == 1
+
+
+def test_a_finished_prefetch_is_not_analysed_again(env, monkeypatch):
+    """The race CI hit: the background analysis finishes after the turn read the
+    photo row (no findings yet) but before it looked for an in-flight job."""
+    client, s3 = env
+    ai = FakeAI()
+    monkeypatch.setattr(vision_service, "get_provider", lambda: ai)
+    monkeypatch.setattr(triage_service, "ai_key_configured", lambda: True)
+    body, _ = upload(client, s3, jpeg_with_gps())
+    monkeypatch.setattr(vision_service, "prefetch", lambda *a: None)  # drive the timing by hand
+    assert client.post(f"/api/v2/triage/images/{body['imageId']}/complete", headers={"x-user-id": USER}).status_code == 200
+
+    stale = vision_service._repo().get(USER, body["imageId"])  # read before the analysis lands
+    assert vision_service.cached(stale) is None
+    vision_service._task(USER, dict(stale))  # the background job completes now
+    assert ai.images == 1
+
+    import time
+    findings = vision_service.findings_for(USER, [stale], time.monotonic() + 5)
+    assert ai.images == 1 and findings[0]["severityCue"] == "severe"

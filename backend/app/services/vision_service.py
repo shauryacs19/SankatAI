@@ -12,6 +12,7 @@ import json
 import logging
 import threading
 import time
+from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Optional
 
@@ -23,6 +24,11 @@ logger = logging.getLogger("sankatai")
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="vision")
 _inflight: dict[str, Future] = {}
+# Just-finished findings, recorded BEFORE the in-flight entry is dropped: a turn
+# that read the row before the prefetch wrote it finds them here instead of
+# paying for a second vision call.
+_recent: "OrderedDict[str, dict]" = OrderedDict()
+_RECENT_MAX = 256
 _lock = threading.Lock()
 _CUES = ("none", "mild", "moderate", "severe")
 
@@ -87,8 +93,16 @@ def _analyze(user_id: str, item: dict) -> Optional[dict]:
 
 
 def _task(user_id: str, item: dict) -> Optional[dict]:
+    aid = item["attachment_id"]
     try:
-        return _analyze(user_id, item)
+        findings = _analyze(user_id, item)
+        if findings is not None:
+            with _lock:
+                _recent[aid] = findings
+                _recent.move_to_end(aid)
+                while len(_recent) > _RECENT_MAX:
+                    _recent.popitem(last=False)
+        return findings
     except image_safety.ImageRejected:
         return None
     except Exception as err:  # noqa: BLE001 - no findings, the turn continues
@@ -96,11 +110,15 @@ def _task(user_id: str, item: dict) -> Optional[dict]:
         return None
     finally:
         with _lock:
-            _inflight.pop(item["attachment_id"], None)
+            _inflight.pop(aid, None)
 
 
 def _submit(user_id: str, item: dict) -> Future:
     with _lock:
+        if item["attachment_id"] in _recent:
+            done: Future = Future()
+            done.set_result(_recent[item["attachment_id"]])
+            return done
         fut = _inflight.get(item["attachment_id"])
         if fut is None:
             fut = _executor.submit(_task, user_id, item)
