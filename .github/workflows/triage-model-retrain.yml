@@ -52,7 +52,8 @@ jobs:
       # The job holds AWS credentials: install only the exact, hash-verified
       # wheels in the lock file (no sdists, so no setup scripts run).
       - name: Install
-        run: pip install --only-binary :all: --require-hashes --no-deps -r requirements-retrain.lock
+        run: |
+          pip install --only-binary :all: --require-hashes --no-deps -r requirements-retrain.lock
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4

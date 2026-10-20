@@ -201,7 +201,9 @@ describe('login', () => {
     await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
     fill()
     for (let i = 0; i < 5; i += 1) {
-      submit()
+      // The button reads "Signing in…" until the previous attempt has settled;
+      // clicking by name before that was flaky under CI load.
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }))
       await waitFor(() => expect(auth.signIn).toHaveBeenCalledTimes(i + 1))
     }
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' }).getAttribute('aria-disabled')).toBe('true'))
