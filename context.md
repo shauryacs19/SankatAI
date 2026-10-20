@@ -766,7 +766,9 @@ consultation if absent and returns a presigned PUT with Content-Type **and Conte
 re-encoding from pixels, overwrite, `mark_sanitized`, background vision prefetch. Rows are normal chat attachments
 (`source=triage-v2`). `post_message` now runs an AI turn for a **photo-only** message (documents-only still none);
 `services/vision_service` analyses up to 3 photos per conversation (cached as `vision_findings` on the attachment
-row, also for v1/mobile photos) → findings feed features/text/red flags. Vision = `AI_VISION_MODEL` on
+row, also for v1/mobile photos; just-finished results are also kept in-process (`_recent`, 256) so a turn racing the
+upload's background prefetch never pays for a second vision call — the CI flake fixed 2026-10-20) → findings feed
+features/text/red flags. Vision = `AI_VISION_MODEL` on
 `AI_VISION_BASE_URL`: default **`gemma4:31b` on Ollama Cloud**, because Ollama Cloud does not serve llava /
 llama3.2-vision and the t3.micro cannot run them on CPU; set `AI_VISION_BASE_URL=http://<host>:11434/v1`,
 `AI_VISION_MODEL=llava` for a self-hosted Ollama. Web: photo attach works without an open chat; the browser
@@ -792,8 +794,8 @@ bucket (versioned, SSE, public-access block, noncurrent 90 d), table (on-demand,
 `TRIAGE_FEEDBACK_TABLE` **optionally** (empty before the apply; config defaults `{PROJECT_NAME}-ml-artifacts` /
 `-triage-feedback` already match because the container gets `PROJECT_NAME=sankatai`). Cost: cents/month.
 **Deps:** backend `Pillow`; `requirements-ml.txt` (scikit-learn, numpy) for training + CI only; dev `moto[s3]`.
-**Tests:** backend `test_severity_model.py` (20), `test_triage_engine.py` (40), `test_triage_images.py` (7),
-`test_feedback.py` (11) → 230 total; web `features/chat/triage.test.jsx` (6) → 154. conftest autouse
+**Tests:** backend `test_severity_model.py` (20), `test_triage_engine.py` (40), `test_triage_images.py` (8),
+`test_feedback.py` (11) → 231 total; web `features/chat/triage.test.jsx` (6) → 154. conftest autouse
 `_triage_offline` (no S3, no feedback table, uniform bandit).
 **Known limits:** labels are heuristic (bootstrap) until enough feedback/clinician review; English-centric TF-IDF
 (Hindi templates are few); name scrubbing is pattern-based; vision findings are only as good as gemma4 and are never
