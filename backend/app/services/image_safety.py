@@ -11,7 +11,7 @@ from __future__ import annotations
 import base64
 import io
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 
 from app.core import config
 
@@ -37,7 +37,7 @@ def _open(data: bytes) -> Image.Image:
         probe.verify()  # structure check; the object is unusable afterwards
         image = Image.open(io.BytesIO(data))
         image.load()
-    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, SyntaxError, ValueError) as err:
+    except (Image.DecompressionBombError, OSError, SyntaxError, ValueError) as err:  # incl. UnidentifiedImageError
         raise ImageRejected(415, "This file is not a supported photo (JPEG, PNG or WebP).") from err
     if image.format not in _FORMATS:
         raise ImageRejected(415, "This file is not a supported photo (JPEG, PNG or WebP).")

@@ -14,7 +14,8 @@ import re
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
 _PAN = re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b", re.I)
-_DIGITS = re.compile(r"(?<![\d/.])\+?\d[\d\s-]{4,}\d(?![\d/.])")
+# Digits joined by at most one space or dash: 6+ of them (phone, Aadhaar, PIN).
+_DIGITS = re.compile(r"(?<![\d/.])\+?\d(?:[\s-]?\d){5,}(?![\d/.])")
 _NAME = re.compile(r"\b(my name is|i am called|this is|mera naam|मेरा नाम)\s+([^\W\d_][\w'-]*(?:\s+[^\W\d_][\w'-]*)?)", re.I)
 _NAME_STOP = {"not", "very", "feeling", "having", "in", "a", "an", "the", "so", "too"}
 

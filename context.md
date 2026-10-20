@@ -758,7 +758,9 @@ severity higher/lower = ±1 at weight 0.5, never below the rule floor, reviewed 
 current model on the same data: macro-F1, under-triage, HIGH+ recall, feedback accuracy (n≥30) within 0.01, and
 safety cases 100 % EMERGENCY; `promote VERSION` (still safety-gated), `rollback [--to]` (promoted versions only),
 `list`. Weekly job `.github/workflows/triage-model-retrain.yml` (Mon 03:00 IST, GitHub runner, secret
-`AWS_RETRAIN_ROLE_ARN` = output `model_retrain_role_arn`).
+`AWS_RETRAIN_ROLE_ARN` = output `model_retrain_role_arn`): actions pinned to commit SHAs; installs ONLY
+`backend/requirements-retrain.lock` (`--only-binary :all: --require-hashes`; regenerate with the `uv pip compile`
+command in its header after changing requirements.txt / requirements-ml.txt).
 
 **Image-first triage:** `POST /api/v2/triage/images {contentType jpeg|png|webp, size, consultationId?}` creates the
 consultation if absent and returns a presigned PUT with Content-Type **and Content-Length signed**;
@@ -788,14 +790,18 @@ Why this rating + "NN% confident"; the disclaimer shows on every reply incl. que
 `byInputType.image` is now recorded (`input_type=image` for photo turns).
 
 **Infra (`modules/triage_ml`) — APPLIED 2026-10-19** (`-target=module.triage_ml -target=module.iam -target=module.ecr`, 8 add, 1 in-place, 0 destroy; re-plan = no changes; verified: bucket versioned/AES256/public-blocked/90 d noncurrent, table ACTIVE + TTL + PITR, backend policy 15 → 18 statements, retrain role trust = repo main only). Registry is still EMPTY, so the backend serves the bundled baseline until a model is promoted. GitHub secret `AWS_RETRAIN_ROLE_ARN` = `arn:aws:iam::945139114868:role/sankatai-model-retrain`. Set 2026-10-20. Code: PR #3 (`feature/triage-engine-v2`, opened 2026-10-20; merging deploys).
-bucket (versioned, SSE, public-access block, noncurrent 90 d), table (on-demand, SSE, PITR, TTL), retrain role
+bucket (versioned, SSE, public-access block, noncurrent 90 d, HTTPS-only bucket policy — **added 2026-10-20 for
+Sonar S6249, NOT applied yet**; access logging off by a reviewed `NOSONAR(terraform:S6258)`), table (on-demand, SSE, PITR, TTL), retrain role
 (Query feedback; Get/Put `severity/*`; ListBucket); backend role + feedback Get/Put/Update/Delete/Query + S3 Get
 `severity/*` + ListBucket. `ecr` module outputs `github_assume_role_policy_json`. CD passes `ML_ARTIFACTS_BUCKET` /
 `TRIAGE_FEEDBACK_TABLE` **optionally** (empty before the apply; config defaults `{PROJECT_NAME}-ml-artifacts` /
 `-triage-feedback` already match because the container gets `PROJECT_NAME=sankatai`). Cost: cents/month.
 **Deps:** backend `Pillow`; `requirements-ml.txt` (scikit-learn, numpy) for training + CI only; dev `moto[s3]`.
 **Tests:** backend `test_severity_model.py` (20), `test_triage_engine.py` (40), `test_triage_images.py` (8),
-`test_feedback.py` (11) → 231 total; web `features/chat/triage.test.jsx` (6) → 154. conftest autouse
+`test_feedback.py` (11), `test_severity_cli.py` (6, the CLI end to end on moto) → 237 total; web
+`features/chat/triage.test.jsx` (7) → 155. CI now measures `--cov=app --cov=scripts` (scripts were tested but
+reported 0 %). Regexes run on user text avoid overlapping quantifiers (Sonar S8786, linear matching).
+⚠️ `src/app/auth.test.jsx` "throttles after five failures" is timing-flaky under full-suite load (pre-existing). conftest autouse
 `_triage_offline` (no S3, no feedback table, uniform bandit).
 **Known limits:** labels are heuristic (bootstrap) until enough feedback/clinician review; English-centric TF-IDF
 (Hindi templates are few); name scrubbing is pattern-based; vision findings are only as good as gemma4 and are never

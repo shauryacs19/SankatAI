@@ -101,7 +101,7 @@ def build_item(*, consultation_id: str, message: dict, query: str, vote: str, re
     return _dyn({k: v for k, v in item.items() if v is not None})
 
 
-def model_text(user_id: str, consultation_id: str, messages: list[dict], message_id: str) -> str:
+def model_text(user_id: str, messages: list[dict], message_id: str) -> str:
     """The text the model saw for this reply, rebuilt from the turns before it."""
     from app.ml.features import build_features
     from app.schemas.triage import Message
@@ -133,7 +133,7 @@ def record(user_id: str, consultation_id: str, message: dict, messages: list[dic
             reply_at = message.get("createdAt") or ""
             repo.delete(f"FB#{reply_at[:7]}", f"{reply_at}#{pseudonym('message', message.get('id') or reply_at)}")
         else:
-            query = model_text(user_id, consultation_id, messages, message.get("id"))
+            query = model_text(user_id, messages, message.get("id"))
             repo.put(build_item(consultation_id=consultation_id, message=message, query=query, vote=new_vote,
                                 reason=reason if new_vote == "no" else None,
                                 direction=direction if reason == "wrong_severity" else None, comment=comment))

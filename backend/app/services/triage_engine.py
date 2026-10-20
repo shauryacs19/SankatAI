@@ -395,7 +395,7 @@ def run(
             llm = parsed if isinstance(parsed, dict) else {}
         except Exception as error:  # noqa: BLE001 - template reply below
             from app.services.triage_service import classify_provider_error
-            logger.error("AI generation failed [%s]: %s", classify_provider_error(error), type(error).__name__)
+            logger.exception("AI generation failed [%s]: %s", classify_provider_error(error), type(error).__name__)
             llm = {}
     usable = bool(llm.get("question") if d.mode == "ask" else llm.get("advice"))
     # Template text is English: offline replies are stored as en-IN (read-aloud, translate).

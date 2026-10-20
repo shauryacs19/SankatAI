@@ -43,8 +43,9 @@ jobs:
         working-directory: backend
         run: |
           if [ -d tests ]; then
-            # coverage.xml (Cobertura) is read by the sonarqube job.
-            pytest -q --cov=app --cov-report=xml
+            # coverage.xml (Cobertura) is read by the sonarqube job. scripts/
+            # (admin bootstrap, model training) is tested too, so measure it.
+            pytest -q --cov=app --cov=scripts --cov-report=xml
           else
             echo "No backend tests directory found - skipping tests"
           fi

@@ -105,7 +105,7 @@ function AssessmentDetails({ d, severity, lang }) {
     <div className="msg-ai-details" lang={lang}>
       {d.seekCare && <div className="msg-ai-sec msg-ai-sec--care"><h3>When to get care</h3><p>{d.seekCare}</p></div>}
       {lists.map(([title, items]) => (
-        <div key={title} className="msg-ai-sec"><h3>{title}</h3><ul className="ui-list">{items.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+        <div key={title} className="msg-ai-sec"><h3>{title}</h3><ul className="ui-list">{items.map((x) => <li key={x}>{x}</li>)}</ul></div>
       ))}
       {d.reasoning && <div className="msg-ai-sec"><h3>Why this rating</h3><p>{d.reasoning}</p></div>}
     </div>

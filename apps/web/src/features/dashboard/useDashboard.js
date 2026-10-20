@@ -283,7 +283,7 @@ export function useDashboard() {
   const onPhotosSelected = async (picked) => {
     let cid = activeId
     for (const f of picked) {
-      const localId = `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+      const localId = `att-${crypto.randomUUID()}`
       const previewUrl = URL.createObjectURL(f)
       setAttachments((prev) => [...prev, { localId, name: f.name, kind: 'photo', status: 'uploading', previewUrl }])
       try {

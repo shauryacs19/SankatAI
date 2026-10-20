@@ -82,3 +82,42 @@ describe('photo preparation', () => {
     expect(fitWithin(800, 600)).toEqual({ width: 800, height: 600 })
   })
 })
+
+describe('photo upload (v2)', () => {
+  it('re-encodes the photo, uploads the exact signed size, then completes', async () => {
+    const { uploadTriageImage, checkImageFile, ImageCheckError } = await import('./services/triageImages')
+    const http = await import('../../services/api/httpClient')
+    const calls = []
+    const request = vi.spyOn(http, 'request').mockImplementation(async (path, opts = {}) => {
+      calls.push([path, opts.body])
+      return path.endsWith('/complete')
+        ? { imageId: 'img1', consultationId: 'c9', previewUrl: 'https://s3/preview' }
+        : { imageId: 'img1', consultationId: 'c9', uploadUrl: 'https://s3/put', uploadHeaders: { 'Content-Type': 'image/jpeg' } }
+    })
+    const jpeg = new Blob([new Uint8Array(1234)], { type: 'image/jpeg' })
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 4000, height: 3000, close: vi.fn() })))
+    const realCreate = document.createElement.bind(document)
+    const draw = vi.fn()
+    vi.spyOn(document, 'createElement').mockImplementation((tag) => (tag === 'canvas'
+      ? { width: 0, height: 0, getContext: () => ({ drawImage: draw }), toBlob: (cb) => cb(jpeg) }
+      : realCreate(tag)))
+    const put = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('fetch', put)
+
+    const file = new File(['x'], 'IMG_0001.HEIC', { type: 'image/heic' })
+    const rec = await uploadTriageImage(file, null)
+    expect(rec).toEqual({ imageId: 'img1', consultationId: 'c9', previewUrl: 'https://s3/preview' })
+    expect(draw).toHaveBeenCalledWith(expect.anything(), 0, 0, 2048, 1536)
+    expect(calls[0]).toEqual(['/v2/triage/images', { contentType: 'image/jpeg', size: 1234 }])
+    expect(put).toHaveBeenCalledWith('https://s3/put', { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: jpeg })
+    expect(calls[1][0]).toBe('/v2/triage/images/img1/complete')
+
+    expect(() => checkImageFile(new File(['x'], 'a.pdf', { type: 'application/pdf' }))).toThrow(ImageCheckError)
+    put.mockResolvedValueOnce({ ok: false })
+    await expect(uploadTriageImage(file, 'c9')).rejects.toThrow(/could not be uploaded/)
+    expect(calls[2][1]).toEqual({ contentType: 'image/jpeg', size: 1234, consultationId: 'c9' })
+    request.mockRestore()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+})

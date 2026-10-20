@@ -14,7 +14,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import random
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Iterable, Optional
@@ -37,8 +36,11 @@ TARGET_PRIOR = {"LOW": 0.40, "MODERATE": 0.33, "HIGH": 0.19, "EMERGENCY": 0.08}
 def split_groups(rows: list[Example], seed: int, val: float = 0.15, test: float = 0.15):
     """Split by group so augmentations of one complaint never straddle splits.
     Feedback rows are split by time instead: the newest go to test."""
-    groups = sorted({r.group for r in rows if r.source != "feedback"})
-    random.Random(seed).shuffle(groups)
+    import numpy as np
+
+    # A reproducible shuffle for the data split (not security-sensitive).
+    ordered = sorted({r.group for r in rows if r.source != "feedback"})
+    groups = [ordered[i] for i in np.random.default_rng(seed).permutation(len(ordered))]
     n = len(groups)
     test_g = set(groups[: int(n * test)])
     val_g = set(groups[int(n * test): int(n * (test + val))])
@@ -205,7 +207,7 @@ TOLERANCE = 0.01
 def gate(candidate: dict, current: Optional[dict]) -> tuple[bool, list[str]]:
     """``candidate``/``current`` = {"test": metrics, "safety": metrics, "feedback": metrics?}."""
     problems = []
-    if candidate["safety"].get("emergency_recall") != 1.0:
+    if (candidate["safety"].get("emergency_recall") or 0) < 1:
         problems.append("a red-flag safety case did not end as EMERGENCY")
     if current:
         c, p = candidate["test"], current["test"]

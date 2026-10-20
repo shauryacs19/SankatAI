@@ -58,8 +58,8 @@ docker rm -f sankatai-backend 2>/dev/null || true
 # their config.py defaults (sankatai-ml-artifacts / sankatai-triage-feedback)
 # already match Terraform, so a deploy before that apply still works.
 OPTIONAL_ENV=()
-if [ -n "${ML_ARTIFACTS_BUCKET:-}" ]; then OPTIONAL_ENV+=(-e "ML_ARTIFACTS_BUCKET=${ML_ARTIFACTS_BUCKET}"); fi
-if [ -n "${TRIAGE_FEEDBACK_TABLE:-}" ]; then OPTIONAL_ENV+=(-e "TRIAGE_FEEDBACK_TABLE=${TRIAGE_FEEDBACK_TABLE}"); fi
+if [[ -n "${ML_ARTIFACTS_BUCKET:-}" ]]; then OPTIONAL_ENV+=(-e "ML_ARTIFACTS_BUCKET=${ML_ARTIFACTS_BUCKET}"); fi
+if [[ -n "${TRIAGE_FEEDBACK_TABLE:-}" ]]; then OPTIONAL_ENV+=(-e "TRIAGE_FEEDBACK_TABLE=${TRIAGE_FEEDBACK_TABLE}"); fi
 
 docker run -d \
   --name sankatai-backend \

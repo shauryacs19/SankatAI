@@ -64,7 +64,7 @@ _NEG_BEFORE = re.compile(
     r"\b(no|not|without|denies|deny|never|none|neither|nor|don'?t have|do not have|"
     r"haven'?t|have not|hasn'?t|isn'?t|aren'?t|wasn'?t|free of|absence of)\b"
 )
-_NEG_AFTER = re.compile(r"^\W*(?:\S+\s+){0,2}?(nahi|nahin|nhi|nai|नहीं|नही|na)\b")
+_NEG_AFTER = re.compile(r"^\s*(?:\S+\s+){0,2}?(?:nahi|nahin|nhi|nai|नहीं|नही|na)\b")
 
 
 _CLAUSE = re.compile(r"[,.;:!?।]|\b(?:but|however|though|although|except|lekin|magar|par|पर|लेकिन|मगर)\b")
@@ -131,7 +131,7 @@ _UNITS = [
     (r"months?|mahin[ea]|महीन[ेा]", 30), (r"years?|yrs?|saal|साल|वर्ष", 365),
 ]
 _NUM = r"(\d+(?:\.\d+)?|" + "|".join(sorted(map(re.escape, _NUM_WORDS), key=len, reverse=True)) + r")"
-_DURATION_RES = [(re.compile(_NUM + r"\s*(?:-\s*)?(?:" + unit + r")\b"), days) for unit, days in _UNITS]
+_DURATION_RES = [(re.compile(_NUM + r"[\s-]*(?:" + unit + r")\b"), days) for unit, days in _UNITS]
 _RELATIVE = [
     (re.compile(r"just now|few minutes|suddenly|abhi abhi|अभी"), 0.05),
     (re.compile(r"since (?:this )?morning|since today|today|this morning|tonight|aaj|subah se|आज"), 0.3),
@@ -220,12 +220,15 @@ def age_band(age: Optional[float]) -> str:
 
 # --- vitals and pain ------------------------------------------------------
 
-_TEMP = re.compile(r"(\d{2,3}(?:\.\d+)?)\s*(?:°|º|deg(?:rees?)?)?\s*(f|c|fahrenheit|celsius)\b")
-_TEMP_CTX = re.compile(r"(?:temp(?:erature)?|fever|bukh?aa?r|बुखार)\s*(?:is|of|was|at|:|-|=|hai)?\s*(?:around |about )?(\d{2,3}(?:\.\d+)?)")
-_HR = re.compile(r"(?:pulse|heart ?rate|\bhr\b|dhadkan)\s*(?:is|of|was|:|-|=)?\s*(\d{2,3})|(\d{2,3})\s*bpm")
-_SPO2 = re.compile(r"(?:spo2|sp02|oxygen(?: level| saturation| sat)?|\bo2(?: sat\w*)?|\bsats?\b|saturation)\s*(?:is|of|was|level|:|-|=|at)?\s*(\d{2,3})\s*%?")
-_BP = re.compile(r"(?:\bbp\b|blood pressure)\s*(?:is|of|was|:|-|=)?\s*(\d{2,3})\s*/\s*(\d{2,3})|(\d{2,3})\s*/\s*(\d{2,3})\s*mm\s*hg")
-_RR = re.compile(r"(?:resp(?:iratory)? rate|\brr\b|breathing rate)\s*(?:is|of|:|-|=)?\s*(\d{1,2})|(\d{1,2})\s*breaths")
+# Each optional joiner owns its trailing spaces ("(?:(?:is|...)\s*)?"), so no
+# two quantifiers can match the same characters: matching stays linear.
+_LINK = r"\s*(?:(?:is|of|was|at|level|hai|[:=-])\s*)?"
+_TEMP = re.compile(r"(\d{2,3}(?:\.\d+)?)\s*(?:(?:°|º|deg(?:rees?)?)\s*)?(f|c|fahrenheit|celsius)\b")
+_TEMP_CTX = re.compile(r"(?:temp(?:erature)?|fever|bukh?aa?r|बुखार)" + _LINK + r"(?:(?:around|about)\s+)?(\d{2,3}(?:\.\d+)?)")
+_HR = re.compile(r"(?:pulse|heart ?rate|\bhr\b|dhadkan)" + _LINK + r"(\d{2,3})|(\d{2,3})\s*bpm")
+_SPO2 = re.compile(r"(?:spo2|sp02|oxygen(?: level| saturation| sat)?|\bo2(?: sat\w*)?|\bsats?\b|saturation)" + _LINK + r"(\d{2,3})")
+_BP = re.compile(r"(?:\bbp\b|blood pressure)" + _LINK + r"(\d{2,3})\s*/\s*(\d{2,3})|(\d{2,3})\s*/\s*(\d{2,3})\s*mm\s*hg")
+_RR = re.compile(r"(?:resp(?:iratory)? rate|\brr\b|breathing rate)" + _LINK + r"(\d{1,2})|(\d{1,2})\s*breaths")
 _PAIN_SCORE = re.compile(r"\b(\d{1,2})\s*(?:/|out of)\s*10\b")
 _PAIN_SEVERE = re.compile(r"unbearable|excruciating|worst|severe pain|very (?:bad|severe|painful)|terrible|bahut (?:tez|zyada) dard|बहुत तेज़? दर्द|असहनीय")
 _PAIN_MILD = re.compile(r"\bmild|slight|a little|little bit|minor|halk[aei]|हल्का")
@@ -303,7 +306,7 @@ class Features:
     spo2: Optional[float] = None
     sbp: Optional[float] = None
     resp_rate: Optional[float] = None
-    flags: dict[str, int] = field(default_factory=lambda: {k: 0 for k in TRISTATE})
+    flags: dict[str, int] = field(default_factory=lambda: dict.fromkeys(TRISTATE, 0))
     red_flags: list[str] = field(default_factory=list)
     image_cue: Optional[str] = None  # None = no image; else one of IMAGE_CUES
     image_region: Optional[str] = None
@@ -343,7 +346,7 @@ class Features:
 
 def struct_vector(f: Features) -> dict[str, float]:
     """The structured half of the model input (the other half is TF-IDF of f.text)."""
-    v = {name: 0.0 for name in STRUCT_FEATURES}
+    v = dict.fromkeys(STRUCT_FEATURES, 0.0)
     v[f"age_{f.age_band}"] = 1.0
     v[f"dur_{f.duration_band}"] = 1.0
     v[f"pain_{f.pain_band}"] = 1.0

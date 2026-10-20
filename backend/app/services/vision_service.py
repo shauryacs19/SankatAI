@@ -105,7 +105,8 @@ def _task(user_id: str, item: dict) -> Optional[dict]:
         return findings
     except image_safety.ImageRejected:
         return None
-    except Exception as err:  # noqa: BLE001 - no findings, the turn continues
+    except Exception as err:  # noqa: BLE001
+        # No findings for this photo; the chat turn continues without them.
         logger.warning("Vision analysis failed (%s).", type(err).__name__)
         return None
     finally:

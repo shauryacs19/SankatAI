@@ -7,7 +7,12 @@
 # severity/models/<version>/model.json (immutable) + severity/registry.json
 # (current version + promotion history). Versioning is a second safety net
 # under the registry's own rollback.
-resource "aws_s3_bucket" "ml_artifacts" {
+# Access logging is deliberately off (reviewed): only two IAM roles can touch
+# this bucket (backend: read severity/*, retrain: read/write severity/*), and
+# object versioning + the registry's promotion history already record every
+# change. A log bucket would add cost and a second bucket to secure for no new
+# signal. The other project buckets follow the same decision.
+resource "aws_s3_bucket" "ml_artifacts" { # NOSONAR(terraform:S6258) reviewed, see above
   bucket = "${var.project_name}-ml-artifacts"
 
   tags = {
@@ -33,6 +38,24 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "ml_artifacts" {
       sse_algorithm = "AES256"
     }
   }
+}
+
+# TLS only: any request over plain HTTP is denied, whoever makes it.
+resource "aws_s3_bucket_policy" "ml_artifacts" {
+  bucket     = aws_s3_bucket.ml_artifacts.id
+  depends_on = [aws_s3_bucket_public_access_block.ml_artifacts]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "DenyInsecureTransport"
+      Effect    = "Deny"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource  = [aws_s3_bucket.ml_artifacts.arn, "${aws_s3_bucket.ml_artifacts.arn}/*"]
+      Condition = { Bool = { "aws:SecureTransport" = "false" } }
+    }]
+  })
 }
 
 resource "aws_s3_bucket_versioning" "ml_artifacts" {

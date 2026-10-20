@@ -212,13 +212,10 @@ class OpenAIProvider(AIProvider):
         )
         return _extract_json(response.choices[0].message.content)
 
-    @lru_cache(maxsize=1)
     def _vision_client(self) -> OpenAI:
         if (config.AI_VISION_BASE_URL or None) == (config.AI_BASE_URL or None):
             return self._client()
-        # A self-hosted Ollama (llava) needs no key; the SDK insists on one.
-        return OpenAI(api_key=os.getenv("OPENAI_API_KEY") or "ollama", base_url=config.AI_VISION_BASE_URL,
-                      timeout=config.AI_VISION_TIMEOUT)
+        return _separate_vision_client(config.AI_VISION_BASE_URL)
 
     def analyze_image(self, image_b64: str, mime: str, *, timeout: Optional[float] = None) -> str:
         client = self._vision_client().with_options(timeout=timeout or config.AI_VISION_TIMEOUT)
@@ -235,6 +232,12 @@ class OpenAIProvider(AIProvider):
             response_format={"type": "json_object"},
         )
         return _extract_json(response.choices[0].message.content)
+
+
+@lru_cache(maxsize=2)
+def _separate_vision_client(base_url: str) -> OpenAI:
+    # A self-hosted Ollama (llava) needs no key; the SDK insists on one.
+    return OpenAI(api_key=os.getenv("OPENAI_API_KEY") or "ollama", base_url=base_url, timeout=config.AI_VISION_TIMEOUT)
 
 
 @lru_cache(maxsize=1)
