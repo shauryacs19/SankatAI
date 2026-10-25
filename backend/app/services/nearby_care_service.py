@@ -177,22 +177,32 @@ def care_focus(llm_care, user_text: str, likely_causes: Optional[list[str]] = No
     return {"issue": issue or SPECIALTIES[spec].label, "specialty": spec}
 
 
-def focus_from_messages(messages: list[dict], message_id: Optional[str] = None) -> dict:
-    """The care focus of one assessment in a stored conversation (``message_id``,
-    else the newest one with a severity). Old replies have no ``care``: it is
-    inferred from what the person wrote up to that reply."""
-    target, upto = None, len(messages)
+def _parse_reply(m: dict) -> Optional[dict]:
+    try:
+        parsed = json.loads(m.get("content") or "")
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _find_assessment(messages: list[dict], message_id: Optional[str]) -> tuple[Optional[dict], int]:
+    """(reply JSON, its index): the message ``message_id``, else the newest
+    assistant reply with a severity. (None, len) when there is none."""
     for i in range(len(messages) - 1, -1, -1):
         m = messages[i]
         if m.get("role") != "assistant" or (message_id and m.get("id") != message_id):
             continue
-        try:
-            parsed = json.loads(m.get("content") or "")
-        except ValueError:
-            parsed = None
-        if isinstance(parsed, dict) and (parsed.get("severity") or message_id):
-            target, upto = parsed, i
-            break
+        parsed = _parse_reply(m)
+        if parsed is not None and (parsed.get("severity") or message_id):
+            return parsed, i
+    return None, len(messages)
+
+
+def focus_from_messages(messages: list[dict], message_id: Optional[str] = None) -> dict:
+    """The care focus of one assessment in a stored conversation (``message_id``,
+    else the newest one with a severity). Old replies have no ``care``: it is
+    inferred from what the person wrote up to that reply."""
+    target, upto = _find_assessment(messages, message_id)
     if message_id and target is None:
         raise NearbyNotFound("Message not found.")
     user_text = " ".join(str(m.get("content") or "") for m in messages[:upto] if m.get("role") == "user")
@@ -244,15 +254,27 @@ def _text_call(lat: float, lng: float, radius_m: int, query: str) -> list[dict]:
     return resp.get("ResultItems") or []
 
 
+def _is_care_place(name: str, pos: list, kinds: list[str]) -> bool:
+    if not name or len(pos) != 2 or not kinds or _NOT_CARE.search(name):
+        return False
+    return not (_SUPPORT_ONLY.search(name) and not _CARE_WORD.search(name))
+
+
+def _short_address(item: dict, name: str) -> Optional[str]:
+    """The address without the place name it usually starts with."""
+    label = _short((item.get("Address") or {}).get("Label"), 200)
+    if label.lower().startswith(name.lower()):
+        label = label[len(name):].lstrip(", ")
+    return label[:120] or None
+
+
 def to_place(item: dict, specialty: str, lat: float, lng: float) -> Optional[dict]:
     """One search result as a place to get care, or None (not care, no position)."""
     name = _short(item.get("Title"), 90)
     pos = item.get("Position") or []
     cats = [c.get("Id") for c in item.get("Categories") or [] if isinstance(c, dict)]
     kinds = [_KINDS[c] for c in cats if c in _KINDS]
-    if not name or len(pos) != 2 or not kinds or _NOT_CARE.search(name):
-        return None
-    if _SUPPORT_ONLY.search(name) and not _CARE_WORD.search(name):
+    if not _is_care_place(name, pos, kinds):
         return None
     kind = min(kinds, key=_KIND_RANK.index)
     if kind != "hospital" and re.search(r"hospital|nursing home", name, re.I):
@@ -261,9 +283,6 @@ def to_place(item: dict, specialty: str, lat: float, lng: float) -> Optional[dic
     name_hit = bool(re.search(r"\b(?:" + SPECIALTIES[specialty].names + ")", name, re.I))
     contacts = item.get("Contacts") or {}
     phones = [p.get("Value") for p in contacts.get("Phones") or [] if p.get("Value")]
-    label = _short((item.get("Address") or {}).get("Label"), 200)
-    if label.lower().startswith(name.lower()):
-        label = label[len(name):].lstrip(", ")
     return {
         "id": _short(item.get("PlaceId"), 200),
         "name": name,
@@ -273,10 +292,30 @@ def to_place(item: dict, specialty: str, lat: float, lng: float) -> Optional[dic
         "distanceKm": round(haversine_km(lat, lng, plat, plng), 2),
         "matchesSpecialty": name_hit or (specialty == "dentistry" and kind == "dentist"),
         "emergency": True if "hospital_emergency_room" in cats else None,
-        "address": label[:120] or None,
+        "address": _short_address(item, name),
         "phone": phones[0][:40] if phones else None,
         "_documented": bool(phones or contacts.get("Websites") or item.get("OpeningHours")),
     }
+
+
+def _kind_bonus(kind: str, severity: Optional[str]) -> float:
+    if kind == "hospital":
+        return 3.0 if severity in _SEVERE else 1.3
+    if severity == "EMERGENCY":
+        return 0.25  # a clinic cannot treat an emergency: only when no hospital is near
+    if severity == "HIGH":
+        return 0.6 if kind == "clinic" else 0.3
+    return 1.0
+
+
+def _effective_km(p: dict, severity: Optional[str], match_bonus: float) -> float:
+    """Distance divided by how well the place fits; lower is better."""
+    bonus = (match_bonus if p["matchesSpecialty"] else 1.0) * _kind_bonus(p["kind"], severity)
+    if severity in _SEVERE and p["emergency"]:
+        bonus *= 1.5
+    if p["_documented"]:
+        bonus *= 1.1  # listed phone/website/hours: usually an established place
+    return (p["distanceKm"] + 0.3) / bonus
 
 
 def rank(places: list[dict], specialty: str, severity: Optional[str]) -> list[dict]:
@@ -285,24 +324,11 @@ def rank(places: list[dict], specialty: str, severity: Optional[str]) -> list[di
     distance (distance / bonus) where hospitals, emergency rooms and the
     specialty raise the bonus."""
     severe = severity in _SEVERE
-
-    def score(p: dict, match_bonus: float) -> float:
-        bonus = match_bonus if p["matchesSpecialty"] else 1.0
-        if p["kind"] == "hospital":
-            bonus *= 3.0 if severe else 1.3
-        elif severity == "EMERGENCY":
-            bonus *= 0.25  # a clinic cannot treat an emergency: only when no hospital is near
-        elif severe:
-            bonus *= 0.6 if p["kind"] == "clinic" else 0.3
-        if severe and p["emergency"]:
-            bonus *= 1.5
-        if p["_documented"]:
-            bonus *= 1.1  # listed phone/website/hours: usually an established place
-        return (p["distanceKm"] + 0.3) / bonus
-
     if severe or specialty == GENERAL:
-        return sorted(places, key=lambda p: score(p, 2.5 if severe else 1.5))
-    by = lambda p: score(p, 1.0)  # noqa: E731
+        return sorted(places, key=lambda p: _effective_km(p, severity, 2.5 if severe else 1.5))
+
+    def by(p: dict) -> float:
+        return _effective_km(p, severity, 1.0)
     return sorted([p for p in places if p["matchesSpecialty"]], key=by) + sorted([p for p in places if not p["matchesSpecialty"]], key=by)
 
 
@@ -355,8 +381,7 @@ def search(lat: float, lng: float, specialty: str, severity: Optional[str], limi
     deadline = time.monotonic() + config.NEARBY_TIME_BUDGET_SECONDS
     near, far = config.NEARBY_RADIUS_M, config.NEARBY_SPECIALTY_RADIUS_M
     places: list[dict] = []
-    used = near
-    for used in (near, far):
+    for used in (near, far):  # noqa: B007 - `used` is read after the loop
         items = _gather(lat, lng, specialty, used, far, deadline)
         places = _dedupe([p for p in (to_place(i, specialty, lat, lng) for i in items) if p])
         if len(places) >= limit or used >= far or time.monotonic() > deadline - 3:

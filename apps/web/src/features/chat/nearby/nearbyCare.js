@@ -40,12 +40,17 @@ export const resetPositionForTests = () => { lastPosition = null }
 
 // Plain links: they open Google Maps at once (no blank tab waiting for a
 // location), already pointed at the right place.
-export const mapsSearchUrl = (term, pos) => (pos
-  ? `https://www.google.com/maps/search/${encodeURIComponent(term)}/@${pos.lat},${pos.lng},14z`
-  : `https://www.google.com/maps/search/${encodeURIComponent(`${term} near me`)}`)
+export const mapsSearchUrl = (term, pos) => {
+  if (pos) return `https://www.google.com/maps/search/${encodeURIComponent(term)}/@${pos.lat},${pos.lng},14z`
+  const query = encodeURIComponent(term + ' near me')
+  return `https://www.google.com/maps/search/${query}`
+}
 export const directionsUrl = (place) => `https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lng}`
 
-export const formatKm = (km) => (km < 1 ? `${Math.max(10, Math.round(km * 100) * 10)} m` : `${km < 10 ? km.toFixed(1) : Math.round(km)} km`)
+export const formatKm = (km) => {
+  if (km < 1) return `${Math.max(10, Math.round(km * 100) * 10)} m`
+  return `${km < 10 ? km.toFixed(1) : Math.round(km)} km`
+}
 
 export const KIND_LABEL = { hospital: 'Hospital', clinic: 'Clinic', doctor: 'Doctor', dentist: 'Dental clinic' }
 

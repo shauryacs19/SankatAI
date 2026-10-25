@@ -44,7 +44,7 @@ export default function NearbyMap({ origin, places }) {
 
   if (failed) return null // the list and the Google Maps link still work
   return (
-    <div className="nb-map" ref={el} role="region"
-      aria-label={`Map of your location and ${places.length} nearby place${places.length === 1 ? '' : 's'}`} />
+    <section className="nb-map" ref={el}
+      aria-label={`Map of your location and ${places.length} nearby ${places.length === 1 ? 'place' : 'places'}`} />
   )
 }

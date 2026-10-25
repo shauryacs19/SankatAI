@@ -74,6 +74,12 @@ const SPRAIN = ai({ reasoning: 'You can walk on it and the pain is moderate (4/1
 // A typed message gets this (risk 72 >= 65, so nearby care appears by itself).
 const MIGRAINE = ai({ reasoning: 'A severe headache with repeated vomiting since morning needs a doctor today, though nothing points to an emergency.', followUpQuestions: [], severity: 'HIGH', riskScore: 72, advice: 'Please see a doctor **today**. Sip water or ORS in small amounts and rest in a dark, quiet room. If symptoms get worse, call 108.', likelyCauses: ['Migraine attack', 'Dehydration from vomiting'], warningSigns: ['The worst headache of your life, or it started suddenly', 'Stiff neck, fever or a rash', 'Weakness, confusion or trouble speaking'], seekCare: 'See a doctor or a neurologist today.', confidence: 0.81, disclaimer: 'x', care: { issue: 'Severe headache with vomiting', specialty: 'neurology' }, triage: { v: 3, mode: 'final' } })
 const TOOTH = ai({ reasoning: 'Tooth pain with a swollen gum for two days, without fever or facial swelling, needs a dentist soon but is not urgent.', followUpQuestions: [], severity: 'MODERATE', riskScore: 40, advice: 'This may be a tooth infection or a gum abscess. Please see a dentist within the next day or two. Rinse with warm salt water and avoid very hot or cold food.', likelyCauses: ['Tooth decay reaching the nerve', 'Gum abscess'], homeCare: ['Warm salt-water rinses 3-4 times a day', 'Chew on the other side'], warningSigns: ['Swelling spreads to your face or neck', 'Fever, or trouble swallowing or breathing'], seekCare: 'Dentist within 24-48 hours.', confidence: 0.77, disclaimer: 'x', care: { issue: 'Toothache with swollen gum', specialty: 'dentistry' }, triage: { v: 3, mode: 'final' } })
+// Which sample assessment a sent message gets.
+const sampleReply = (body) => {
+  if (body.answers || /ankle|sprain/i.test(body.content)) return SPRAIN
+  if (/tooth|teeth|gum/i.test(body.content)) return TOOTH
+  return MIGRAINE
+}
 // Sample places around the requested position (nearby=live returns real ones).
 const SAMPLE_PLACES = {
   neurology: [['NeuroCare Brain & Spine Clinic', 1.2, 'clinic', true], ['Sunrise Neuro Hospital', 2.6, 'hospital', true], ['City General Hospital', 0.8, 'hospital', false]],
@@ -179,7 +185,7 @@ const route_ = async (method, path, body) => {
       window.__lastSend = body // QA: what a questionnaire sends
       return json(200, {
         userMessage: { id: `u${Date.now()}`, role: 'user', content: body.content, createdAt: t, answers: body.answers || null },
-        assistantMessage: { id: `a${Date.now()}`, role: 'assistant', createdAt: t, isOfflineFallback: OFFLINE, content: body.answers || /ankle|sprain/i.test(body.content) ? SPRAIN : /tooth|teeth|gum/i.test(body.content) ? TOOTH : MIGRAINE },
+        assistantMessage: { id: `a${Date.now()}`, role: 'assistant', createdAt: t, isOfflineFallback: OFFLINE, content: sampleReply(body) },
         isOfflineFallback: OFFLINE,
       })
     }

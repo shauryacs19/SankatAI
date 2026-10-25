@@ -13,7 +13,12 @@ import { KIND_LABEL, directionsUrl, formatKm, mapsSearchUrl, searchTermFor } fro
 const NearbyMap = lazy(() => import('./NearbyMap.jsx'))
 
 const NEW_TAB = { target: '_blank', rel: 'noopener noreferrer' }
-const shortSpecialty = (label) => /\(([^)]+)\)/.exec(label || '')?.[1] || label
+// "Bones & joints (Orthopaedics)" -> "Orthopaedics" (no regex: plain index lookups).
+const shortSpecialty = (label = '') => {
+  const open = label.lastIndexOf('(')
+  const close = label.lastIndexOf(')')
+  return open >= 0 && close > open + 1 ? label.slice(open + 1, close) : label
+}
 
 const ERRORS = {
   denied: 'Location access is off, so I can’t see which places are near you. Allow location for this site and try again, or search on Google Maps.',
@@ -61,10 +66,10 @@ export function NearbyCareMessage({ entry, onRetry }) {
       </header>
 
       {busy && (
-        <div className="msg-thinking nb-wait" role="status">
+        <output className="msg-thinking nb-wait">
           <span>{status === 'locating' ? 'Finding your location' : 'Finding hospitals and clinics near you'}</span>
           <span className="msg-dots" aria-hidden="true"><span /><span /><span /></span>
-        </div>
+        </output>
       )}
 
       {status === 'error' && (
@@ -116,7 +121,7 @@ export function NearbyCareMessage({ entry, onRetry }) {
             <Button size="sm" variant="secondary" icon={MapIcon} href={mapsSearchUrl(term, position)} {...NEW_TAB}>Open in Google Maps</Button>
             <span className="nb-source">Places: {data.source}. Straight-line distances. Your location is not saved.</span>
           </footer>
-          <span className="sr-only" role="status">{`Found ${data.places.length} places near you.`}</span>
+          <output className="sr-only">{`Found ${data.places.length} places near you.`}</output>
         </>
       )}
     </motion.article>
