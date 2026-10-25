@@ -3,7 +3,7 @@
 > **Purpose:** single source of truth so Claude can get up to speed without
 > re-reading the whole codebase. **Claude updates this file after every completed
 > task** (append to the Changelog + adjust the relevant sections).
-> Last updated: 2026-10-19 (triage engine v2: severity model, adaptive questions, image triage, feedback loop — §9h).
+> Last updated: 2026-10-25 (nearby care in the chat: specialty-aware hospitals/clinics + map — §9i).
 
 ---
 
@@ -839,7 +839,50 @@ the S3 registry against real AWS, the retrain workflow run, mobile UI (unchanged
   Removed our own question picker. Fixes found on the way: Hindi yes/no ("हाँ"/"नहीं") never parsed (`\b` after a
   vowel sign) — now a lookahead; red flags now also catch "lips are/look turning blue", "face going purple",
   "chest feels tight/heavy". Verified: backend 245, web 161 tests, build OK, desktop preview (answer with taps +
+## 9i. Nearby care in the chat (2026-10-25)
+
+**Care focus:** every assessment now carries `care: {issue, specialty}`. The LLM names it (prompt lists the 15 keys in
+`nearby_care_service.SPECIALTIES`: cardiology, neurology, pulmonology, orthopaedics, gastroenterology, urology,
+gynaecology, paediatrics, dermatology, ophthalmology, ent, dentistry, psychiatry, endocrinology, general); invalid/
+missing → keyword inference over the person's own words (`infer_specialty`, en + Hinglish); issue falls back to the
+first likely cause. Offline/template replies get it too.
+**Search:** `POST /api/care/nearby {lat, lng, consultationId?, messageId?, specialty?, issue?, severity?, limit≤5}`
+(JWT, behind the catch-all; no new API GW route). Explicit `specialty` wins; else the server reads that consultation
+(that assessment's `care`, or infers from the user text; 404 if not the caller's). Places = **Amazon Location Service
+Places v2** (`geo-places:SearchNearby` hospitals + clinics within 5 km, plus 1-3 `SearchText` specialty queries
+within 15 km, all in parallel, ~0.3 s; widens once if < 3 results). Drops Ayurveda/homeopathy, labs, pharmacies,
+opticians; fuzzy de-dupe. Rank: LOW/MODERATE = specialty matches first, then by distance; HIGH/EMERGENCY = one list by
+distance/bonus (hospital ×3, ER ×1.5, specialty ×2.5, clinic ×0.25 in an emergency). No ratings exist in the data,
+so "best" = specialty + type + distance. AWS terms §82.4: results are never stored or cached; position never stored
+or logged. Rate limit `NEARBY_CARE_PER_MINUTE` 10/user (429). Config `NEARBY_*` in `core/config.py`.
+Overpass/OSM was tried first and dropped: overpass-api.de and mirrors time out from the dev network.
+**Infra:** backend role gets `geo-places:SearchNearby/SearchText` on `arn:aws:geo-places:<region>::provider/default`
+(`modules/security/iam`). **APPLIED 2026-10-25** (`-target=module.iam`: 0 add, 1 in-place, 0 destroy; re-plan = no
+changes; live policy checked).
+**Web:** `features/chat/nearby/` — `NearbyCareMessage` (a chat card: issue + specialty, top 3 as a numbered list
+with distance, type, specialty/ER tags, Directions + Call links, map, "Open in Google Maps"), `NearbyMap` (Leaflet
+1.9.4, lazy chunk 43 KB gz, OSM tiles, dark-mode tile filter, names inserted as text), `nearbyCare.js` (API, cached
+geolocation 10 min, Maps URLs, `AUTO_NEARBY_RISK` = 65). `useDashboard`: a new reply with riskScore ≥ 65 adds the
+card by itself; below 65 the assessment shows "Show nearby hospitals for this issue"; the sidebar / emergency /
+drawer "Find nearby hospitals" now uses the chat's latest assessment and shows the card IN the chat. Cards are
+session-only (`nearby` state keyed `after:<msgId>` / `end:<cid>`), so reopening a chat shows the button again.
+**Old Google Maps delay — root cause:** `window.open('about:blank')` focused a blank tab, then the geolocation prompt
+appeared on the (now hidden) app tab, so the blank tab waited until the prompt was found or timed out (~1.5 min).
+Now location is asked in the app tab and Google Maps opens from plain links that already hold the coordinates.
+**Preview:** `preview.html?geo=lat,lng` fakes the position; `nearby=live` sends `/api/care/nearby` to a local
+backend (`AUTH_ENABLED=false`). backend/.env holds NO AWS keys (the old ones were invalid; removed 2026-10-25): boto3
+uses the AWS CLI profile locally and the instance role in AWS.
+**Tests:** backend `test_nearby_care.py` (17) + 2 in `test_triage_engine.py` → 264; web `nearby.test.jsx` (8) → 172.
+**Not verified:** real Ollama returning `care` (no AI key locally; the fallback covers it), the endpoint in AWS,
+mobile (unchanged; can call the same endpoint later).
+
   "Other" + text → exact payload, card collapses, assessment renders). Not verified: real Ollama output.
+- **Nearby care in the chat (2026-10-25, branch `feature/nearby-care`, PR):** see §9i. Specialty-aware
+  hospitals/clinics (Amazon Location), in-chat card with top 3 + distances + map; auto at risk ≥ 65, button below;
+  sidebar button uses chat context; fixed the 1.5-min blank Google Maps tab. IAM APPLIED. Invalid AWS keys removed
+  from backend/.env. Dead code removed (vulture/ruff + knip scan; only truly unreferenced items): backend
+  `security_pin_service.has_pins`, web `cognito.currentUser`, UI `Tabs` component. Backend 264,
+  web 172 tests, build OK, lint = the 7 pre-existing errors. Checked with real place results (sample location).
   Then (same day, user request): questions shown ONE AT A TIME with ‹ › + dots + review step, and an animated thanks
   popup for Yes/No. Web 164 tests; preview checked with the pane visible (tap → next question ~0.4 s, review → send →
   card collapses; popup shows and leaves by itself). Measurements from a hidden Browser pane are throttled — ignore them.

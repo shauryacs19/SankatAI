@@ -2,9 +2,10 @@
 // is now presentational). Lives above the <Outlet> so it survives navigation
 // between dashboard pages. Behaviour changes vs the original, all approved in
 // DESIGN_AUDIT.md (D5): failed sends become a retryable error row instead of a
-// fake AI message; hospital search opens in a new tab; location sharing and
-// deletes report failures instead of failing silently; the chat list tracks a
-// load error so History can offer a retry.
+// fake AI message; nearby hospitals / clinics appear IN the chat (for the
+// problem the chat is about); location sharing and deletes report failures
+// instead of failing silently; the chat list tracks a load error so History can
+// offer a retry.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -22,8 +23,7 @@ import { errText } from '../../utils/errText'
 import { useVoiceInput } from '../chat/voice/useVoiceInput'
 import { ttsPlayer } from '../chat/tts/ttsPlayer'
 import { shouldAutoRead } from '../chat/tts/autoRead'
-
-const HOSPITALS_NEAR_ME = 'https://www.google.com/maps/search/hospitals+near+me'
+import { AUTO_NEARBY_RISK, findNearbyCare, getPosition } from '../chat/nearby/nearbyCare'
 
 export function useDashboard() {
   const navigate = useNavigate()
@@ -50,6 +50,9 @@ export function useDashboard() {
   const [searching, setSearching] = useState(false)
   const [renameTarget, setRenameTarget] = useState(null) // { id, title } | null
   const [lastReply, setLastReply] = useState(null) // newest reply/error from a send, for the live region
+  // Nearby-care messages, by key: shown after their assessment (afterId) or at
+  // the end of their chat. Session only: places and positions are never saved.
+  const [nearby, setNearby] = useState({})
 
   const docInputRef = useRef(null)
   const photoInputRef = useRef(null)
@@ -183,6 +186,7 @@ export function useDashboard() {
         setLastReply(bot)
         if (bot.riskScore != null) setLastRiskScore(bot.riskScore)
         if (bot.severity === 'EMERGENCY') { setIsEmergency(true); setEmergencyFromAssessment(true) }
+        if (bot.severity && bot.riskScore != null && bot.riskScore >= AUTO_NEARBY_RISK) void showNearbyCare({ cid, anchor: bot })
         // Opt-in: read replies to spoken messages aloud. A browser may refuse
         // autoplay; the speaker button still works, so fail quietly.
         if (shouldAutoRead(meta.inputMode)) ttsPlayer.play(bot.id, () => fetchTts(cid, bot.id)).catch(() => {})
@@ -333,19 +337,35 @@ export function useDashboard() {
   // the user sends it (edited or not) with the normal Send / Enter.
   const voice = useVoiceInput({ input, setInput, onError: (msg) => toast.error(msg) })
 
-  // Opens in a NEW tab so the app (and its emergency actions) stays open. The
-  // tab is opened synchronously inside the click so popup blockers allow it,
-  // then pointed at the user's location once known; if location is refused or
-  // unavailable it falls back to a "near me" search rather than a dead end.
+  // Nearby hospitals / clinics for one assessment (`anchor`), or for the chat
+  // so far when it has none, as a message in the chat. The location prompt
+  // shows in this tab (the old flow opened a blank tab first, which hid the
+  // prompt behind it — the "1.5 minute blank page"). The server picks the
+  // specialty from the assessment's `care`, or from the stored conversation.
+  const runNearby = async (entry) => {
+    const { key, cid, anchor } = entry
+    const patch = (p) => setNearby((prev) => ({ ...prev, [key]: { ...prev[key], ...p } }))
+    setNearby((prev) => ({ ...prev, [key]: { ...entry, status: 'locating', error: null, data: null, at: new Date().toISOString() } }))
+    let position
+    try { position = await getPosition() } catch (e) { patch({ status: 'error', error: e.kind || 'unavailable' }); return }
+    patch({ status: 'searching', position })
+    const body = { lat: position.lat, lng: position.lng, ...(anchor?.severity && { severity: anchor.severity }) }
+    if (anchor?.care) Object.assign(body, { specialty: anchor.care.specialty, issue: anchor.care.issue || undefined })
+    else if (cid) Object.assign(body, { consultationId: cid, ...(anchor && !String(anchor.id).startsWith('tmp-') && { messageId: anchor.id }) })
+    try { patch({ status: 'ready', data: await findNearbyCare(body) }) } catch { patch({ status: 'error', error: 'service' }) }
+  }
+  const showNearbyCare = ({ cid, anchor }) => {
+    const key = anchor ? `after:${anchor.id}` : `end:${cid || 'new'}`
+    const slim = anchor ? { id: anchor.id, severity: anchor.severity || null, care: anchor.care || null } : null
+    return runNearby({ key, cid: cid || null, afterId: anchor?.id || null, anchor: slim })
+  }
+  const retryNearby = (key) => { const e = nearby[key]; if (e) void runNearby(e) }
+  // The sidebar / emergency "Find nearby hospitals": for what THIS chat is
+  // about (its latest assessment), shown in the chat.
   const handleFindHospitals = () => {
-    const tab = window.open('about:blank', '_blank')
-    const go = (url) => { if (tab) { tab.opener = null; tab.location.href = url } else window.location.href = url }
-    if (!navigator.geolocation) { go(HOSPITALS_NEAR_ME); return }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => go(`https://www.google.com/maps/search/hospitals/@${pos.coords.latitude},${pos.coords.longitude},14z`),
-      () => { go(HOSPITALS_NEAR_ME); toast.info('Location is off, so the map will search near you instead.') },
-      { timeout: 8000, maximumAge: 60000 },
-    )
+    const anchor = [...messages].reverse().find((m) => m.sender === 'bot' && m.severity) || null
+    navigate('/dashboard/chat')
+    void showNearbyCare({ cid: activeId, anchor })
   }
   const handleSendLocationAlert = () => {
     if (!primaryContact?.phone) return
@@ -371,7 +391,7 @@ export function useDashboard() {
     refs, lastReply, loading, initialLoading, profileError, reloadProfile, reloadChats, profile, fullName, firstName, age, profileCompletion, contacts, primaryContact,
     consultations, consultationsError, loadConsultations, activeId, messages, input, setInput, isLoading,
     isOffline, isEmergency, setIsEmergency, emergencyFromAssessment, lastRiskScore, analysisOpen, setAnalysisOpen,
-    attachments, removeAttachment, voice, chatAttachmentMap,
+    attachments, removeAttachment, voice, chatAttachmentMap, nearby, showNearbyCare, retryNearby,
     search, setSearch, searching, visibleConsultations, onFilesSelected,
     selectConsultation, startNewConsultation, startDraft, deleteChat, openRename, closeRename, renameTarget, renameChat,
     handleSend, sendQuick, sendAnswers, retrySend, dismissError, handleFindHospitals, handleSendLocationAlert, submitFeedback, submitFeedbackDetail,

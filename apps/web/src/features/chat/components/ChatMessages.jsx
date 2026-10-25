@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
 import {
   Heart, HeartPulse, CloudOff, FileText, ShieldCheck, ThumbsUp, ThumbsDown, Share2, MoreVertical, Trash2,
-  CheckCheck, AlertTriangle, Ambulance, RotateCw, Languages,
+  CheckCheck, AlertTriangle, Ambulance, RotateCw, Languages, MapPin,
 } from 'lucide-react'
 import SpeakerButton from '../tts/SpeakerButton.jsx'
 import {
@@ -197,7 +197,9 @@ function ThanksPop({ kind }) {
 // account (they are stored per message), so a guest gets Share only.
 // `interactive`: this is the newest reply and nothing is sending, so its
 // questionnaire (if any) can be answered; `onAnswer(text, answers)` sends it.
-export function AssistantMessage({ m, onFeedback, onFeedbackDetail, onShare, consultationId, guest = false, interactive = false, onAnswer }) {
+// `onNearby`: shows nearby hospitals / clinics for this assessment as the next
+// message (null once they are shown; a risk score >= 65 shows them by itself).
+export function AssistantMessage({ m, onFeedback, onFeedbackDetail, onShare, consultationId, guest = false, interactive = false, onAnswer, onNearby }) {
   const tr = useTranslationCycle(m, consultationId)
   const [fbMore, setFbMore] = useState(false)
   const [thanks, setThanks] = useState(null) // null | 'like' | 'dislike': which popup is showing
@@ -270,6 +272,12 @@ export function AssistantMessage({ m, onFeedback, onFeedbackDetail, onShare, con
         <div className="msg-ai-call">
           <p>{EMERGENCY_CALLOUT}</p>
           <Button variant="emergency" icon={Ambulance} href="tel:108">Call 108 now</Button>
+        </div>
+      )}
+
+      {m.severity && onNearby && !guest && (
+        <div className="msg-ai-nearby">
+          <Button size="sm" variant="secondary" icon={MapPin} onClick={onNearby}>Show nearby hospitals for this issue</Button>
         </div>
       )}
 

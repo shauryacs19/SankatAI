@@ -42,6 +42,10 @@ const questionnaireOf = (p) => {
   return items.length ? items : null
 }
 
+// What the assessment is about, for the nearby hospitals / clinics search.
+const careOf = (p) => (p.care && typeof p.care.specialty === 'string'
+  ? { specialty: p.care.specialty, issue: typeof p.care.issue === 'string' ? p.care.issue : '' } : null)
+
 export const normalizeAssistant = (content) => {
   const p = parseAnalysis(content)
   if (!p) return { text: content, severity: null, riskScore: null }
@@ -52,7 +56,7 @@ export const normalizeAssistant = (content) => {
       questionnaire: questionnaireOf(p), intro: typeof p.reasoning === 'string' ? p.reasoning : '',
     }
   }
-  if (p.severity) return { text: p.advice || '', severity: p.severity, riskScore: typeof p.riskScore === 'number' ? Math.round(p.riskScore) : null, details }
+  if (p.severity) return { text: p.advice || '', severity: p.severity, riskScore: typeof p.riskScore === 'number' ? Math.round(p.riskScore) : null, details, care: careOf(p) }
   return { text: p.advice || content, severity: null, riskScore: null, details }
 }
 
@@ -60,7 +64,7 @@ export const toBubble = (m) => {
   // User messages loaded from history are persisted -> delivered ("received").
   if (m.role === 'user') return { id: m.id, sender: 'user', text: m.content, createdAt: m.createdAt, status: 'received', attachmentIds: m.attachmentIds || [] }
   const n = normalizeAssistant(m.content)
-  return { id: m.id, sender: 'bot', text: n.text, questions: n.questions || null, questionnaire: n.questionnaire || null, intro: n.intro || '', details: n.details || null, severity: n.severity, riskScore: n.riskScore, raw: m.content, lang: m.lang || null, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
+  return { id: m.id, sender: 'bot', text: n.text, questions: n.questions || null, questionnaire: n.questionnaire || null, intro: n.intro || '', details: n.details || null, severity: n.severity, riskScore: n.riskScore, care: n.care || null, raw: m.content, lang: m.lang || null, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
 }
 
 export const relTime = (iso) => {

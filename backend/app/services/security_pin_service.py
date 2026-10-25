@@ -45,10 +45,6 @@ def list_pins(user_id: str) -> list[dict]:
     return [_public(p) for p in profile_repository.get_security_pins(user_id)]
 
 
-def has_pins(user_id: str) -> bool:
-    return len(profile_repository.get_security_pins(user_id)) > 0
-
-
 def pin_exists(user_id: str, pin_id: Optional[str]) -> bool:
     if not pin_id:
         return False

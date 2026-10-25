@@ -10,6 +10,7 @@ import { CHAT_CSS } from '../../chat/chat.styles'
 import { UserMessage, AssistantMessage, ErrorMessage, ThinkingRow } from '../../chat/components/ChatMessages.jsx'
 import Composer from '../../chat/components/Composer.jsx'
 import AnalysisDrawer from '../../chat/components/AnalysisDrawer.jsx'
+import { NearbyCareMessage } from '../../chat/nearby/NearbyCareMessage.jsx'
 import { ttsPlayer } from '../../chat/tts/ttsPlayer'
 import { saveGuestChat, takeStashedGuestChat } from '../../chat/guestChat'
 import { QUICK_TOPICS } from '../../chat/quickTopics.jsx'
@@ -101,7 +102,14 @@ export default function ChatPage() {
   const [reloading, setReloading] = useState(false)
   const reloadChats = async () => { setReloading(true); await d.reloadChats(); setReloading(false) }
 
-  const showEmpty = messages.length === 0 && !isLoading
+  // Nearby-care messages of this chat: after their assessment, else at the end.
+  const nearbyHere = Object.values(d.nearby || {}).filter((e) => e.cid === (d.activeId || null))
+  const nearbyAfter = (id) => nearbyHere.filter((e) => e.afterId === id)
+  const ids = new Set(messages.map((m) => m.id))
+  const nearbyTail = nearbyHere.filter((e) => !e.afterId || !ids.has(e.afterId))
+  const nearbyRow = (e) => <NearbyCareMessage key={e.key} entry={e} onRetry={() => d.retryNearby(e.key)} />
+
+  const showEmpty = messages.length === 0 && !isLoading && nearbyTail.length === 0
 
   return (
     <div className="chat">
@@ -147,12 +155,18 @@ export default function ChatPage() {
             </div>
           ) : (
             <AnimatePresence initial={false} key={d.activeId || 'new'}>
-            {messages.map((m) => {
-              if (m.sender === 'user') return <UserMessage key={m.id} m={m} attachments={msgAttachments(m)} onOpenAtt={openAtt} onUnsend={d.unsendMessageById} />
-              if (m.sender === 'error') return <ErrorMessage key={m.id} m={m} retrying={retryingId === m.id} onRetry={() => retry(m.id)} onDismiss={() => d.dismissError(m.id)} />
-              return <AssistantMessage key={m.id} m={m} onFeedback={d.submitFeedback} onFeedbackDetail={d.submitFeedbackDetail} onShare={shareMessage} consultationId={d.activeId}
-                interactive={m.id === messages.at(-1)?.id && !isLoading} onAnswer={d.sendAnswers} />
+            {messages.flatMap((m) => {
+              if (m.sender === 'user') return [<UserMessage key={m.id} m={m} attachments={msgAttachments(m)} onOpenAtt={openAtt} onUnsend={d.unsendMessageById} />]
+              if (m.sender === 'error') return [<ErrorMessage key={m.id} m={m} retrying={retryingId === m.id} onRetry={() => retry(m.id)} onDismiss={() => d.dismissError(m.id)} />]
+              const after = nearbyAfter(m.id)
+              return [
+                <AssistantMessage key={m.id} m={m} onFeedback={d.submitFeedback} onFeedbackDetail={d.submitFeedbackDetail} onShare={shareMessage} consultationId={d.activeId}
+                  interactive={m.id === messages.at(-1)?.id && !isLoading} onAnswer={d.sendAnswers}
+                  onNearby={after.length ? null : () => d.showNearbyCare({ cid: d.activeId, anchor: m })} />,
+                ...after.map(nearbyRow),
+              ]
             })}
+            {nearbyTail.map(nearbyRow)}
             </AnimatePresence>
           )}
           {isLoading && <ThinkingRow />}
