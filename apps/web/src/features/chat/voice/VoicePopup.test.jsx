@@ -185,7 +185,7 @@ describe('microphone lifecycle', () => {
     await stopWithFinal(await startRecording(), 'one')
     expect(audio.getUserMedia).toHaveBeenCalledTimes(1)
     expect(audio.sources).toHaveLength(1) // the level meter reuses the pipeline's source
-    released(0)
+    await waitFor(() => released(0)) // cleanup is async; under CI load it can finish after the dialog closes
     expect(caf).toHaveBeenCalled()
 
     caf.mockClear()
@@ -193,7 +193,7 @@ describe('microphone lifecycle', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel recording' }))
     await waitFor(() => expect(dialog()).toBeNull())
     expect(audio.getUserMedia).toHaveBeenCalledTimes(2)
-    released(1)
+    await waitFor(() => released(1))
     expect(caf).toHaveBeenCalled()
   })
 
