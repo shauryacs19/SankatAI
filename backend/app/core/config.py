@@ -257,3 +257,13 @@ AI_VISION_TIMEOUT = float(os.getenv("AI_VISION_TIMEOUT", "12"))
 TRIAGE_IMAGE_MAX_BYTES = int(os.getenv("TRIAGE_IMAGE_MAX_BYTES", str(8 * 1024 * 1024)))
 TRIAGE_IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp")
 TRIAGE_IMAGE_MAX_PIXELS = 40_000_000  # decompression-bomb guard
+
+# --- Nearby care (hospitals / clinics for the chat's problem) -----------------
+# Amazon Location Service Places v2 (IAM geo-places:SearchNearby/SearchText; no
+# resource). Results are never stored or cached (AWS service terms §82.4).
+NEARBY_PLACES_REGION = os.getenv("NEARBY_PLACES_REGION", AWS_REGION)
+NEARBY_CALL_TIMEOUT = float(os.getenv("NEARBY_CALL_TIMEOUT", "5"))  # per search call
+NEARBY_TIME_BUDGET_SECONDS = float(os.getenv("NEARBY_TIME_BUDGET_SECONDS", "12"))  # API GW caps at 30 s
+NEARBY_RADIUS_M = int(os.getenv("NEARBY_RADIUS_M", "5000"))  # any hospital / clinic
+NEARBY_SPECIALTY_RADIUS_M = int(os.getenv("NEARBY_SPECIALTY_RADIUS_M", "15000"))  # specialty matches
+NEARBY_CARE_PER_MINUTE = int(os.getenv("NEARBY_CARE_PER_MINUTE", "10"))  # per user

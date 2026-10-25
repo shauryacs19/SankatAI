@@ -142,8 +142,6 @@ export const getValidAccessToken = async () => {
 /** The ID token (carries email/email_verified), for the invitation accept call. */
 export const getIdToken = () => (active ? active.session.getIdToken().getJwtToken() : null)
 
-export const currentUser = () => (active ? userFromSession(active.session) : null)
-
 /** Local sign-out: clears the library's stored tokens for this browser. */
 export const signOut = () => {
   if (active) active.user.signOut()

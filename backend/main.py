@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.admin import admin_error_handler
 from app.api.routes.admin import router as admin_router
+from app.api.routes.care import router as care_router
 from app.api.routes.consultations import router as consultations_router
 from app.api.routes.guest import router as guest_router
 from app.api.routes.health import router as health_router
@@ -114,6 +115,7 @@ app.include_router(security_router)
 app.include_router(uploads_router)
 app.include_router(voice_router)
 app.include_router(tts_router)
+app.include_router(care_router)
 app.include_router(admin_router)
 
 

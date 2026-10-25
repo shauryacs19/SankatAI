@@ -15,6 +15,9 @@
 //   showcase=1               calm sample conversation first (home page screenshots)
 //   theme=light|dark         force a theme (saved as the preference, like Settings)
 //   click=<css selector>     click it once the page has settled (e.g. open a drawer)
+//   geo=12.9756,77.6050      the browser's location (nearby care) without a prompt
+//   nearby=live              /api/care/nearby goes to the real backend (localhost:5174,
+//                            AUTH_ENABLED=false) for real places; otherwise sample places
 //   admin=1                  signed-in user is in the ADMIN group; /api/admin/* mocked
 //                            (e.g. ?admin=1&route=/admin). QA fixtures only — the real
 //                            console reads the backend's aggregates.
@@ -37,6 +40,12 @@ const SLOW = Number(q.get('slow') || 0)
 const OFFLINE = q.get('offline') === '1'
 const ADMIN = q.get('admin') === '1'
 const SHOWCASE = q.get('showcase') === '1'
+const NEARBY_LIVE = q.get('nearby') === 'live'
+const GEO = (q.get('geo') || '').split(',').map(Number)
+if (GEO.length === 2 && GEO.every(Number.isFinite)) {
+  const [latitude, longitude] = GEO
+  navigator.geolocation.getCurrentPosition = (ok) => setTimeout(() => ok({ coords: { latitude, longitude, accuracy: 30 } }), 300)
+}
 
 const now = Date.now()
 const iso = (msAgo) => new Date(now - msAgo).toISOString()
@@ -61,7 +70,33 @@ const QN_SAMPLE = [
   { id: 'q4', short: 'Numbness', question: 'Is your foot numb, cold or changing colour?', kind: 'yes_no', options: qOpts('Yes', 'No') },
   { id: 'q5', short: 'What happened', question: 'How exactly did you twist it?', kind: 'text', options: [] },
 ]
-const SPRAIN = ai({ reasoning: 'You can walk on it and the pain is moderate (4/10), which points to a mild sprain rather than a fracture.', followUpQuestions: [], severity: 'LOW', riskScore: 22, advice: 'This sounds like a mild ankle sprain you can look after at home. Rest it for a day or two and keep it raised when you sit.', likelyCauses: ['Mild ankle sprain (stretched ligament)', 'Bruising of the soft tissue'], homeCare: ['Ice for 15–20 minutes every 2–3 hours for the first 2 days', 'Keep the foot raised above hip level when resting', 'A firm elastic bandage for support'], warningSigns: ['You cannot put any weight on it', 'The foot looks bent or feels numb', 'Swelling keeps growing after 48 hours'], seekCare: 'Self-care at home. See a doctor if you still cannot walk normally after 5 days or any warning sign appears.', confidence: 0.79, disclaimer: 'x', triage: { v: 2, mode: 'final' } })
+const SPRAIN = ai({ reasoning: 'You can walk on it and the pain is moderate (4/10), which points to a mild sprain rather than a fracture.', followUpQuestions: [], severity: 'LOW', riskScore: 22, advice: 'This sounds like a mild ankle sprain you can look after at home. Rest it for a day or two and keep it raised when you sit.', likelyCauses: ['Mild ankle sprain (stretched ligament)', 'Bruising of the soft tissue'], homeCare: ['Ice for 15–20 minutes every 2–3 hours for the first 2 days', 'Keep the foot raised above hip level when resting', 'A firm elastic bandage for support'], warningSigns: ['You cannot put any weight on it', 'The foot looks bent or feels numb', 'Swelling keeps growing after 48 hours'], seekCare: 'Self-care at home. See a doctor if you still cannot walk normally after 5 days or any warning sign appears.', confidence: 0.79, disclaimer: 'x', care: { issue: 'Ankle sprain', specialty: 'orthopaedics' }, triage: { v: 2, mode: 'final' } })
+// A typed message gets this (risk 72 >= 65, so nearby care appears by itself).
+const MIGRAINE = ai({ reasoning: 'A severe headache with repeated vomiting since morning needs a doctor today, though nothing points to an emergency.', followUpQuestions: [], severity: 'HIGH', riskScore: 72, advice: 'Please see a doctor **today**. Sip water or ORS in small amounts and rest in a dark, quiet room. If symptoms get worse, call 108.', likelyCauses: ['Migraine attack', 'Dehydration from vomiting'], warningSigns: ['The worst headache of your life, or it started suddenly', 'Stiff neck, fever or a rash', 'Weakness, confusion or trouble speaking'], seekCare: 'See a doctor or a neurologist today.', confidence: 0.81, disclaimer: 'x', care: { issue: 'Severe headache with vomiting', specialty: 'neurology' }, triage: { v: 3, mode: 'final' } })
+const TOOTH = ai({ reasoning: 'Tooth pain with a swollen gum for two days, without fever or facial swelling, needs a dentist soon but is not urgent.', followUpQuestions: [], severity: 'MODERATE', riskScore: 40, advice: 'This may be a tooth infection or a gum abscess. Please see a dentist within the next day or two. Rinse with warm salt water and avoid very hot or cold food.', likelyCauses: ['Tooth decay reaching the nerve', 'Gum abscess'], homeCare: ['Warm salt-water rinses 3-4 times a day', 'Chew on the other side'], warningSigns: ['Swelling spreads to your face or neck', 'Fever, or trouble swallowing or breathing'], seekCare: 'Dentist within 24-48 hours.', confidence: 0.77, disclaimer: 'x', care: { issue: 'Toothache with swollen gum', specialty: 'dentistry' }, triage: { v: 3, mode: 'final' } })
+// Which sample assessment a sent message gets.
+const sampleReply = (body) => {
+  if (body.answers || /ankle|sprain/i.test(body.content)) return SPRAIN
+  if (/tooth|teeth|gum/i.test(body.content)) return TOOTH
+  return MIGRAINE
+}
+// Sample places around the requested position (nearby=live returns real ones).
+const SAMPLE_PLACES = {
+  neurology: [['NeuroCare Brain & Spine Clinic', 1.2, 'clinic', true], ['Sunrise Neuro Hospital', 2.6, 'hospital', true], ['City General Hospital', 0.8, 'hospital', false]],
+  orthopaedics: [['Bone & Joint Clinic', 1.4, 'clinic', true], ['OrthoPlus Hospital', 3.1, 'hospital', true], ['Family Health Clinic', 0.3, 'clinic', false]],
+}
+const nearbySample = (b) => {
+  const spec = SAMPLE_PLACES[b.specialty] ? b.specialty : 'neurology'
+  const label = { neurology: 'Brain & nerves (Neurology)', orthopaedics: 'Bones & joints (Orthopaedics)' }[spec]
+  return {
+    issue: b.issue || '', specialty: spec, specialtyLabel: label, searchTerm: spec === 'neurology' ? 'neurologist' : 'orthopaedic',
+    severity: b.severity || null, radiusKm: 5, source: 'Amazon Location Service',
+    places: SAMPLE_PLACES[spec].map(([name, km, kind, match], i) => ({
+      id: `p${i}`, name, kind, distanceKm: km, matchesSpecialty: match, emergency: kind === 'hospital' && i === 1 ? true : null,
+      lat: b.lat + km / 111.2 * (i % 2 ? 1 : -0.6), lng: b.lng + km / 111.2 * (i === 2 ? 1 : 0.4), address: 'Sample Road, Sample Nagar', phone: i === 0 ? '+910000000000' : null,
+    })),
+  }
+}
 let consultations = EMPTY ? [] : [
   { consultationId: 'c1', title: 'Chest pain and breathlessness', updatedAt: iso(0.3 * H), lastSeverity: 'EMERGENCY' },
   { consultationId: 'c2', title: 'Fever for two days', updatedAt: iso(0.8 * D), lastSeverity: 'MODERATE' },
@@ -118,6 +153,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
 const route_ = async (method, path, body) => {
   if (path.startsWith('/api/health')) return OFFLINE ? json(503, { status: 'degraded' }) : json(200, { status: 'ok' })
+  if (path === '/api/care/nearby' && method === 'POST') { await wait(600); return json(200, nearbySample(body)) }
   if (path === '/api/profile' && method === 'GET') return json(200, profile)
   if (path === '/api/profile' && method === 'PUT') return json(200, body)
   if (path.startsWith('/api/consultations')) {
@@ -149,7 +185,7 @@ const route_ = async (method, path, body) => {
       window.__lastSend = body // QA: what a questionnaire sends
       return json(200, {
         userMessage: { id: `u${Date.now()}`, role: 'user', content: body.content, createdAt: t, answers: body.answers || null },
-        assistantMessage: { id: `a${Date.now()}`, role: 'assistant', createdAt: t, isOfflineFallback: OFFLINE, content: body.answers ? SPRAIN : ai({ severity: 'HIGH', riskScore: 72, advice: 'Please see a doctor **today**. If symptoms get worse, call 108.' }) },
+        assistantMessage: { id: `a${Date.now()}`, role: 'assistant', createdAt: t, isOfflineFallback: OFFLINE, content: sampleReply(body) },
         isOfflineFallback: OFFLINE,
       })
     }
@@ -286,6 +322,7 @@ window.fetch = async (input, init = {}) => {
   const url = typeof input === 'string' ? input : input.url
   const path = url.replace(location.origin, '')
   if (!path.startsWith('/api') && path !== '/__mock_s3') return realFetch(input, init)
+  if (NEARBY_LIVE && path === '/api/care/nearby') return realFetch(input, init)
   if (SLOW) await wait(SLOW)
   if (FAIL) throw new TypeError('Failed to fetch')
   if (path === '/__mock_s3') { await wait(800); return new Response(null, { status: 200 }) }

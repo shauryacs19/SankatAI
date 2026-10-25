@@ -261,3 +261,21 @@ def test_reply_keeps_the_existing_contract(model):
         assert key in r
     assert r["severity"] == "LOW" and r["riskScore"] <= 34 and r["likelyCauses"] == ["Viral infection"]
     assert r["triage"]["modelVersion"] == "forced" and r["triage"]["variant"] in triage_engine.PROMPT_VARIANTS
+
+
+# --- care focus (nearby hospitals / clinics) --------------------------------
+
+def test_assessment_carries_the_llms_care_focus(model):
+    model("MODERATE", 0.9)
+    llm = FakeProvider({**ASSESSMENT, "care": {"issue": "Ankle sprain", "specialty": "Orthopaedics"}})
+    r = run(["I twisted my ankle while running"], llm)
+    assert r["care"] == {"issue": "Ankle sprain", "specialty": "orthopaedics"}
+    assert "orthopaedics | " in llm.calls[0]["messages"][0]["content"]  # the prompt lists the specialties
+
+
+def test_care_focus_falls_back_to_the_persons_words(model):
+    model("MODERATE", 0.9)
+    bad = run(["toothache since two days, gums swollen"], FakeProvider({**ASSESSMENT, "care": {"specialty": "astrology"}}))
+    assert bad["care"] == {"issue": "Viral infection", "specialty": "dentistry"}  # issue from the first likely cause
+    offline = run(["I have a skin rash and itching"])  # no LLM: template assessment
+    assert offline["care"]["specialty"] == "dermatology" and offline["care"]["issue"]

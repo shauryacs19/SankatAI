@@ -109,6 +109,14 @@ resource "aws_iam_role_policy" "backend" {
         Action   = ["polly:SynthesizeSpeech", "comprehend:DetectDominantLanguage"]
         Resource = "*"
       },
+      # Nearby hospitals / clinics for a chat's problem (Amazon Location
+      # Service, Places v2). Search only: no stored places, no resources to
+      # create; the AWS-managed provider is the only resource.
+      {
+        Effect   = "Allow"
+        Action   = ["geo-places:SearchNearby", "geo-places:SearchText"]
+        Resource = "arn:aws:geo-places:${var.region}::provider/default"
+      },
       # Application + system logs. Write-only: the instance can ship logs but
       # cannot read back what it or anything else has written.
       {

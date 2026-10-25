@@ -16,7 +16,9 @@ The reply keeps the existing JSON contract (``reasoning``, ``followUpQuestions``
 ``severity``, ``riskScore``, ``advice``, ``disclaimer``) so older clients keep
 working (they show ``followUpQuestions`` as a list), and adds ``questionnaire``,
 ``likelyCauses``, ``homeCare``, ``warningSigns``, ``seekCare``, ``confidence``,
-``safetyNote`` and a ``triage`` object (state for the next turn and for feedback).
+``safetyNote``, ``care`` (``{issue, specialty}``: what the problem is about, for the
+nearby hospitals/clinics search) and a ``triage`` object (state for the next turn
+and for feedback).
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ from app.ml.severity_model import Prediction, get_model
 from app.ml.slots import has_complaint
 from app.schemas.triage import Message, PatientProfile
 from app.services import bandit_service
+from app.services.nearby_care_service import SPECIALTIES, care_focus
 from app.services.language_service import language_directive, language_reminder
 
 logger = logging.getLogger("sankatai")
@@ -221,7 +224,9 @@ _RULES = """RULES:
 
 _ASSESSMENT_JSON = ('{"type": "assessment", "reasoning": "...", "advice": "...", "likelyCauses": ["..."], "homeCare": ["..."], '
                     '"warningSigns": ["<signs that mean they must seek care sooner>"], '
-                    '"seekCare": "<when and where to get care: e.g. self-care / clinic in 24-48 h / urgent care today / call 108 now>"}')
+                    '"seekCare": "<when and where to get care: e.g. self-care / clinic in 24-48 h / urgent care today / call 108 now>", '
+                    '"care": {"issue": "<2-5 words naming the problem, e.g. Ankle sprain>", '
+                    f'"specialty": "<the ONE kind of doctor/clinic that treats it: {" | ".join(SPECIALTIES)}>"}}}}')
 _QUESTIONS_JSON = ('{"type": "questions", "intro": "<one short sentence: why you ask>", "questions": [{"label": "<2-4 word '
                    'summary, e.g. How long>", "question": "...", "kind": "yes_no" | "choice" | "text", "options": ["..."], '
                    '"allowOther": true}]}')
@@ -365,7 +370,7 @@ def ask_reply(d: Decision, items: list[dict], intro: str, variant: str) -> dict:
     }
 
 
-def assessment_reply(d: Decision, llm: dict, *, variant: str, lang_key: str) -> dict:
+def assessment_reply(d: Decision, llm: dict, *, variant: str, lang_key: str, user_text: str = "") -> dict:
     tpl = _template(d)
     sev = d.severity
     advice = _str(llm.get("advice"), 1200) or tpl["advice"]
@@ -375,30 +380,32 @@ def assessment_reply(d: Decision, llm: dict, *, variant: str, lang_key: str) -> 
         advice = f"{advice} {_SELF_HARM_LINE}"
     home = _list(llm.get("homeCare")) if sev in ("LOW", "MODERATE") else []
     risk = risk_score(sev, d.prediction.probs)
+    causes = _list(llm.get("likelyCauses"), 4)
     return {
         "reasoning": _str(llm.get("reasoning"), 500) or tpl["reasoning"],
         "followUpQuestions": [],
         "severity": sev,
         "riskScore": risk if d.source == "model" else max(risk, RISK_BANDS[sev][0]),
         "advice": advice,
-        "likelyCauses": _list(llm.get("likelyCauses"), 4),
+        "likelyCauses": causes,
         "homeCare": home or (tpl["homeCare"] if not llm else []),
         "warningSigns": _list(llm.get("warningSigns")) or tpl["warningSigns"],
         "seekCare": _str(llm.get("seekCare"), 300) or tpl["seekCare"],
+        "care": care_focus(llm.get("care"), user_text, causes),
         "disclaimer": DISCLAIMER,
         "confidence": round(d.confidence, 3),
         "triage": _meta(d, "final", variant),
     }
 
 
-def offline_reply(d: Decision, variant: str) -> dict:
+def offline_reply(d: Decision, variant: str, user_text: str = "") -> dict:
     """No LLM: an estimate with the same severity. Never questions of our own;
     only a request to describe the problem when nothing was described."""
     if d.may_ask and not d.after_final and not has_complaint(d.features):
         return {"reasoning": "", "followUpQuestions": [_DESCRIBE["en"]], "severity": None, "riskScore": None,
                 "advice": "", "disclaimer": DISCLAIMER, "confidence": round(d.confidence, 3),
                 "triage": _meta(d, "describe", variant)}
-    return assessment_reply(d, {}, variant=variant, lang_key="en")  # template text is English (stored as en-IN)
+    return assessment_reply(d, {}, variant=variant, lang_key="en", user_text=user_text)  # template text is English (stored as en-IN)
 
 
 # --- entry point ----------------------------------------------------------
@@ -451,13 +458,14 @@ def run(
     lang_key = _lang_key(lang)
 
     llm = _call_llm(provider, d, variant, profile, images, messages, lang, seed, deadline)
+    user_text = " ".join(m.content for m in messages if m.role == "user")
     items = llm_questions(llm, lang_key) if d.may_ask and llm.get("type") != "assessment" else []
     if items:
         reply, used = ask_reply(d, items, _str(llm.get("intro"), 300), variant), True
     elif llm.get("advice"):
-        reply, used = assessment_reply(d, llm, variant=variant, lang_key=lang_key), True
+        reply, used = assessment_reply(d, llm, variant=variant, lang_key=lang_key, user_text=user_text), True
     else:
-        reply, used = offline_reply(d, variant), False
+        reply, used = offline_reply(d, variant, user_text), False
     logger.info("triage turn mode=%s severity=%s source=%s why=%s questions=%d conf=%.2f model=%s llm=%s",
                 reply["triage"]["mode"], d.severity, d.source, d.why, len(items), d.confidence,
                 d.prediction.model_version, used)

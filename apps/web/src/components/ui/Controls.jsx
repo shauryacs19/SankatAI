@@ -34,38 +34,6 @@ export function SegmentedControl({ label, options, value, onChange, block = fals
   )
 }
 
-/**
- * Tabs — the tab list only; the caller renders the panel with
- * id={`${idBase}-panel`} role="tabpanel" aria-labelledby={`${idBase}-${value}`}.
- */
-export function Tabs({ label, tabs, value, onChange, idBase, block = true }) {
-  const values = tabs.map((t) => t.value)
-  return (
-    <div role="tablist" aria-label={label} className={`ui-seg ${block ? 'ui-seg--block' : ''}`}>
-      {tabs.map((t) => {
-        const selected = t.value === value
-        return (
-          <button
-            key={t.value}
-            id={`${idBase}-${t.value}`}
-            type="button"
-            role="tab"
-            aria-selected={selected}
-            aria-controls={`${idBase}-panel`}
-            tabIndex={selected ? 0 : -1}
-            data-value={t.value}
-            className="ui-seg-item"
-            onClick={() => onChange(t.value)}
-            onKeyDown={(e) => rovingKeyDown(e, values, value, onChange)}
-          >
-            {t.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 // Switch with a visible, bound label (and optional description).
 export function Switch({ checked, onChange, label, description, disabled = false }) {
   const id = useId()
