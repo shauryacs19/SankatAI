@@ -36,9 +36,18 @@ const InviteAcceptPage = lazy(() => import('../features/admin/pages/InviteAccept
 // Signed-in users land in the app; profile completeness decides where. A
 // question typed on the home page (state.draft) is carried along to the chat.
 function Gate() {
-  const { profile, loading } = useProfile()
+  const { profile, loading, error, refresh } = useProfile()
   const { state } = useLocation()
   if (loading) return <Loading />
+  if (error) {
+    return (
+      <main className="app-status" role="alert">
+        <h1>We couldn’t check your health profile</h1>
+        <p>{error}</p>
+        <Button variant="primary" onClick={refresh}>Try again</Button>
+      </main>
+    )
+  }
   const home = state?.draft ? '/dashboard/chat' : '/dashboard'
   return <Navigate to={isProfileComplete(profile) ? home : '/profile-setup'} replace state={state} />
 }

@@ -13,3 +13,22 @@ resource "aws_ses_email_identity" "sender" {
   count = var.ses_sender_email == "" ? 0 : 1
   email = var.ses_sender_email
 }
+
+# Lets Cognito send sign-in codes (EMAIL_OTP) as this identity.
+data "aws_caller_identity" "ses" {}
+
+resource "aws_ses_identity_policy" "cognito" {
+  count    = var.ses_sender_email == "" ? 0 : 1
+  identity = aws_ses_email_identity.sender[0].arn
+  name     = "${var.project_name}-cognito-send"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "email.cognito-idp.amazonaws.com" }
+      Action    = ["ses:SendEmail", "ses:SendRawEmail"]
+      Resource  = aws_ses_email_identity.sender[0].arn
+      Condition = { StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.ses.account_id } }
+    }]
+  })
+}

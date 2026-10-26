@@ -9,6 +9,7 @@ import DashboardTabs from '../screens/DashboardTabs'
 import PersonalInfoScreen from '../screens/profile/PersonalInfoScreen'
 import MedicalInfoScreen from '../screens/profile/MedicalInfoScreen'
 import EmergencyContactsScreen from '../screens/profile/EmergencyContactsScreen'
+import AdminScreen from '../screens/AdminScreen'
 
 const Stack = createNativeStackNavigator()
 
@@ -46,6 +47,7 @@ export default function RootNavigator() {
       <Stack.Screen name="ProfilePersonal" component={PersonalInfoScreen} />
       <Stack.Screen name="ProfileMedical" component={MedicalInfoScreen} />
       <Stack.Screen name="ProfileContacts" component={EmergencyContactsScreen} />
+      <Stack.Screen name="Admin" component={AdminScreen} />
     </Stack.Navigator>
   )
 }

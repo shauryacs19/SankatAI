@@ -8,8 +8,8 @@ choice must be justified by hierarchy, affordance or feedback. If it can't be, r
 
 | What | Where |
 | --- | --- |
-| Structural tokens (shared with mobile) | `packages/shared/theme.js`: `space`, `fontWeight`, `motionTokens`, `zIndex`, `breakpoints`, severity fills. |
-| Web visual identity (web only; mobile unaffected) | `src/styles/palette.js`: colours (light + dark), severity inks, type scale, font stack, radii. |
+| Shared visual identity and structural tokens | `packages/shared/theme.js`: light/dark colours, severity fills, spacing, font weights, motion, z-index and breakpoints. Both clients consume this palette. |
+| Web-only refinements | `src/styles/palette.js`: severity text inks, type scale, font stack and radii. |
 | Webfont | Inter variable (OFL, `public/fonts/Inter-LICENSE.txt`), self-hosted from `src/assets/fonts/`, `@font-face` in `src/styles/base.js`. No third-party font request. |
 | CSS custom properties (the only place they are generated) | `src/styles/tokens.js` |
 | Reset, focus and reduced motion | `src/styles/base.js`, installed once by `src/styles/install.js` before first paint |

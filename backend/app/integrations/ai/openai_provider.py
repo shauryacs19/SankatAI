@@ -155,7 +155,7 @@ class AIProvider(ABC):
         """Triage-engine turn (question or explanation). JSON string; raises on failure."""
         raise NotImplementedError
 
-    def analyze_image(self, image_b64: str, mime: str, *, timeout: Optional[float] = None) -> str:
+    def analyze_image(self, image_b64: str, mime: str, *, timeout: Optional[float] = None, prompt: Optional[str] = None) -> str:
         """Structured findings for one photo (VISION_PROMPT). JSON string; raises on failure."""
         raise NotImplementedError
 
@@ -197,8 +197,8 @@ class OpenAIProvider(AIProvider):
         return _extract_json(response.choices[0].message.content)
 
     def generate(self, messages: list[dict], *, seed: Optional[int] = None, timeout: Optional[float] = None) -> str:
-        # Sampling is deliberately varied (0.6-0.8 / top_p 0.9) so wording and
-        # questions are not canned; the per-session seed keeps one conversation
+        # Low temperature (AI_TEMPERATURE, default 0.2) for accurate, consistent
+        # medical replies; the per-session seed keeps one conversation
         # stable on retry. Severity is NOT decided here (see triage_engine).
         client = self._client().with_options(timeout=timeout) if timeout else self._client()
         kwargs = {"seed": seed} if seed is not None else {}
@@ -217,14 +217,14 @@ class OpenAIProvider(AIProvider):
             return self._client()
         return _separate_vision_client(config.AI_VISION_BASE_URL)
 
-    def analyze_image(self, image_b64: str, mime: str, *, timeout: Optional[float] = None) -> str:
+    def analyze_image(self, image_b64: str, mime: str, *, timeout: Optional[float] = None, prompt: Optional[str] = None) -> str:
         client = self._vision_client().with_options(timeout=timeout or config.AI_VISION_TIMEOUT)
         response = client.chat.completions.create(
             model=config.AI_VISION_MODEL,
             messages=[
-                {"role": "system", "content": VISION_PROMPT},
+                {"role": "system", "content": prompt or VISION_PROMPT},
                 {"role": "user", "content": [
-                    {"type": "text", "text": "Describe this photo for triage. JSON only."},
+                    {"type": "text", "text": "Read this image. JSON only." if prompt else "Describe this photo for triage. JSON only."},
                     {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{image_b64}"}},
                 ]},
             ],

@@ -1,55 +1,16 @@
-// Shared design tokens (framework-agnostic). Light + dark palettes; the mobile
-// ThemeContext and the web CSS tokens both draw from these values.
+// Shared design tokens (framework-agnostic). This is the canonical product
+// identity for both the web and mobile clients.
 
 export const radius = { sm: 8, md: 12, lg: 16, xl: 20 }
 
-// Severity colours are constant across themes. EMERGENCY keeps the ORIGINAL
-// vivid red — life-critical actions (SOS, call ambulance, emergency call) must
-// stay loud even though the general brand red was softened.
+// Severity colours are constant across themes. EMERGENCY stays red for
+// life-critical actions; sage is reserved for normal product actions.
 const SEVERITY = { LOW: '#059669', MODERATE: '#CA8A04', HIGH: '#EA580C', EMERGENCY: '#DC2626' }
 export const sevColor = (severity) => SEVERITY[severity] || '#64748B'
 
-export const lightColors = {
-  bg: '#F8FAFC',
-  surface: '#FFFFFF',
-  surface2: '#F1F5F9',
-  border: '#E5E7EB',
-  text: '#0F172A',
-  textSecondary: '#334155',
-  muted: '#64748B',
-  // Softer, less saturated brand red (was #DC2626 — too bright).
-  // White text on this passes AA (4.57:1).
-  primary: '#C4504B',
-  primaryHover: '#A93F3B',
-  primarySoft: '#FBF1F0',
-  primaryBorder: '#F0CFCD',
-  success: '#059669',
-  sevLow: SEVERITY.LOW, sevModerate: SEVERITY.MODERATE, sevHigh: SEVERITY.HIGH, sevEmergency: SEVERITY.EMERGENCY,
-}
-
-export const darkColors = {
-  bg: '#0B1220',
-  surface: '#111827',
-  surface2: '#1F2937',
-  border: '#334155',
-  text: '#F1F5F9',
-  textSecondary: '#CBD5E1',
-  muted: '#94A3B8',
-  // Muted red for dark surfaces (was #EF4444 — glaring on #0B1220).
-  primary: '#D9635E',
-  primaryHover: '#E0736E',
-  primarySoft: '#33191A',
-  primaryBorder: '#6E3330',
-  success: '#34D399',
-  sevLow: SEVERITY.LOW, sevModerate: SEVERITY.MODERATE, sevHigh: SEVERITY.HIGH, sevEmergency: SEVERITY.EMERGENCY,
-}
-
-export const palettes = { light: lightColors, dark: darkColors }
-
 // ---------------------------------------------------------------------------
-// Design-system tokens (additive — everything above is unchanged for mobile).
-// The web app turns these into CSS custom properties in one place
-// (apps/web/src/styles/tokens.js); nothing on the web picks raw values.
+// Semantic palettes. Both apps consume the same values; platform-specific
+// aliases are provided below for existing React Native screens.
 // ---------------------------------------------------------------------------
 
 // The fixed severity fills, exported for fills/dots/bars/borders. NEVER tinted.
@@ -62,35 +23,50 @@ export const neutral = {
 }
 
 // Semantic aliases. Components use these, never the scale directly.
-// Contrast (WCAG 2.x, verified): text-primary/secondary/muted ≥4.5:1 on bg,
-// surface and surface-sunken; border-strong ≥3:1 on surface (inputs, controls);
-// on-primary ≥4.5:1 on primary. White on #D9635E is only 3.56:1, so dark
-// mode puts dark ink on the primary fill instead.
+// The warm-sage light and dark values are shared by web CSS and native styles.
 const semanticLight = {
-  bg: neutral[50], surface: neutral[0], surfaceRaised: neutral[0], surfaceSunken: neutral[100], surfaceHover: neutral[100],
-  textPrimary: neutral[900], textSecondary: neutral[700], textMuted: '#5B6B80', // #64748B is 4.34:1 on surface-sunken
-  borderSubtle: neutral[200], borderDefault: neutral[300], borderStrong: '#8492A6',
-  focusRing: neutral[900],
-  primary: lightColors.primary, primaryHover: lightColors.primaryHover, primaryText: '#A93F3B', onPrimary: '#FFFFFF',
-  primarySoft: lightColors.primarySoft, primaryBorder: lightColors.primaryBorder,
-  success: '#047857', successSoft: '#ECFDF5', successBorder: '#A7F3D0',
-  warning: '#B45309', warningSoft: '#FFFBEB', warningBorder: '#FDE68A',
-  danger: '#B91C1C', dangerHover: '#991B1B', onDanger: '#FFFFFF', dangerSoft: '#FEF2F2', dangerBorder: '#FECACA',
-  scrim: 'rgba(15, 23, 42, 0.48)', shadowColor: '15, 23, 42',
+  bg: '#F6F4ED', surface: '#FFFFFF', surfaceRaised: '#FFFFFF', surfaceSunken: '#EFEEE7', surfaceHover: '#F0F2ED',
+  surfaceTint: '#E5EBE3', userBubble: '#E5EBE3',
+  textPrimary: '#293B38', textSecondary: '#4A5652', textMuted: '#5E6964',
+  borderSubtle: '#E8E9E5', borderDefault: '#D5D9D3', borderStrong: '#7D8681',
+  focusRing: '#2F5A53', focusHalo: 'rgba(66, 111, 104, 0.20)',
+  primary: '#426F68', primaryHover: '#375E58', primaryText: '#3B635C', onPrimary: '#FFFFFF',
+  primarySoft: '#E5EBE3', primaryBorder: '#C5D3C9',
+  success: '#1F7A4D', successSoft: '#EEF6EF', successBorder: '#BFDCC8',
+  warning: '#A14A08', warningSoft: '#FCF3E6', warningBorder: '#EBCB9B',
+  danger: '#B42318', dangerHover: '#912018', onDanger: '#FFFFFF', dangerSoft: '#FDF1EF', dangerBorder: '#F2C6C0',
+  scrim: 'rgba(41, 59, 56, 0.42)', shadowColor: '41, 59, 56', deviceBezel: '#1F2A28',
 }
 const semanticDark = {
-  bg: neutral[950], surface: '#111827', surfaceRaised: '#1F2937', surfaceSunken: '#1F2937', surfaceHover: '#1F2937',
-  textPrimary: neutral[100], textSecondary: neutral[300], textMuted: neutral[400],
-  borderSubtle: '#263244', borderDefault: neutral[700], borderStrong: '#6B7A90',
-  focusRing: neutral[100],
-  primary: darkColors.primary, primaryHover: darkColors.primaryHover, primaryText: '#E0736E', onPrimary: neutral[950],
-  primarySoft: darkColors.primarySoft, primaryBorder: darkColors.primaryBorder,
-  success: '#34D399', successSoft: '#0F2C32', successBorder: '#1F6355',
-  warning: '#FBBF24', warningSoft: '#2F2A21', warningBorder: '#6E6020',
-  danger: '#F87171', dangerHover: '#FCA5A5', onDanger: neutral[950], dangerSoft: '#311A27', dangerBorder: '#6D3C45',
-  scrim: 'rgba(2, 6, 23, 0.64)', shadowColor: '0, 0, 0',
+  bg: '#131918', surface: '#1A2120', surfaceRaised: '#212927', surfaceSunken: '#222A28', surfaceHover: '#27302E',
+  surfaceTint: '#1E2E2B', userBubble: '#24332F',
+  textPrimary: '#ECEFEA', textSecondary: '#C5CDC8', textMuted: '#9DA8A2',
+  borderSubtle: '#2B3532', borderDefault: '#3B4744', borderStrong: '#6F7C77',
+  focusRing: '#9CCBC1', focusHalo: 'rgba(143, 193, 182, 0.24)',
+  primary: '#8FC1B6', primaryHover: '#A6D0C6', primaryText: '#9CCBC1', onPrimary: '#10221F',
+  primarySoft: '#1E2E2B', primaryBorder: '#34524C',
+  success: '#5FCB98', successSoft: '#152A22', successBorder: '#2C5A45',
+  warning: '#F2B45A', warningSoft: '#2C2418', warningBorder: '#6A5228',
+  danger: '#F28B82', dangerHover: '#F6A8A1', onDanger: '#1B0F0E', dangerSoft: '#2E1A1A', dangerBorder: '#6B3A37',
+  scrim: 'rgba(5, 10, 9, 0.66)', shadowColor: '0, 0, 0', deviceBezel: '#050807',
 }
 export const semantic = { light: semanticLight, dark: semanticDark }
+
+// Legacy-friendly aliases used by the native screens. Values map 1:1 to the
+// semantic palette above so the web and native experiences cannot drift apart.
+const nativeColors = (s) => ({
+  bg: s.bg, surface: s.surface, surface2: s.surfaceSunken, surfaceSunken: s.surfaceSunken, surfaceTint: s.surfaceTint, userBubble: s.userBubble, border: s.borderSubtle,
+  text: s.textPrimary, textSecondary: s.textSecondary, muted: s.textMuted,
+  primary: s.primary, primaryText: s.primaryText, primaryHover: s.primaryHover, primarySoft: s.primarySoft, primaryBorder: s.primaryBorder,
+  onPrimary: s.onPrimary, scrim: s.scrim,
+  success: s.success, successSoft: s.successSoft, successBorder: s.successBorder,
+  warning: s.warning, warningSoft: s.warningSoft, warningBorder: s.warningBorder,
+  danger: s.danger, dangerHover: s.dangerHover, onDanger: s.onDanger, dangerSoft: s.dangerSoft, dangerBorder: s.dangerBorder,
+  sevLow: SEVERITY.LOW, sevModerate: SEVERITY.MODERATE, sevHigh: SEVERITY.HIGH, sevEmergency: SEVERITY.EMERGENCY,
+})
+export const lightColors = nativeColors(semanticLight)
+export const darkColors = nativeColors(semanticDark)
+export const palettes = { light: lightColors, dark: darkColors }
 
 // Severity presentation per theme. `fill` is the fixed severity colour (same in
 // both themes, for dots/bars/borders/solid buttons). `ink` is the text-safe

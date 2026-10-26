@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { BadgeCheck, Droplet, User, Stethoscope, Phone, ChevronRight, AlertTriangle, Pencil } from 'lucide-react-native'
+import { Droplet, User, Stethoscope, Phone, ChevronRight, AlertTriangle, Pencil } from 'lucide-react-native'
 import { radius } from '../../theme'
 import { useTheme } from '../../context/ThemeContext'
 import { useProfile } from '../../context/ProfileContext'
@@ -30,18 +30,18 @@ export default function ProfileScreen({ navigation }) {
   const age = ageFromDob(profile?.dob)
   const contacts = Array.isArray(profile?.emergencyContacts) ? profile.emergencyContacts : []
 
+  // Same rule as the web: share of the REQUIRED details filled in (hidden at 100%).
   const completion = useMemo(() => {
     if (!profile) return 0
-    const f = ['firstName', 'lastName', 'dob', 'gender', 'bloodGroup', 'phone', 'email', 'allergies', 'conditions', 'disability', 'preferredLanguage']
-    let n = f.filter((k) => String(profile[k] || '').trim()).length
-    if (contacts.some((c) => c.phone || c.name)) n++
-    return Math.round((n / (f.length + 1)) * 100)
-  }, [profile, contacts])
+    const required = ['firstName', 'dob', 'gender', 'phone', 'email', 'bloodGroup']
+    const filled = required.filter((f) => String(profile[f] || '').trim()).length
+    return Math.round((filled / required.length) * 100)
+  }, [profile])
 
   const sections = [
     { key: 'ProfilePersonal', Icon: User, title: 'Personal information', subtitle: [orDash(profile?.firstName && fullName), age != null ? `${age} yrs` : null, profile?.phone].filter(Boolean).join(' · ') || 'Name, DOB, contact details' },
     { key: 'ProfileMedical', Icon: Stethoscope, title: 'Medical information', subtitle: [profile?.bloodGroup && `Blood ${profile.bloodGroup}`, profile?.allergies && 'Allergies', profile?.conditions && 'Conditions'].filter(Boolean).join(' · ') || 'Blood group, allergies, conditions, insurance' },
-    { key: 'ProfileContacts', Icon: Phone, title: 'Emergency contacts', subtitle: contacts.length ? `${contacts.length} contact${contacts.length > 1 ? 's' : ''}` : 'None added yet' },
+    { key: 'ProfileContacts', Icon: Phone, title: 'Emergency contacts', subtitle: contacts.length ? `${contacts.length} contact${contacts.length > 1 ? 's' : ''}` : 'No emergency contacts yet — add one' },
   ]
 
   const body = () => {
@@ -51,7 +51,7 @@ export default function ProfileScreen({ navigation }) {
         <View style={styles.empty}>
           <AlertTriangle size={30} color={colors.muted} />
           <Text style={styles.emptyText}>We couldn't load your profile.</Text>
-          <TouchableOpacity style={styles.emptyBtn} onPress={reload}><Text style={styles.emptyBtnText}>Retry</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.emptyBtn} onPress={reload}><Text style={styles.emptyBtnText}>Try again</Text></TouchableOpacity>
           <TouchableOpacity style={[styles.emptyBtn, styles.emptyBtnGhost]} onPress={() => navigation.navigate('ProfileSetup')}><Text style={styles.emptyBtnGhostText}>Complete profile setup</Text></TouchableOpacity>
         </View>
       )
@@ -63,12 +63,16 @@ export default function ProfileScreen({ navigation }) {
             <View style={styles.avatar}><Text style={styles.avatarText}>{(profile?.firstName?.[0] || 'U').toUpperCase()}</Text></View>
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>{fullName}</Text>
-              <View style={styles.verified}><BadgeCheck size={13} color={colors.success} /><Text style={styles.verifiedText}>Verified</Text></View>
+              <Text style={styles.lead}>The details SankatAI uses to make its guidance safer.</Text>
             </View>
             {!!profile?.bloodGroup && <View style={styles.blood}><Droplet size={12} color={colors.primary} /><Text style={styles.bloodText}>{profile.bloodGroup}</Text></View>}
           </View>
-          <View style={styles.compTop}><Text style={styles.compLabel}>Profile completion</Text><Text style={styles.compLabel}>{completion}%</Text></View>
-          <View style={styles.bar}><View style={[styles.barFill, { width: `${completion}%` }]} /></View>
+          {completion < 100 && (
+            <>
+              <View style={styles.compTop}><Text style={styles.compLabel}>Required details completed</Text><Text style={styles.compLabel}>{completion}%</Text></View>
+              <View style={styles.bar} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: completion }}><View style={[styles.barFill, { width: `${completion}%` }]} /></View>
+            </>
+          )}
         </View>
 
         {sections.map((s) => (
@@ -114,8 +118,7 @@ const makeStyles = (colors) => StyleSheet.create({
   avatar: { width: 54, height: 54, borderRadius: 15, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: colors.onPrimary, fontSize: 22, fontWeight: '800' },
   name: { fontSize: 17, fontWeight: '700', color: colors.text },
-  verified: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
-  verifiedText: { color: colors.success, fontSize: 12, fontWeight: '600' },
+  lead: { color: colors.muted, fontSize: 12, marginTop: 2 },
   blood: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.primarySoft, borderColor: colors.primaryBorder, borderWidth: 1, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 9 },
   bloodText: { color: colors.primary, fontWeight: '700', fontSize: 13 },
   compTop: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, marginBottom: 6 },

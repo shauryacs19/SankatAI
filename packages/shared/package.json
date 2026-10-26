@@ -10,6 +10,7 @@
     "./countries": "./countries.js",
     "./documents": "./documents.js",
     "./profileOptions": "./profileOptions.js",
+    "./questionnaire": "./questionnaire.js",
     "./theme": "./theme.js",
     "./validation": "./validation.js",
     "./voice": "./voice.js"

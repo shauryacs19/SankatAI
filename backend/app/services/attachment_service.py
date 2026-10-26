@@ -80,7 +80,7 @@ class AttachmentService:
     def create_upload(self, user_id: str, email: Optional[str], scope: str, kind: str,
                       filename: str, content_type: str, chat_id: Optional[str] = None,
                       password_protected: bool = False, pin_id: Optional[str] = None,
-                      category: Optional[str] = None) -> dict:
+                      category: Optional[str] = None, ai_access: bool = False) -> dict:
         attachment_id, bucket, key = self._resolve_target(user_id, scope, kind, chat_id, filename)
         url = self._storage.presigned_put_url(bucket, key, content_type, self._cfg.PRESIGN_EXPIRY)
 
@@ -105,6 +105,12 @@ class AttachmentService:
                 raise AttachmentError("Select which security PIN protects this file.")
             item["password_protected"] = True
             item["pin_id"] = pin_id
+        if ai_access:
+            if scope != "vault":
+                raise AttachmentError("AI access applies to saved documents only.")
+            if password_protected:
+                raise AttachmentError("PIN-protected files can't be shared with the AI.")
+            item["ai_access"] = True
 
         self._repo.save(item)
         return {
@@ -135,7 +141,8 @@ class AttachmentService:
         return views
 
     def update(self, user_id: str, attachment_id: str,
-               filename: Optional[str] = None, category: Optional[str] = None) -> dict:
+               filename: Optional[str] = None, category: Optional[str] = None,
+               ai_access: Optional[bool] = None) -> dict:
         """Rename and/or (re)assign a category. Only the provided fields change.
         An empty-string category clears it (moves the file to Uncategorized)."""
         item = self._repo.get(user_id, attachment_id)
@@ -154,6 +161,13 @@ class AttachmentService:
                 item["category"] = cat
             else:
                 item.pop("category", None)
+        if ai_access is not None:
+            if ai_access and (item.get("scope") != "vault" or item.get("password_protected")):
+                raise AttachmentError("Only unprotected saved documents can be shared with the AI.")
+            self._repo.set_ai_access(user_id, attachment_id, ai_access)
+            item["ai_access"] = ai_access
+            if not ai_access:
+                item.pop("ai_summary", None); item.pop("ai_status", None)
         return self._to_view(item, with_download=False)
 
     def get_download_url(self, user_id: str, attachment_id: str,
@@ -206,6 +220,8 @@ class AttachmentService:
             "passwordProtected": protected,
             "pinId": item.get("pin_id") if protected else None,
             "category": item.get("category"),
+            "aiAccess": bool(item.get("ai_access")),
+            "aiStatus": (item.get("ai_status") or "pending") if item.get("ai_access") else None,
         }
         # Never hand out a download URL for a protected file without a PIN check.
         if with_download and not protected:

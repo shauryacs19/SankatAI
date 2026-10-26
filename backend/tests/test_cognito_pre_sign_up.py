@@ -1,4 +1,4 @@
-"""Cognito triggers Lambda: duplicate email/phone checks and usernames."""
+"""Cognito pre sign-up Lambda: duplicate email/phone checks."""
 
 from __future__ import annotations
 
@@ -85,37 +85,14 @@ def test_admin_created_users_pass_through(cognito):
     assert trigger.handler(event, None) is event and fake.updates == []
 
 
-# --- usernames (preferred_username arrives as ClientMetadata) ----------------
-
-@pytest.mark.parametrize("handle", ["ab", "9lives", "a..b", "asha.", "admin", "has space"])
-def test_bad_username_is_rejected_at_sign_up(cognito, handle):
+def test_username_metadata_is_ignored(cognito):
     cognito()
-    with pytest.raises(Exception, match="Choose a username"):
-        trigger.handler(sign_up({"preferred_username": handle}, email="asha@gmail.com"), None)
-
-
-def test_taken_username_is_rejected_at_sign_up(cognito):
-    cognito([user("u1", preferred_username="asha.k")])
-    with pytest.raises(Exception, match="username is taken"):
-        trigger.handler(sign_up({"preferred_username": "Asha.K"}, email="new@gmail.com"), None)
-
-
-def test_free_username_passes(cognito):
-    cognito([user("u1", preferred_username="someone")])
-    event = sign_up({"preferred_username": "asha.k"}, email="asha@gmail.com")
+    event = sign_up({"preferred_username": "admin"}, email="asha@gmail.com")
     assert trigger.handler(event, None) is event
 
 
-def test_confirmation_sets_the_username(cognito):
+def test_post_confirmation_passes_through(cognito):
     fake = cognito()
-    trigger.handler(confirmed({"preferred_username": "Asha.K"}), None)
-    assert fake.updates == [("new-uuid", [{"Name": "preferred_username", "Value": "asha.k"}])]
-
-
-def test_confirmation_never_fails_on_a_username_problem(cognito):
-    fake = cognito()
-    fake.fail_update = True
     event = confirmed({"preferred_username": "asha.k"})
     assert trigger.handler(event, None) is event
-    assert trigger.handler(confirmed({}), None)["userName"] == "new-uuid"
     assert fake.updates == []

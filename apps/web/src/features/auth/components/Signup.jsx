@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { isEmail, normalizeUsername, toE164, usernameError, USERNAME_MAX } from '@sankatai/shared'
+import { isEmail, toE164 } from '@sankatai/shared'
 import { signUp } from '../../../services/auth/cognito'
 import { authErrorMessage, passwordOk, safeReturnTo } from '../../../services/auth/authErrors'
 import { Alert, Button, Field, Input, SegmentedControl } from '../../../components/ui'
@@ -17,7 +17,7 @@ export default function Signup() {
   const location = useLocation()
   const returnTo = safeReturnTo(location.state?.returnTo)
   const [via, setVia] = useState('email')
-  const [form, setForm] = useState({ name: '', username: '', email: '', phone: '', password: '', confirm: '', terms: false })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', confirm: '', terms: false })
   const [touched, setTouched] = useState({})
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -37,7 +37,6 @@ export default function Signup() {
   const phone = toE164(form.phone)
   const errors = {
     name: !form.name.trim() ? 'Enter your name.' : '',
-    username: usernameError(form.username),
     email: via !== 'email' ? '' : !form.email.trim() ? 'Enter your email address.' : !isEmail(form.email.trim()) ? 'Enter a valid email address, like name@example.com.' : '',
     phone: via !== 'phone' ? '' : !form.phone.trim() ? 'Enter your phone number.' : !phone ? 'Enter a valid number, like 98765 43210 or +91 98765 43210.' : '',
     password: !passwordOk(form.password) ? 'Choose a password that meets every requirement.' : '',
@@ -47,17 +46,17 @@ export default function Signup() {
 
   const submit = async (e) => {
     e.preventDefault()
-    setTouched({ name: true, username: true, email: true, phone: true, password: true, confirm: true, terms: true })
+    setTouched({ name: true, email: true, phone: true, password: true, confirm: true, terms: true })
     if (Object.values(errors).some(Boolean)) return
     setSubmitting(true)
     setError('')
     try {
       const destination = via === 'email' ? form.email.trim().toLowerCase() : phone
       const { username } = await signUp({
-        name: form.name, username: form.username, password: form.password,
+        name: form.name, password: form.password,
         ...(via === 'email' ? { email: destination } : { phone: destination }),
       })
-      const pending = { username, destination, via, handle: normalizeUsername(form.username) }
+      const pending = { username, destination, via }
       savePendingSignUp(pending)
       navigate('/verify', { state: { ...pending, returnTo } })
     } catch (err) {
@@ -79,11 +78,6 @@ export default function Signup() {
       <form className="ui-form" onSubmit={submit} noValidate>
         <Field label="Full name" required error={err('name')}>
           <Input ref={first} autoComplete="name" value={form.name} onChange={set('name')} onBlur={touch('name')} />
-        </Field>
-        <Field label="Username" required error={err('username')}
-          hint="Letters, numbers, dots and underscores. You can sign in with it and change it later.">
-          <Input autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={USERNAME_MAX} value={form.username}
-            onChange={set('username')} onBlur={touch('username')} placeholder="asha.k" />
         </Field>
         <SegmentedControl label="Sign up with" options={VIA} value={via} block onChange={(v) => { setVia(v); setError('') }} />
         {via === 'email' ? (

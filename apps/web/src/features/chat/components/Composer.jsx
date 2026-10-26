@@ -39,7 +39,8 @@ export default function Composer({
     if (!el) return
     el.style.height = 'auto'
     // Empty: rest at the CSS min-height (a wrapping placeholder must not grow it).
-    if (input) el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT_PX)}px`
+    const max = parseFloat(getComputedStyle(el).maxHeight) || MAX_HEIGHT_PX
+    if (input) el.style.height = `${Math.min(el.scrollHeight, max)}px`
   }, [input])
 
   const ready = attachments.filter((a) => a.status === 'uploaded')

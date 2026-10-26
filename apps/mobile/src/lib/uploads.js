@@ -75,7 +75,7 @@ export const getDownloadUrl = (attachmentId, pin, disposition = 'inline') =>
 
 // Orchestrates presign -> S3 PUT -> complete. `asset` is a local file descriptor
 // from expo-document-picker / expo-image-picker: { uri, name, mimeType, size }.
-export const uploadFile = async (asset, { scope = 'vault', kind, chatId, passwordProtected, pinId } = {}) => {
+export const uploadFile = async (asset, { scope = 'vault', kind, chatId, passwordProtected, pinId, aiAccess } = {}) => {
   const k = kind || kindForAsset(asset)
   const name = (asset.name || asset.fileName || 'file').trim()
   const contentType = asset.mimeType || 'application/octet-stream'
@@ -87,6 +87,7 @@ export const uploadFile = async (asset, { scope = 'vault', kind, chatId, passwor
       scope, kind: k, filename: name, contentType, chatId: chatId || null,
       passwordProtected: Boolean(passwordProtected),
       pinId: passwordProtected ? pinId : null,
+      aiAccess: Boolean(aiAccess) && !passwordProtected,
     },
   })
 

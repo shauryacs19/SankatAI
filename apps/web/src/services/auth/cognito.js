@@ -1,9 +1,10 @@
 // Cognito auth for the web app, via amazon-cognito-identity-js (the library the
 // app already ships). Cognito stays the IdP. Ways in:
 //   - password: the in-app form using SRP, so the password is never sent to
-//     Cognito in clear or to our backend. Username, email or phone all work
-//     (they are Cognito aliases).
-//   - text-message code: Cognito's passwordless USER_AUTH flow (SMS_OTP),
+//     Cognito in clear or to our backend. Email or phone both work
+//     (they are Cognito aliases). No usernames.
+//   - one-time code: Cognito's passwordless USER_AUTH flow — EMAIL_OTP for an
+//     email, SMS_OTP for a phone,
 //     called directly because the library doesn't implement it.
 //   - passkey: Cognito's USER_AUTH flow with WEB_AUTHN; the browser signs the
 //     challenge with a passkey bound to this site's domain.
@@ -25,7 +26,7 @@ import {
   CognitoUserPool,
   CognitoUserSession,
 } from 'amazon-cognito-identity-js'
-import { createCognitoApi, normalizeUsername } from '@sankatai/shared'
+import { createCognitoApi } from '@sankatai/shared'
 import { authenticationJSON, registrationJSON, toCreationOptions, toRequestOptions } from './webauthn'
 
 const POOL_ID = import.meta.env.VITE_COGNITO_USER_POOL_ID
@@ -82,8 +83,6 @@ const userFromSession = (session) => {
     email: claims.email || null,
     phone: claims.phone_number || null,
     name: claims.name || null,
-    // The person's handle (Cognito preferred_username); null until chosen.
-    username: claims.preferred_username || null,
     // Display/UX only. The backend decides admin access from the verified token.
     groups: Array.isArray(claims['cognito:groups']) ? claims['cognito:groups'] : [],
   }
@@ -218,7 +217,7 @@ const settle = (user, kind, resolve, reject) => ({
 
 /**
  * Password sign-in. `username` is whatever identifies the account: the
- * username, the verified email, or the verified phone in E.164.
+ * verified email or the verified phone in E.164.
  * @returns {Promise<{nextStep: string, user?: object}>}
  */
 export const signIn = ({ username, password, remember = true }) => new Promise((resolve, reject) => {
@@ -244,30 +243,33 @@ export const confirmSignIn = ({ newPassword, code }) => new Promise((resolve, re
   else user.sendMFACode(code, handlers, step === NEXT_STEP.TOTP ? 'SOFTWARE_TOKEN_MFA' : undefined)
 })
 
-let pendingCode = null // { phone, session } while a texted code is outstanding
+let pendingCode = null // { identifier, challenge, session } while a code is outstanding
 
 export const cancelPendingSignIn = () => {
   pending = null
   pendingCode = null
 }
 
-// ── sign-in with a texted code (passwordless) ─────────────────────────────
+// ── sign-in with an emailed/texted code (passwordless) ─────────────────────────────
 
 const api = () => {
   if (!isCognitoConfigured()) throw Object.assign(new Error('Sign-in is not configured.'), { code: 'NotConfigured' })
   return createCognitoApi({ region: REGION, clientId: CLIENT_ID })
 }
 
-/** Text a sign-in code to the account's verified phone (E.164). */
-export const startCodeSignIn = async (phone) => {
-  const { session, destination } = await api().startSmsSignIn(phone)
-  pendingCode = { phone, session }
-  return { destination }
+/**
+ * Send a sign-in code: emailed for an email, texted for a phone (E.164).
+ * @param {{kind: 'email'|'phone', value: string}} id from parseIdentifier
+ */
+export const startCodeSignIn = async ({ kind, value }) => {
+  const { challenge, session, destination } = await api().startCodeSignIn(value, kind)
+  pendingCode = { identifier: value, challenge, session }
+  return { destination, kind }
 }
 
 export const confirmCodeSignIn = async ({ code, remember = true }) => {
   if (!pendingCode) throw Object.assign(new Error('Sign-in expired'), { code: 'NoPendingSignIn' })
-  const tokens = await api().answerSmsCode({ ...pendingCode, code })
+  const tokens = await api().answerCode({ ...pendingCode, code })
   pendingCode = null
   return { nextStep: NEXT_STEP.DONE, user: adoptTokens(tokens, remember ? 'local' : 'session') }
 }
@@ -278,7 +280,7 @@ export const confirmCodeSignIn = async ({ code, remember = true }) => {
 
 const noPasskey = () => Object.assign(new Error('No passkey was used.'), { code: 'PasskeyCancelled' })
 
-/** Sign in with a passkey for this username, email or phone. */
+/** Sign in with a passkey for this email or phone. */
 export const signInWithPasskey = async ({ username, remember = true }) => {
   const { session, options } = await api().startPasskeySignIn(username)
   const credential = await navigator.credentials.get({ publicKey: toRequestOptions(options) })
@@ -313,38 +315,29 @@ const plainUser = (username) => new CognitoUser({ Username: username.trim(), Poo
 
 /**
  * Create an account with an email or a phone number. The Cognito username is
- * a fresh UUID (never shown); the person signs in with their chosen username,
- * email or phone.
- *
- * The chosen username travels as ClientMetadata, not as an attribute: Cognito
- * refuses preferred_username on an unconfirmed account when it is an alias.
- * The pre sign-up trigger checks it; the post confirmation trigger sets it.
+ * a fresh UUID (never shown); the person signs in with their email or phone.
  * @returns {Promise<{username: string}>} the Cognito username, needed to confirm.
  */
-export const signUp = async ({ email, phone, password, name, username }) => {
+export const signUp = async ({ email, phone, password, name }) => {
   const cognitoUsername = crypto.randomUUID()
   const attributes = []
   if (email) attributes.push(new CognitoUserAttribute({ Name: 'email', Value: email.trim().toLowerCase() }))
   if (phone) attributes.push(new CognitoUserAttribute({ Name: 'phone_number', Value: phone }))
   if (name?.trim()) attributes.push(new CognitoUserAttribute({ Name: 'name', Value: name.trim() }))
-  const metadata = { preferred_username: normalizeUsername(username) }
-  await callback((cb) => poolFor('session').signUp(cognitoUsername, password, attributes, null, cb, metadata))
+  await callback((cb) => poolFor('session').signUp(cognitoUsername, password, attributes, null, cb))
   return { username: cognitoUsername }
 }
 
 /**
  * Confirm with the code sent to the new email/phone (by Cognito username).
- * `handle` is the chosen username, set by the post confirmation trigger.
  * ForceAliasCreation stays false, so an email/phone another account has
  * verified is never moved to this one (AliasExistsException instead).
  */
-export const confirmSignUp = (username, code, handle) => callback((cb) => plainUser(username).confirmRegistration(
-  code.trim(), false, cb, handle ? { preferred_username: normalizeUsername(handle) } : undefined,
-))
+export const confirmSignUp = (username, code) => callback((cb) => plainUser(username).confirmRegistration(code.trim(), false, cb))
 
 export const resendSignUpCode = (username) => callback((cb) => plainUser(username).resendConfirmationCode(cb))
 
-/** Start a reset for a username, verified email or verified phone. */
+/** Start a reset for a verified email or verified phone. */
 export const resetPassword = (identifier) => new Promise((resolve, reject) => {
   plainUser(identifier).forgotPassword({
     onSuccess: resolve,
@@ -369,16 +362,4 @@ export const changePassword = async (_email, currentPassword, newPassword) => {
   } catch (err) {
     throw new Error(err?.code === 'NotAuthorizedException' ? 'Your current password is incorrect.' : (err?.message || 'Could not change your password.'))
   }
-}
-
-/**
- * Set or change the signed-in person's username (preferred_username). Cognito
- * rejects one that is already taken (AliasExistsException). Resolves the user
- * with fresh claims.
- */
-export const updateUsername = async (username) => {
-  if (!active) throw Object.assign(new Error('Sign in again to change your username.'), { code: 'NoSession' })
-  const attribute = new CognitoUserAttribute({ Name: 'preferred_username', Value: normalizeUsername(username) })
-  await callback((cb) => active.user.updateAttributes([attribute], cb))
-  return refreshSession()
 }

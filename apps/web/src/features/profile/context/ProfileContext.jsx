@@ -2,12 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { AUTH_STATUS, useAuth } from '../../../context/AuthContext.jsx'
 import { getProfile } from '../services/profileApi'
 import { errText } from '../../../utils/errText'
+import { isProfileComplete } from '@sankatai/shared'
 
 const ProfileContext = createContext(null)
 
-// A profile "exists" once the user has saved it at least once (even partially,
-// since the setup wizard allows skipping). Null means they've never set it up.
-export const isProfileComplete = (p) => Boolean(p)
+// Share the exact required-field gate with the native app.
+export { isProfileComplete }
 
 export function ProfileProvider({ children }) {
   const [profile, setProfile] = useState(null)

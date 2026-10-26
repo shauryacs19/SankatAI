@@ -37,6 +37,7 @@ export default function SettingsScreen({ navigation }) {
       <ScrollView contentContainerStyle={styles.scroll}>
         <View style={styles.card}>
           <View style={styles.statusTitle}><Palette size={14} color={colors.primary} /><Text style={styles.cardTitle}>Appearance</Text></View>
+          <Text style={styles.switchDesc}>System follows your device's light or dark setting.</Text>
           <View style={styles.themeRow}>
             {THEMES.map(({ key, label, Icon }) => {
               const on = pref === key
@@ -55,7 +56,7 @@ export default function SettingsScreen({ navigation }) {
           <View style={styles.switchRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.itemText}>Auto-read replies to voice messages</Text>
-              <Text style={styles.switchDesc}>When you speak a message, Sankat.AI reads its reply aloud.</Text>
+              <Text style={styles.switchDesc}>When you speak a message, SankatAI reads its reply aloud. Every reply also has a play button.</Text>
             </View>
             <Switch
               value={autoRead}
@@ -75,8 +76,8 @@ export default function SettingsScreen({ navigation }) {
         <AuthSection />
 
         <View style={styles.card}>
-          <View style={styles.statusTitle}><Activity size={14} color={colors.primary} /><Text style={styles.cardTitle}>Status</Text></View>
-          <View style={styles.row}><Text style={styles.rowLabel}>AI service</Text><Text style={styles.rowValue}>{isOffline ? 'Offline (backup mode)' : 'Online'}</Text></View>
+          <View style={styles.statusTitle}><Activity size={14} color={colors.primary} /><Text style={styles.cardTitle}>Service status</Text></View>
+          <View style={styles.row}><Text style={styles.rowLabel}>AI service</Text><Text style={[styles.rowValue, { color: isOffline ? colors.warning : colors.success }]}>{isOffline ? 'Offline — answers are keyword estimates' : 'Online'}</Text></View>
           <View style={styles.row}><Text style={styles.rowLabel}>Signed in as</Text><Text style={styles.rowValue}>{profile?.email || '—'}</Text></View>
         </View>
 
@@ -102,6 +103,6 @@ const makeStyles = (colors) => StyleSheet.create({
   itemText: { fontSize: 15, fontWeight: '500', color: colors.textSecondary },
   row: { flexDirection: 'row', justifyContent: 'space-between', padding: 12 },
   rowLabel: { color: colors.muted, fontSize: 14 },
-  rowValue: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  rowValue: { color: colors.text, fontSize: 14, fontWeight: '600', flexShrink: 1, textAlign: 'right', marginLeft: 12 },
   footer: { color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: 20 },
 })

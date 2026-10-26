@@ -2,7 +2,7 @@
 
     transcript ──► features ──► severity model ──► red-flag floor ──► severity (authoritative)
                                                                           │
-    LLM (Ollama; temperature 0.7, top_p 0.9, per-session seed) gets that state and
+    LLM (Ollama; temperature 0.2, top_p 0.85, per-session seed) gets that state and
     replies EITHER with its own follow-up questions (wording, answer kind and
     options are the LLM's; the app shows them as a questionnaire) OR with the
     assessment that explains the decided severity.
@@ -204,6 +204,8 @@ def _state_lines(d: Decision, profile: Optional[PatientProfile], image_findings:
             f"- Profile: gender {profile.gender or 'unspecified'}; conditions {profile.conditions or 'none listed'}; "
             f"allergies {profile.allergies or 'none listed'}; medications {profile.medications or 'none listed'}"
         )
+    for doc in (getattr(profile, "documents", None) or [])[:5]:
+        lines.append(f"- Their document \"{doc.get('name')}\" (uploaded {doc.get('date') or 'unknown date'}): {doc.get('summary')}")
     for i, img in enumerate(image_findings[:3], 1):
         lines.append(
             f"- Photo {i}: region {img.get('bodyRegion') or 'unclear'}; signs {', '.join(map(str, img.get('visibleSigns') or [])) or 'none'}; "
@@ -220,6 +222,10 @@ _RULES = """RULES:
 - HIGH: get medical care today (doctor, urgent care or hospital). Only first-aid steps while they arrange care; no home-care list.
 - EMERGENCY: the FIRST sentence of 'advice' tells them to call 108 (ambulance) or 112 now or go to the nearest emergency department; then 1-3 immediate first-aid steps. No home care.
 - 'reasoning' is one or two sentences explaining WHY the severity is what it is, citing their details. No hidden reasoning, no chain-of-thought.
+- Base likely causes on standard clinical knowledge and the details given; list only causes that fit ALL their symptoms, age and duration. If the details fit several causes equally, say so and name what would tell them apart.
+- Use correct medical facts only (common Indian OTC names like paracetamol are fine; give doses only as "as per the label"). If unsure, say you are unsure rather than guess.
+- Re-read the whole conversation before replying; never ask again for something already answered and never drop an earlier symptom.
+- Use their shared documents only when relevant to the current problem; cite the document by name, note if it may be outdated, and never let it override what they tell you now.
 - Never claim to be a doctor."""
 
 _ASSESSMENT_JSON = ('{"type": "assessment", "reasoning": "...", "advice": "...", "likelyCauses": ["..."], "homeCare": ["..."], '
@@ -267,7 +273,7 @@ def build_prompt(d: Decision, variant: str, profile: Optional[PatientProfile], i
 
 def build_messages(system: str, messages: list[Message], lang: Optional[str]) -> list[dict]:
     out = [{"role": "system", "content": system}]
-    for m in messages[-8:]:
+    for m in messages[-config.AI_HISTORY_MESSAGES:]:
         if m.role == "user":
             out.append({"role": "user", "content": m.content})
         elif m.role == "assistant":

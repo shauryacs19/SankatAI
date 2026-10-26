@@ -1,5 +1,5 @@
-// Account details, username, password change and sign out (inside Settings).
-// Username and password changes go straight to Cognito from the client.
+// Account details, password change and sign out (inside Settings).
+// Password changes go straight to Cognito from the client.
 
 import { useState } from 'react'
 import { KeyRound, Mail, ShieldCheck, LogOut, Lock, Phone } from 'lucide-react'
@@ -8,7 +8,6 @@ import { useAuth } from '../../../context/AuthContext.jsx'
 import { Alert, Button, Card, Field, InfoRow, Input } from '../../../components/ui'
 import { errText } from '../../../utils/errText'
 import { SignOutDialog } from '../../auth/components/SignOutDialog.jsx'
-import UsernameCard from './UsernameCard.jsx'
 import PasskeysCard from './PasskeysCard.jsx'
 
 const MIN_LEN = 8
@@ -59,7 +58,6 @@ export default function AuthSection({ profile, onSignOut }) {
         <p className="ui-hint">Sign-in is handled by Amazon Cognito. SankatAI never stores your password.</p>
       </Card>
 
-      <UsernameCard />
 
       <PasskeysCard />
 

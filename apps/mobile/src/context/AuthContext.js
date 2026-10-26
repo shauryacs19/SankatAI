@@ -76,7 +76,7 @@ export function AuthProvider({ children }) {
     setStatus(AUTH_STATUS.UNAUTHENTICATED)
   }), [])
 
-  // Password sign-in. `identifier`: username, email or phone (E.164).
+  // Password sign-in. `identifier`: email or phone (E.164).
   const signIn = useCallback(async (identifier, password) => {
     await cognitoSignIn(identifier, password)
     await checkProfile()

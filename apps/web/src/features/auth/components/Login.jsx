@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { KeyRound, ShieldCheck } from 'lucide-react'
-import { maskPhone, parseIdentifier, toE164 } from '@sankatai/shared'
+import { maskPhone, parseIdentifier } from '@sankatai/shared'
 import { useAuth } from '../../../context/AuthContext.jsx'
 import { cancelPendingSignIn, isCognitoConfigured, NEXT_STEP, startCodeSignIn } from '../../../services/auth/cognito'
 import { passkeysSupported } from '../../../services/auth/webauthn'
 import { authErrorMessage, passwordOk, safeReturnTo } from '../../../services/auth/authErrors'
-import { Alert, Button, Field, Input, SegmentedControl } from '../../../components/ui'
+import { Alert, Button, Field, Input } from '../../../components/ui'
 import { AuthLayout, CodeInput, PasswordChecklist, PasswordInput } from './AuthLayout.jsx'
 import { useCooldown, useFailureThrottle } from './authHooks'
 
@@ -21,14 +21,6 @@ const TITLES = {
   [NEXT_STEP.SMS]: ['Enter the SMS code', 'We sent a 6-digit code to your phone.'],
 }
 
-const METHODS = [
-  { value: 'password', label: 'Password' },
-  { value: 'code', label: 'Text me a code' },
-  { value: 'passkey', label: 'Passkey' },
-]
-// The passkey tab only appears where the browser can use passkeys.
-const methodsHere = () => (passkeysSupported() ? METHODS : METHODS.filter((m) => m.value !== 'passkey'))
-
 export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -37,10 +29,9 @@ export default function Login() {
   const returnTo = safeReturnTo(params.get('returnTo'))
 
   const [step, setStep] = useState('signin')
-  const [method, setMethod] = useState('password')
+  const [busyAlt, setBusyAlt] = useState('') // 'code' | 'passkey' while an alternative is running
   const [identifier, setIdentifier] = useState(location.state?.identifier || location.state?.email || '')
-  const [phone, setPhone] = useState('')
-  const [sentTo, setSentTo] = useState('')
+  const [sentTo, setSentTo] = useState({ kind: 'phone', destination: '' })
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
   const [code, setCode] = useState('')
@@ -56,7 +47,7 @@ export default function Login() {
 
   // Nothing sensitive outlives the page: drop any half-finished challenge.
   useEffect(() => () => cancelPendingSignIn(), [])
-  useEffect(() => { firstField.current?.focus() }, [step, method])
+  useEffect(() => { firstField.current?.focus() }, [step])
 
   const done = () => navigate(returnTo || '/app', { replace: true })
 
@@ -71,9 +62,10 @@ export default function Login() {
     return undefined
   }
 
-  const run = async (fn, onResult = next) => {
+  const run = async (fn, onResult = next, alt = '') => {
     if (throttle.locked) return
     setSubmitting(true)
+    setBusyAlt(alt)
     setError('')
     try {
       onResult(await fn())
@@ -83,14 +75,13 @@ export default function Login() {
       setError(authErrorMessage(err, 'Couldn’t sign you in. Try again.'))
     } finally {
       setSubmitting(false)
+      setBusyAlt('')
     }
   }
 
   const parsed = parseIdentifier(identifier)
-  const phoneE164 = toE164(phone)
-  const idErr = !identifier.trim() ? 'Enter your username, email or phone number.'
+  const idErr = !identifier.trim() ? 'Enter your email or phone number.'
     : !parsed ? 'Check that. Phone numbers need 10 digits or a country code, like +91 98765 43210.' : ''
-  const phoneErr = !phone.trim() ? 'Enter your phone number.' : !phoneE164 ? 'Enter a valid number, like 98765 43210 or +91 98765 43210.' : ''
   const passwordErr = !password ? 'Enter your password.' : ''
   const codeErr = code.length !== 6 ? 'Enter the 6-digit code.' : ''
   const newPwErr = !passwordOk(newPassword) ? 'Choose a password that meets every requirement.' : ''
@@ -103,24 +94,23 @@ export default function Login() {
     run(() => signIn({ username: parsed.value, password, remember }))
   }
 
-  const submitPasskey = (e) => {
-    e.preventDefault()
+  const usePasskey = () => {
     setTouched({ identifier: true })
     if (idErr) return
-    run(() => signInWithPasskey({ username: parsed.value, remember }))
+    run(() => signInWithPasskey({ username: parsed.value, remember }), next, 'passkey')
   }
 
+  // Email → Cognito emails the code; phone → texts it.
   const sendCode = async () => {
-    const { destination } = await startCodeSignIn(phoneE164)
-    setSentTo(destination || maskPhone(phoneE164))
+    const { destination, kind } = await startCodeSignIn(parsed)
+    setSentTo({ kind, destination: destination || (kind === 'phone' ? maskPhone(parsed.value) : parsed.value) })
     setCooldown(RESEND_SECONDS)
     return { nextStep: CODE_VERIFY }
   }
-  const submitPhone = (e) => {
-    e.preventDefault()
-    setTouched({ phone: true })
-    if (phoneErr) return
-    run(sendCode, () => { setCode(''); setTouched({}); setStep(CODE_VERIFY) })
+  const useCode = () => {
+    setTouched({ identifier: true })
+    if (idErr) return
+    run(sendCode, () => { setCode(''); setTouched({}); setStep(CODE_VERIFY) }, 'code')
   }
   const resendCode = async () => {
     if (cooldown > 0) return
@@ -155,7 +145,10 @@ export default function Login() {
   }
 
   const [title, defaultLead] = TITLES[step]
-  const lead = step === CODE_VERIFY ? `We texted a 6-digit code to ${sentTo}.` : defaultLead
+  const lead = step === CODE_VERIFY
+    ? `We ${sentTo.kind === 'email' ? 'emailed' : 'texted'} a 6-digit code to ${sentTo.destination}.`
+    : defaultLead
+  const codeLabel = parsed?.kind === 'email' ? 'Email me a code' : parsed?.kind === 'phone' ? 'Text me a code' : 'Send me a code'
   const lockedHint = throttle.locked ? `Too many attempts. Try again in ${throttle.lockedFor}s.` : undefined
   const rememberBox = (
     <label className="auth-check">
@@ -180,68 +173,42 @@ export default function Login() {
       {error && <Alert tone="danger">{error}</Alert>}
 
       {step === 'signin' && (
-        <>
-          <SegmentedControl label="Sign-in method" options={methodsHere()} value={method} block
-            onChange={(m) => { setMethod(m); setError(''); setTouched({}) }} />
-
-          {method === 'passkey' && (
-            <form className="ui-form" onSubmit={submitPasskey} noValidate>
-              <Field label="Email, phone or username" required error={touched.identifier ? idErr || undefined : undefined}
-                hint="Use the passkey you added in Settings on this or another device.">
-                <Input ref={firstField} autoComplete="username webauthn" autoCapitalize="none" spellCheck={false} value={identifier}
-                  onChange={(e) => { setIdentifier(e.target.value); setError('') }}
-                  onBlur={() => setTouched((t) => ({ ...t, identifier: true }))} placeholder="name@example.com" />
-              </Field>
-              <div className="auth-row">{rememberBox}</div>
-              <Button type="submit" variant="primary" block icon={KeyRound} loading={submitting} loadingText="Waiting for your passkey…"
-                disabled={throttle.locked} hint={lockedHint}>
-                Sign in with passkey
-              </Button>
-            </form>
-          )}
-
-          {method === 'password' && (
-            <form className="ui-form" onSubmit={submitSignIn} noValidate>
-              <Field label="Email, phone or username" required error={touched.identifier ? idErr || undefined : undefined}>
-                <Input ref={firstField} autoComplete="username" autoCapitalize="none" spellCheck={false} value={identifier}
-                  onChange={(e) => { setIdentifier(e.target.value); setError('') }}
-                  onBlur={() => setTouched((t) => ({ ...t, identifier: true }))} placeholder="name@example.com" />
-              </Field>
-              <Field label="Password" required error={touched.password ? passwordErr : undefined}>
-                <PasswordInput autoComplete="current-password" value={password}
-                  onChange={(e) => { setPassword(e.target.value); setError('') }} onBlur={() => setTouched((t) => ({ ...t, password: true }))} />
-              </Field>
-              <div className="auth-row">
-                {rememberBox}
-                <Link className="auth-link" to="/forgot-password" state={{ identifier: identifier.trim() }}>Forgot password?</Link>
-              </div>
-              <Button type="submit" variant="primary" block loading={submitting} loadingText="Signing in…"
-                disabled={throttle.locked} hint={lockedHint}>
-                Sign in
-              </Button>
-              <p className="auth-note">
-                <ShieldCheck size={16} aria-hidden="true" />
-                <span>Your password is checked by Amazon Cognito using SRP. It is never sent to SankatAI.</span>
-              </p>
-            </form>
-          )}
-
-          {method === 'code' && (
-            <form className="ui-form" onSubmit={submitPhone} noValidate>
-              <Field label="Phone number" required error={touched.phone ? phoneErr || undefined : undefined}
-                hint="The number on your account. We’ll text you a 6-digit code.">
-                <Input ref={firstField} type="tel" autoComplete="tel" inputMode="tel" value={phone}
-                  onChange={(e) => { setPhone(e.target.value); setError('') }}
-                  onBlur={() => setTouched((t) => ({ ...t, phone: true }))} placeholder="+91 98765 43210" />
-              </Field>
-              <div className="auth-row">{rememberBox}</div>
-              <Button type="submit" variant="primary" block loading={submitting} loadingText="Sending code…"
-                disabled={throttle.locked} hint={lockedHint}>
-                Send code
-              </Button>
-            </form>
-          )}
-        </>
+        <form className="ui-form" onSubmit={submitSignIn} noValidate>
+          <Field label="Email or phone number" required error={touched.identifier ? idErr || undefined : undefined}>
+            <Input ref={firstField} autoComplete="username webauthn" autoCapitalize="none" spellCheck={false} value={identifier}
+              onChange={(e) => { setIdentifier(e.target.value); setError('') }}
+              onBlur={() => setTouched((t) => ({ ...t, identifier: true }))} placeholder="name@example.com or +91 98765 43210" />
+          </Field>
+          <Field label="Password" required error={touched.password ? passwordErr : undefined}>
+            <PasswordInput autoComplete="current-password" value={password}
+              onChange={(e) => { setPassword(e.target.value); setError('') }} onBlur={() => setTouched((t) => ({ ...t, password: true }))} />
+          </Field>
+          <div className="auth-row">
+            {rememberBox}
+            <Link className="auth-link" to="/forgot-password" state={{ identifier: identifier.trim() }}>Forgot password?</Link>
+          </div>
+          <Button type="submit" variant="primary" block loading={submitting && !busyAlt} loadingText="Signing in…"
+            disabled={throttle.locked || submitting} hint={lockedHint}>
+            Sign in
+          </Button>
+          <div className="auth-alt" role="group" aria-label="Other ways to sign in">
+            <button type="button" className="auth-link" onClick={useCode} disabled={submitting || throttle.locked}>
+              {busyAlt === 'code' ? 'Sending code…' : codeLabel}
+            </button>
+            {passkeysSupported() && (
+              <>
+                <span aria-hidden="true">·</span>
+                <button type="button" className="auth-link" onClick={usePasskey} disabled={submitting || throttle.locked}>
+                  <KeyRound size={14} aria-hidden="true" /> {busyAlt === 'passkey' ? 'Waiting for your passkey…' : 'Use a passkey'}
+                </button>
+              </>
+            )}
+          </div>
+          <p className="auth-note">
+            <ShieldCheck size={16} aria-hidden="true" />
+            <span>Your password is verified securely and never leaves your device.</span>
+          </p>
+        </form>
       )}
 
       {step === CODE_VERIFY && (
@@ -258,7 +225,7 @@ export default function Login() {
             {cooldown > 0 ? `Resend code (${cooldown}s)` : 'Resend code'}
           </Button>
           <Button variant="ghost" block onClick={() => { cancelPendingSignIn(); setError(''); setStep('signin') }}>
-            Use a different number
+            Use a different email or phone
           </Button>
         </form>
       )}
