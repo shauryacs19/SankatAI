@@ -106,6 +106,25 @@ class DynamoAttachmentRepository(AttachmentRepository):
             ExpressionAttributeValues={":s": "uploaded", ":sz": size, ":t": True, ":ct": content_type},
         )
 
+    def set_ai_access(self, user_id: str, attachment_id: str, allowed: bool) -> None:
+        key = {"user_id": user_id, "attachment_id": attachment_id}
+        if allowed:
+            self._table.update_item(Key=key, UpdateExpression="SET ai_access = :t", ExpressionAttributeValues={":t": True})
+        else:  # consent withdrawn: drop what the AI extracted too
+            self._table.update_item(Key=key, UpdateExpression="SET ai_access = :f REMOVE ai_summary, ai_status",
+                                    ExpressionAttributeValues={":f": False})
+
+    def set_ai_summary(self, user_id: str, attachment_id: str, summary: Optional[str], status: str) -> None:
+        key = {"user_id": user_id, "attachment_id": attachment_id}
+        if summary:
+            self._table.update_item(Key=key, UpdateExpression="SET ai_summary = :s, ai_status = :st",
+                                    ConditionExpression="ai_access = :t",
+                                    ExpressionAttributeValues={":s": summary, ":st": status, ":t": True})
+        else:
+            self._table.update_item(Key=key, UpdateExpression="SET ai_status = :st",
+                                    ConditionExpression="ai_access = :t",
+                                    ExpressionAttributeValues={":st": status, ":t": True})
+
     def set_vision_findings(self, user_id: str, attachment_id: str, findings_json: str, model: str) -> None:
         self._table.update_item(
             Key={"user_id": user_id, "attachment_id": attachment_id},

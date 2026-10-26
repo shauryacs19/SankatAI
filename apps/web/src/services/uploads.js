@@ -36,7 +36,7 @@ export const getDownloadUrl = (attachmentId, pin, disposition = 'attachment') =>
 
 // Orchestrates presign -> S3 PUT -> complete. Throws on any step failure so the
 // caller never records a "successful" upload when S3 rejected it.
-export const uploadFile = async (file, { scope, kind, chatId, filename, passwordProtected, pinId } = {}) => {
+export const uploadFile = async (file, { scope, kind, chatId, filename, passwordProtected, pinId, aiAccess } = {}) => {
   const k = kind || kindForFile(file)
   const name = (filename && filename.trim()) || file.name
   const contentType = file.type || 'application/octet-stream'
@@ -48,6 +48,7 @@ export const uploadFile = async (file, { scope, kind, chatId, filename, password
       scope, kind: k, filename: name, contentType, chatId: chatId || null,
       passwordProtected: Boolean(passwordProtected),
       pinId: passwordProtected ? pinId : null,
+      aiAccess: Boolean(aiAccess) && !passwordProtected,
     },
   })
 

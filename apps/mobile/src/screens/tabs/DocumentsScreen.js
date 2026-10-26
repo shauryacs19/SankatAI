@@ -45,6 +45,7 @@ export default function DocumentsScreen({ navigation }) {
   const [pending, setPending] = useState(null) // asset { uri, name, mimeType, size }
   const [uploadName, setUploadName] = useState('') // user-editable filename (web parity)
   const [protect, setProtect] = useState(false)
+  const [aiAccess, setAiAccess] = useState(false)
   const [pinId, setPinId] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [pinModalOpen, setPinModalOpen] = useState(false)
@@ -111,7 +112,7 @@ export default function DocumentsScreen({ navigation }) {
   const categories = mergeCategories(items, customCats)
   const uncategorized = items.filter((f) => !f.category)
 
-  const startUpload = (asset) => { setPending(asset); setUploadName(asset?.name || ''); setProtect(false); setPinId(null) }
+  const startUpload = (asset) => { setPending(asset); setUploadName(asset?.name || ''); setProtect(false); setAiAccess(false); setPinId(null) }
 
   const pickDocument = async () => {
     try {
@@ -146,7 +147,7 @@ export default function DocumentsScreen({ navigation }) {
     setUploading(true)
     try {
       // Filename is sent verbatim, same as the web upload form.
-      await uploadFile({ ...pending, name }, { scope: 'vault', kind: kindForAsset(pending), passwordProtected: protect, pinId })
+      await uploadFile({ ...pending, name }, { scope: 'vault', kind: kindForAsset(pending), passwordProtected: protect, pinId, aiAccess: aiAccess && !protect })
       setPending(null)
       toast.success(`“${name}” uploaded.`)
       await load()
@@ -480,6 +481,16 @@ export default function DocumentsScreen({ navigation }) {
               placeholderTextColor={colors.muted}
               editable={!uploading}
             />
+
+            <View style={styles.optRow}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={styles.optLabel}>Allow AI to read this document</Text>
+                <Text style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>
+                  {protect ? 'Not available for PIN-protected files.' : 'When on, the AI can scan this document and use its details to give you more personalised answers.'}
+                </Text>
+              </View>
+              <Switch value={aiAccess && !protect} disabled={protect} onValueChange={setAiAccess} trackColor={{ true: colors.primary }} />
+            </View>
 
             <View style={styles.optRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>

@@ -1,5 +1,7 @@
 // Dashboard shell layout. Tokens only.
 export const SHELL_CSS = `
+/* The dashboard owns the viewport: only inner panes scroll (no second page scrollbar). */
+html:has(.sh), body:has(.sh) { overflow: hidden; height: 100%; }
 .sh {
   display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
   height: 100vh; height: 100dvh; overflow: hidden; background: var(--bg);
@@ -55,7 +57,7 @@ export const SHELL_CSS = `
   background: var(--bg); border-bottom: 1px solid var(--border-subtle);
 }
 .sh-bar-mark { display: none; }
-.sh-bar-mark--show { display: grid; }
+.sh-bar-mark.sh-bar-mark--hide { display: none; }
 .sh-bar-title { font-size: var(--fs-lg); line-height: var(--lh-lg); font-weight: var(--fw-semibold); letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .sh-bar-actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
 .sh-bar-newchat { display: none; }

@@ -18,5 +18,7 @@ def analyze(
 ) -> AnalyzeResponse:
     """Run AI triage only for authenticated users."""
     messages = payload.messages[-8:]
+    if payload.patientProfile:
+        payload.patientProfile.documents = None  # server-side only; never client-supplied
     text, is_offline = run_triage(messages, payload.patientProfile)
     return AnalyzeResponse(text=text, isOfflineFallback=is_offline)
