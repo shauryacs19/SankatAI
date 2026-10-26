@@ -197,8 +197,8 @@ class OpenAIProvider(AIProvider):
         return _extract_json(response.choices[0].message.content)
 
     def generate(self, messages: list[dict], *, seed: Optional[int] = None, timeout: Optional[float] = None) -> str:
-        # Sampling is deliberately varied (0.6-0.8 / top_p 0.9) so wording and
-        # questions are not canned; the per-session seed keeps one conversation
+        # Low temperature (AI_TEMPERATURE, default 0.2) for accurate, consistent
+        # medical replies; the per-session seed keeps one conversation
         # stable on retry. Severity is NOT decided here (see triage_engine).
         client = self._client().with_options(timeout=timeout) if timeout else self._client()
         kwargs = {"seed": seed} if seed is not None else {}

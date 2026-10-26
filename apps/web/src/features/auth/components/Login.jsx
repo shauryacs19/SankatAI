@@ -206,7 +206,7 @@ export default function Login() {
           </div>
           <p className="auth-note">
             <ShieldCheck size={16} aria-hidden="true" />
-            <span>Your password is checked by Amazon Cognito using SRP. It is never sent to SankatAI.</span>
+            <span>Your password is verified securely and never leaves your device.</span>
           </p>
         </form>
       )}

@@ -50,7 +50,8 @@ export default function DashboardLayout() {
 
   const path = location.pathname
   const isChat = path === '/dashboard/chat'
-  const title = TITLES[path] || ''
+  const firstName = String(d.profile?.firstName || '').trim()
+  const title = isChat ? (firstName ? `Hello, ${firstName}` : 'Hello') : (TITLES[path] || '')
   const contentLoading = d.loading || d.initialLoading
 
   const newChat = async () => { setMoreOpen(false); const c = await d.startNewConsultation(); if (c) navigate('/dashboard/chat') }
@@ -105,7 +106,7 @@ export default function DashboardLayout() {
 
       <div className="sh-main">
         <header className="sh-bar">
-          <span className="ui-brand-mark sh-bar-mark" aria-hidden="true"><HeartPulse size={16} strokeWidth={2.25} /></span>
+          <span className={`ui-brand-mark sh-bar-mark${isChat ? ' sh-bar-mark--show' : ''}`} aria-hidden="true"><HeartPulse size={16} strokeWidth={2.25} /></span>
           <h1 className="sh-bar-title">{title}</h1>
           {d.isOffline && (
             <Badge tone="warning" icon={CloudOff} href="/dashboard/offline" onClick={(e) => { e.preventDefault(); navigate('/dashboard/offline') }}>AI offline</Badge>

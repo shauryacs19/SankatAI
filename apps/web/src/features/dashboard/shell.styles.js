@@ -55,6 +55,7 @@ export const SHELL_CSS = `
   background: var(--bg); border-bottom: 1px solid var(--border-subtle);
 }
 .sh-bar-mark { display: none; }
+.sh-bar-mark--show { display: grid; }
 .sh-bar-title { font-size: var(--fs-lg); line-height: var(--lh-lg); font-weight: var(--fw-semibold); letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .sh-bar-actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
 .sh-bar-newchat { display: none; }

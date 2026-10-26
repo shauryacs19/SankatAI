@@ -200,7 +200,7 @@ export default function LoginScreen({ route }) {
           <View style={styles.brandRow}><HeartPulse size={26} color={colors.primary} /></View>
           <Text style={styles.title} accessibilityRole="header">{title}</Text>
           <Text style={styles.sub}>{sub}</Text>
-          <View style={styles.secured}><ShieldCheck size={13} color={colors.success} /><Text style={styles.securedText}>Secured by Amazon Cognito</Text></View>
+          <View style={styles.secured}><ShieldCheck size={13} color={colors.success} /><Text style={styles.securedText}>Secure sign-in</Text></View>
 
           {!isCognitoConfigured() && <View style={styles.alertErr}><Text style={styles.alertErrText}>Sign-in isn’t configured. Set the EXPO_PUBLIC_COGNITO_* variables.</Text></View>}
           {!!error && <View style={styles.alertErr} accessibilityRole="alert"><Text style={styles.alertErrText}>{error}</Text></View>}

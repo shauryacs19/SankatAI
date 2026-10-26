@@ -119,7 +119,6 @@ export function NearbyCareMessage({ entry, onRetry }) {
           )}
           <footer className="nb-foot">
             <Button size="sm" variant="secondary" icon={MapIcon} href={mapsSearchUrl(term, position)} {...NEW_TAB}>Open in Google Maps</Button>
-            <span className="nb-source">Places: {data.source}. Straight-line distances. Your location is not saved.</span>
           </footer>
           <output className="sr-only">{`Found ${data.places.length} places near you.`}</output>
         </>

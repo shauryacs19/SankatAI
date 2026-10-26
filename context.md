@@ -865,6 +865,7 @@ uses the AWS CLI profile locally and the instance role in AWS.
 mobile (unchanged; can call the same endpoint later).
 
 ## 10. Changelog (most recent first)
+- **2026-10-26 — verified + pushed (9454c04 on feature/nearby-care):** backend pytest 256 ✓, web vitest 173 ✓, vite build ✓, mobile parse ✓. 219 files had CRLF-only churn (Windows) → normalised to LF before commit. ESLint: 7 pre-existing errors (AuthContext/ProfileContext react-refresh, vite.config `process`) — not in CI. Not committed: `.claude/launch.json`, `SankatAI_Project_Report.docx`. Tip: `git config core.autocrlf input` to stop CRLF churn.
 - **Nearby care in the chat (2026-10-25, branch `feature/nearby-care`, PR):** see §9i. Specialty-aware
   hospitals/clinics (Amazon Location), in-chat card with top 3 + distances + map; auto at risk ≥ 65, button below;
   sidebar button uses chat context; fixed the 1.5-min blank Google Maps tab. IAM APPLIED. Invalid AWS keys removed
@@ -2549,3 +2550,9 @@ mobile (unchanged; can call the same endpoint later).
   (`startDraft('')` + nearby care with `cid:null` → `end:new`); used by sidebar + mobile More menu.
   Emergency/analysis buttons keep `handleFindHospitals` (current chat).
 
+
+- 2026-10-26: Admin invite email failing. Code/IaC wiring OK (SES_SENDER_EMAIL=tfvars → TF output → CD → container; IAM ses:SendEmail w/ FromAddress cond). Root cause = SES side (sandbox: unverified sender/recipient). `admin_access_service.create_invitation` now logs SES error Code+Message and returns `email_unverified` / `email_forbidden` / `email_failed (<code>)`. Fix: verify identities or request SES production access.
+- 2026-10-26: Web composer (`features/chat/chat.styles.js`) is now one row at all widths: Attach | textarea | Voice | Send (`.composer` row, `.composer-actions{display:contents}`, menu `order:-1`). Phone (<480px) rules unchanged (icon-only).
+- 2026-10-26: Web chat header (DashboardLayout) shows logo mark + "Hello, {profile.firstName}" (fallback "Hello") as title on /dashboard/chat at all widths (`.sh-bar-mark--show`).
+- 2026-10-26: Removed user-facing AWS service mentions (Login web+mobile, Landing 'Secure sign-in', NearbyCare 'Places: …' line). Admin console names (DynamoDB/S3/Cognito health) kept — internal.
+- 2026-10-26: Triage accuracy: AI_TEMPERATURE 0.7→0.2, AI_TOP_P 0.9→0.85, new AI_HISTORY_MESSAGES (20, was hard-coded 8) in build_messages; _RULES add: causes must fit all details, no guessing, re-read whole convo. Severity logic untouched. Env-overridable.

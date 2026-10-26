@@ -165,9 +165,19 @@ def create_invitation(ctx: AuditContext, raw_email: str) -> dict:
         _send_invite_email(email, invitation_id, secret, expires_at)
     except (BotoCoreError, ClientError) as error:
         repo.update_invitation(invitation_id, {"email_status": "failed"})
-        logger.error("Invitation email failed: %s", type(error).__name__)
-        audit_service.record(ctx, action, resource, "error", "email_failed")
-        raise AdminError(502, "email_failed", "The invitation was saved but the email could not be sent. Try again.") from error
+        err = getattr(error, "response", {}).get("Error", {}) if isinstance(error, ClientError) else {}
+        code, msg = err.get("Code", type(error).__name__), err.get("Message", str(error))
+        logger.error("Invitation email failed: %s: %s", code, msg)
+        audit_service.record(ctx, action, resource, "error", f"email_failed:{code}")
+        if code == "MessageRejected" and "not verified" in msg.lower():
+            raise AdminError(
+                502, "email_unverified",
+                "SES rejected the email: an address is not verified (SES sandbox). Verify the sender and "
+                "recipient in SES, or request SES production access.",
+            ) from error
+        if code in ("AccessDenied", "AccessDeniedException"):
+            raise AdminError(502, "email_forbidden", "The backend role is not allowed to send from the configured SES sender.") from error
+        raise AdminError(502, "email_failed", f"The invitation was saved but the email could not be sent ({code}). Try again.") from error
     repo.update_invitation(invitation_id, {"email_status": "sent"})
     audit_service.record(ctx, action, resource, "success")
     return _invitation_view(repo.get_invitation(invitation_id))
