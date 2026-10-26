@@ -6,11 +6,12 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { View, Text, TouchableOpacity, Animated, PanResponder, Dimensions, StyleSheet, ScrollView } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { MessageSquare, User, FolderOpen, Siren, Settings as SettingsIcon, HeartPulse, Plus, Clock, Stethoscope, MapPin, FileText, Phone, ShieldCheck, ChevronRight } from 'lucide-react-native'
+import { MessageSquare, User, FolderOpen, Siren, Settings as SettingsIcon, HeartPulse, Plus, Clock, Stethoscope, MapPin, FileText, Phone, ShieldCheck, ChevronRight, Shield } from 'lucide-react-native'
 import { radius, sevColor } from '../theme'
 import { useProfile } from '../context/ProfileContext'
 import { useTheme } from '../context/ThemeContext'
 import { useChat } from '../context/ChatContext'
+import { getCurrentAccount } from '../lib/cognito'
 import ChatScreen from './tabs/ChatScreen'
 import HistoryScreen from './tabs/HistoryScreen'
 import ProfileScreen from './tabs/ProfileScreen'
@@ -104,6 +105,9 @@ export default function DashboardTabs({ navigation }) {
   const fullName = [profile?.firstName, profile?.middleName, profile?.lastName].filter(Boolean).join(' ') || 'Your profile'
 
   const newChat = () => { startNew(); go('Chat') }
+  // Admin console entry (web: account menu). UX only — the API answers 403 to non-admins.
+  const isAdmin = open && getCurrentAccount().groups.includes('ADMIN')
+  const openAdmin = () => { closeDrawer(); navigation.navigate('Admin') }
 
   return (
     <View style={styles.root}>
@@ -144,6 +148,12 @@ export default function DashboardTabs({ navigation }) {
                   </TouchableOpacity>
                 )
               })}
+              {isAdmin && (
+                <TouchableOpacity style={styles.navItem} onPress={openAdmin} accessibilityLabel="Admin console">
+                  <Shield size={19} color={colors.textSecondary} />
+                  <Text style={styles.navLabel}>Admin console</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             <View style={styles.separator} />
@@ -151,7 +161,7 @@ export default function DashboardTabs({ navigation }) {
             <Text style={styles.quickTitle}>Quick Actions</Text>
             <QuickAction Icon={Stethoscope} title="Symptom Checker" sub="Check your symptoms" onPress={() => go('Chat')} colors={colors} />
             <QuickAction Icon={MapPin} title="Find Nearby Hospitals" sub="Hospitals near you" onPress={() => go('Emergency')} colors={colors} />
-            <QuickAction Icon={FileText} title="Upload Reports" sub="Get AI analysis" onPress={() => go('Documents')} colors={colors} />
+            <QuickAction Icon={FileText} title="Upload Reports" sub="Keep them safe and handy" onPress={() => go('Documents')} colors={colors} />
             <QuickAction Icon={Phone} title="Emergency SOS" sub="Call for immediate help" danger onPress={() => go('Emergency')} colors={colors} />
 
             <View style={styles.disclaimer}>
@@ -210,7 +220,7 @@ const makeStyles = (colors) => StyleSheet.create({
   separator: { height: 1, backgroundColor: colors.border, marginVertical: 12, marginHorizontal: 2 },
   userRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: 10, paddingVertical: 10, marginTop: 12 },
   avatar: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#fff', fontWeight: '800', fontSize: 17 },
+  avatarText: { color: colors.onPrimary, fontWeight: '800', fontSize: 17 },
   userName: { fontSize: 14, fontWeight: '700', color: colors.text },
   userEmail: { fontSize: 12, color: colors.muted },
 })

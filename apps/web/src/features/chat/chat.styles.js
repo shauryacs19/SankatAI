@@ -192,20 +192,23 @@ export const CHAT_CSS = `
 .composer-wrap { flex-shrink: 0; background: var(--bg); padding: var(--space-2) var(--space-6) var(--space-4); }
 .composer-inner { max-width: 46rem; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
 .composer {
-  display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-3) var(--space-2) var(--space-3);
+  display: flex; flex-direction: row; align-items: flex-end; gap: var(--space-1); padding: var(--space-2);
   background: var(--surface); border: 1px solid var(--border-strong); border-radius: 1.25rem; box-shadow: var(--shadow-lift);
   transition: border-color var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard);
 }
 .composer:focus-within { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), 0 0 0 5px var(--focus-halo); }
 /* The input's ring is the container's; buttons inside keep their own. */
 .composer-input {
-  width: 100%; min-height: 3rem; max-height: 13rem; padding: var(--space-2) var(--space-2) var(--space-1); border: 0; background: transparent; resize: none;
+  flex: 1; min-width: 0; min-height: 2.5rem; max-height: 13rem; padding: 0.5rem var(--space-2); border: 0; background: transparent; resize: none;
   font-size: var(--fs-md); line-height: 1.6; color: var(--text-primary); overflow-y: auto;
 }
 .composer-input:focus-visible { outline: none; }
-.composer-actions { display: flex; align-items: center; gap: var(--space-1); }
+/* One row: [Attach] [text] [Voice] [Send]. */
+.composer-actions { display: contents; }
+.composer-actions > .ui-menu-anchor { order: -1; }
+.composer-actions .ui-btn, .composer-actions .ui-menu-anchor { flex-shrink: 0; }
 .composer-actions .ui-btn--ghost { color: var(--text-secondary); padding: 0 var(--space-3); }
-.composer-send { margin-left: auto; padding: 0 var(--space-5); }
+.composer-send { padding: 0 var(--space-5); }
 .composer-note { display: flex; justify-content: center; gap: var(--space-2); padding: 0 var(--space-1); font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-muted); text-align: center; }
 .composer-note svg { margin-top: 0.1875rem; flex-shrink: 0; }
 .att-tray { display: flex; gap: var(--space-2); overflow-x: auto; padding: var(--space-1) 0; }

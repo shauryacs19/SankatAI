@@ -242,7 +242,7 @@ function Landing() {
                 <ShieldCheck size={22} aria-hidden="true" />
                 <div>
                   <h3>Secure sign-in</h3>
-                  <p>Sign-in is handled by Amazon Cognito, and your password is never sent to SankatAI.</p>
+                  <p>Sign-in is secure, and your password never leaves your device.</p>
                 </div>
               </div>
             </div>

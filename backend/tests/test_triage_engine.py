@@ -241,8 +241,8 @@ def test_openai_provider_uses_varied_sampling(monkeypatch):
     p = openai_provider.OpenAIProvider()
     monkeypatch.setattr(openai_provider.OpenAIProvider, "_client", lambda self: Client())
     p.generate([{"role": "user", "content": "x"}], seed=42, timeout=5)
-    assert (seen["temperature"], seen["top_p"], seen["seed"]) == (0.7, 0.9, 42)
-    assert 0.6 <= config.AI_TEMPERATURE <= 0.8
+    assert (seen["temperature"], seen["top_p"], seen["seed"]) == (config.AI_TEMPERATURE, config.AI_TOP_P, 42)
+    assert 0.0 <= config.AI_TEMPERATURE <= 0.3
 
 
 def test_llm_failure_falls_back_to_templates_with_the_same_severity(model, monkeypatch):

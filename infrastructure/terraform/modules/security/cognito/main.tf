@@ -1,10 +1,11 @@
 # Sign-in for web and mobile (one pool, one public app client).
 #
-# People sign in with a username, a verified email or a verified phone number
-# (all Cognito aliases), with a password, a texted one-time code or a passkey.
-# The Cognito `username` is an
-# opaque UUID the client picks at sign-up; the person's handle is
-# `preferred_username`, which Cognito keeps unique and lets them change.
+# People sign in with a verified email or phone number (Cognito aliases), with
+# a password, a one-time code (emailed for an email, texted for a phone) or a
+# passkey. The Cognito `username` is an opaque UUID the client picks at
+# sign-up. No user-facing usernames since 2026-10-26: `preferred_username`
+# stays in alias_attributes only because changing that list replaces the pool
+# (deleting every account); the apps never set or read it.
 #
 # ── 2026-09-26: new pool ─────────────────────────────────────────────────────
 # The previous pool was created with username_attributes = ["email"], which
@@ -47,6 +48,7 @@ data "aws_region" "current" {}
 locals {
   sms_external_id = "${var.project_name}-cognito-sms"
   pre_sign_up     = "${var.project_name}-cognito-pre-sign-up"
+  email_otp       = var.ses_sender_email != "" && try(length(var.ses_identity_arn) > 0, false)
 }
 
 resource "aws_cognito_user_pool" "users" {
@@ -74,10 +76,20 @@ resource "aws_cognito_user_pool" "users" {
     require_symbols   = false
   }
 
-  # First factors people may choose. EMAIL_OTP is left out: Cognito can only
-  # send email codes through SES, and the SES account is still in the sandbox.
+  # First factors. EMAIL_OTP needs Cognito to send mail through SES
+  # (DEVELOPER), so it's on only when an SES sender identity is passed in.
+  # ⚠ SES sandbox: codes reach verified recipient addresses only.
   sign_in_policy {
-    allowed_first_auth_factors = ["PASSWORD", "SMS_OTP", "WEB_AUTHN"]
+    allowed_first_auth_factors = concat(["PASSWORD", "SMS_OTP", "WEB_AUTHN"], local.email_otp ? ["EMAIL_OTP"] : [])
+  }
+
+  dynamic "email_configuration" {
+    for_each = local.email_otp ? [1] : []
+    content {
+      email_sending_account = "DEVELOPER"
+      source_arn            = var.ses_identity_arn
+      from_email_address    = "SankatAI <${var.ses_sender_email}>"
+    }
   }
 
   # Passkeys. The relying party is the website's own domain (the CloudFront
@@ -118,12 +130,10 @@ resource "aws_cognito_user_pool" "users" {
     sms_message          = "Your SankatAI verification code is {####}"
   }
 
-  # One function for both triggers (it dispatches on triggerSource). Post
-  # confirmation sets the chosen username: Cognito refuses preferred_username
-  # on an unconfirmed account when it is an alias.
+  # Pre sign-up: duplicate verified email/phone check. (Post confirmation
+  # used to set the username; removed 2026-10-26.)
   lambda_config {
-    pre_sign_up       = aws_lambda_function.pre_sign_up.arn
-    post_confirmation = aws_lambda_function.pre_sign_up.arn
+    pre_sign_up = aws_lambda_function.pre_sign_up.arn
   }
 
   tags = {
@@ -218,7 +228,7 @@ resource "aws_iam_role_policy" "cognito_sms" {
   })
 }
 
-# ── Sign-up triggers: duplicate/username checks, then set the username ────
+# ── Pre sign-up trigger: duplicate verified email/phone check ─────────────
 # Source: backend/lambdas/cognito_pre_sign_up.py (tested in backend/tests).
 data "archive_file" "pre_sign_up" {
   type        = "zip"
@@ -253,7 +263,7 @@ resource "aws_iam_role_policy" "pre_sign_up" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = ["cognito-idp:ListUsers", "cognito-idp:AdminUpdateUserAttributes"]
+        Action   = ["cognito-idp:ListUsers"]
         Resource = aws_cognito_user_pool.users.arn
       },
       {
@@ -267,7 +277,7 @@ resource "aws_iam_role_policy" "pre_sign_up" {
 
 resource "aws_lambda_function" "pre_sign_up" {
   function_name    = local.pre_sign_up
-  description      = "Cognito pre sign-up + post confirmation: duplicate/username checks, set username"
+  description      = "Cognito pre sign-up: duplicate verified email/phone check"
   role             = aws_iam_role.pre_sign_up.arn
   runtime          = "python3.12"
   handler          = "cognito_pre_sign_up.handler"

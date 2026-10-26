@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useColorScheme } from 'react-native'
 import * as SecureStore from 'expo-secure-store'
 import { palettes } from '../theme'
+import { semantic, severityTokens } from '../../../../packages/shared/theme'
 
 const KEY = 'sankatai_theme_pref'
 const ThemeContext = createContext(null)
@@ -29,10 +30,25 @@ export function ThemeProvider({ children }) {
   }, [])
 
   const scheme = pref === 'system' ? (system === 'dark' ? 'dark' : 'light') : pref
-  const colors = palettes[scheme]
+  // Base palette + the additive design-system tokens the web redesign uses:
+  // onPrimary (dark ink on the dark-theme red, white on #D9635E is 3.56:1),
+  // warning/danger/success tints, and per-severity ink/soft/border (the fills
+  // fail as small text, e.g. MODERATE is 2.94:1 on white).
+  const colors = useMemo(() => {
+    const sem = semantic[scheme]
+    return {
+      ...palettes[scheme],
+      onPrimary: sem.onPrimary,
+      warning: sem.warning, warningSoft: sem.warningSoft, warningBorder: sem.warningBorder,
+      danger: sem.danger, dangerSoft: sem.dangerSoft, dangerBorder: sem.dangerBorder,
+      successSoft: sem.successSoft, successBorder: sem.successBorder,
+      scrim: sem.scrim,
+    }
+  }, [scheme])
+  const sev = severityTokens[scheme]
   const isDark = scheme === 'dark'
 
-  const value = useMemo(() => ({ pref, setPref: choose, scheme, colors, isDark }), [pref, choose, scheme, colors, isDark])
+  const value = useMemo(() => ({ pref, setPref: choose, scheme, colors, sev, isDark }), [pref, choose, scheme, colors, sev, isDark])
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
 }
 

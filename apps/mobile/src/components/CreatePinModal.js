@@ -58,7 +58,7 @@ export default function CreatePinModal({ visible, onClose, onCreated }) {
           <View style={styles.modalActions}>
             <TouchableOpacity style={styles.ghost} onPress={close} disabled={saving}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
             <TouchableOpacity style={[styles.primary, !canSave && { opacity: 0.5 }]} onPress={submit} disabled={!canSave}>
-              {saving ? <ActivityIndicator color="#fff" /> : <><Check size={15} color="#fff" /><Text style={styles.primaryText}>Create PIN</Text></>}
+              {saving ? <ActivityIndicator color={colors.onPrimary} /> : <><Check size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Create PIN</Text></>}
             </TouchableOpacity>
           </View>
         </View>
@@ -80,5 +80,5 @@ const makeStyles = (colors) => StyleSheet.create({
   ghost: { paddingVertical: 11, paddingHorizontal: 16, borderRadius: radius.md, backgroundColor: colors.surface2 },
   ghostText: { color: colors.textSecondary, fontWeight: '700' },
   primary: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 11, paddingHorizontal: 18, borderRadius: radius.md, backgroundColor: colors.primary },
-  primaryText: { color: '#fff', fontWeight: '700' },
+  primaryText: { color: colors.onPrimary, fontWeight: '700' },
 })

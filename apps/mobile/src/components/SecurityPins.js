@@ -108,7 +108,7 @@ export default function SecurityPins() {
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.ghost} onPress={() => setDelTarget(null)} disabled={delBusy}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.primary, (delPin.length !== 6 || delBusy) && { opacity: 0.5 }]} onPress={submitRemove} disabled={delPin.length !== 6 || delBusy}>
-                {delBusy ? <ActivityIndicator color="#fff" /> : <><Trash2 size={15} color="#fff" /><Text style={styles.primaryText}>Delete PIN</Text></>}
+                {delBusy ? <ActivityIndicator color={colors.onPrimary} /> : <><Trash2 size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Delete PIN</Text></>}
               </TouchableOpacity>
             </View>
           </View>
@@ -149,5 +149,5 @@ const makeStyles = (colors) => StyleSheet.create({
   ghost: { paddingVertical: 11, paddingHorizontal: 16, borderRadius: radius.md, backgroundColor: colors.surface2 },
   ghostText: { color: colors.textSecondary, fontWeight: '700' },
   primary: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 11, paddingHorizontal: 18, borderRadius: radius.md, backgroundColor: colors.primary },
-  primaryText: { color: '#fff', fontWeight: '700' },
+  primaryText: { color: colors.onPrimary, fontWeight: '700' },
 })

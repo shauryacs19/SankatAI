@@ -9,6 +9,8 @@ import { AuthProvider, AUTH_STATUS, useAuth } from './src/context/AuthContext'
 import { ThemeProvider, useTheme } from './src/context/ThemeContext'
 import ShakeSOS from './src/components/ShakeSOS'
 import RootNavigator from './src/navigation/RootNavigator'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { ToastProvider } from './src/components/Toast'
 
 // Hide the Android system navigation bar (swipe up to reveal it). Guarded with a
 // runtime require so the app still runs before expo-navigation-bar is installed.
@@ -110,11 +112,16 @@ function Gate() {
 export default function App() {
   useImmersiveNav()
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <Gate />
-      </AuthProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        {/* Toasts: failures/successes that used to be silent (web parity). */}
+        <ToastProvider>
+          <AuthProvider>
+            <Gate />
+          </AuthProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   )
 }
 

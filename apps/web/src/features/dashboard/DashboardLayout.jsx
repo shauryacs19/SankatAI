@@ -50,7 +50,8 @@ export default function DashboardLayout() {
 
   const path = location.pathname
   const isChat = path === '/dashboard/chat'
-  const title = TITLES[path] || ''
+  const firstName = String(d.profile?.firstName || '').trim()
+  const title = isChat ? (firstName ? `Hello, ${firstName}` : 'Hello') : (TITLES[path] || '')
   const contentLoading = d.loading || d.initialLoading
 
   const newChat = async () => { setMoreOpen(false); const c = await d.startNewConsultation(); if (c) navigate('/dashboard/chat') }
@@ -86,7 +87,7 @@ export default function DashboardLayout() {
         <div className="sh-side-extra">
           <p className="ui-overline sh-side-heading">Quick actions</p>
           <ul role="list" className="sh-nav">
-            <li><button type="button" className="sh-nav-item" onClick={d.handleFindHospitals}><MapPin size={20} aria-hidden="true" /><span className="sh-nav-label">Find nearby hospitals</span></button></li>
+            <li><button type="button" className="sh-nav-item" onClick={d.handleFindHospitalsNewChat}><MapPin size={20} aria-hidden="true" /><span className="sh-nav-label">Find nearby hospitals</span></button></li>
             <li><button type="button" className="sh-nav-item" onClick={() => navigate('/documents/upload')}><Upload size={20} aria-hidden="true" /><span className="sh-nav-label">Upload a report</span></button></li>
           </ul>
 
@@ -105,7 +106,7 @@ export default function DashboardLayout() {
 
       <div className="sh-main">
         <header className="sh-bar">
-          <span className="ui-brand-mark sh-bar-mark" aria-hidden="true"><HeartPulse size={16} strokeWidth={2.25} /></span>
+          <span className={`ui-brand-mark sh-bar-mark${isChat ? ' sh-bar-mark--show' : ''}`} aria-hidden="true"><HeartPulse size={16} strokeWidth={2.25} /></span>
           <h1 className="sh-bar-title">{title}</h1>
           {d.isOffline && (
             <Badge tone="warning" icon={CloudOff} href="/dashboard/offline" onClick={(e) => { e.preventDefault(); navigate('/dashboard/offline') }}>AI offline</Badge>
@@ -175,7 +176,7 @@ export default function DashboardLayout() {
           <li><button type="button" className="sh-more-item" onClick={() => go('/dashboard/profile')}><User size={20} aria-hidden="true" />Health profile</button></li>
           <li><button type="button" className="sh-more-item" onClick={() => go('/dashboard/settings')}><Settings size={20} aria-hidden="true" />Settings</button></li>
           <li><button type="button" className="sh-more-item" onClick={() => go('/documents/upload')}><Upload size={20} aria-hidden="true" />Upload a report</button></li>
-          <li><button type="button" className="sh-more-item" onClick={() => { setMoreOpen(false); d.handleFindHospitals() }}><MapPin size={20} aria-hidden="true" />Find nearby hospitals</button></li>
+          <li><button type="button" className="sh-more-item" onClick={() => { setMoreOpen(false); d.handleFindHospitalsNewChat() }}><MapPin size={20} aria-hidden="true" />Find nearby hospitals</button></li>
         </ul>
         <div className="sh-disclaimer sh-disclaimer--sheet"><ShieldCheck size={16} aria-hidden="true" /><p>{AI_DISCLAIMER}</p></div>
       </Modal>

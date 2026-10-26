@@ -1,7 +1,7 @@
 // API client — talks to the same FastAPI backend as the web app.
 // All auth is centralized here: it attaches a valid Cognito ID token (refreshing
 // first if needed), and on a 401 it refreshes once and retries before giving up.
-import { getValidIdToken, refreshSession, signOut } from './cognito'
+import { getStoredSession, getValidAccessToken, getValidIdToken, refreshSession, signOut } from './cognito'
 import { API_BASE_URL } from '../config'
 
 // Fail fast instead of letting fetch hang ~60s when the backend is unreachable.
@@ -37,8 +37,10 @@ const call = async (path, method, body, token, timeoutMs) => {
 }
 
 // responseType 'blob' returns the body as a Blob (e.g. read-aloud MP3).
-export const request = async (path, { method = 'GET', body, signOutOn401 = true, responseType = 'json' } = {}, timeoutMs = DEFAULT_TIMEOUT_MS) => {
-  let token = await getValidIdToken()
+// `useAccessToken`: send the Cognito ACCESS token (the admin API re-verifies
+// token_use=access); every other route keeps the ID token as before.
+export const request = async (path, { method = 'GET', body, signOutOn401 = true, responseType = 'json', useAccessToken = false } = {}, timeoutMs = DEFAULT_TIMEOUT_MS) => {
+  const token = useAccessToken ? await getValidAccessToken() : await getValidIdToken()
   let res = await call(path, method, body, token, timeoutMs)
 
   // A 401 despite a "valid" token means it was rejected server-side (e.g. clock
@@ -46,7 +48,7 @@ export const request = async (path, { method = 'GET', body, signOutOn401 = true,
   if (res.status === 401) {
     const fresh = await refreshSession()
     if (fresh) {
-      res = await call(path, method, body, fresh, timeoutMs)
+      res = await call(path, method, body, useAccessToken ? getStoredSession()?.accessToken : fresh, timeoutMs)
     }
     if (res.status === 401) {
       // Callers may opt out of the global sign-out (e.g. the sign-in landing-route
@@ -58,11 +60,17 @@ export const request = async (path, { method = 'GET', body, signOutOn401 = true,
 
   if (!res.ok) {
     let detail = `Request failed (${res.status})`
-    try { const d = await res.json(); detail = d.detail || detail } catch { /* non-json */ }
-    throw new Error(detail)
+    let code
+    try { const d = await res.json(); detail = d.detail || detail; code = d.code } catch { /* non-json */ }
+    const err = new Error(typeof detail === 'string' ? detail : `Request failed (${res.status})`)
+    err.status = res.status
+    if (code) err.code = code
+    throw err
   }
   if (res.status === 204) return null
-  return responseType === 'blob' ? res.blob() : res.json()
+  if (responseType === 'blob') return res.blob()
+  if (responseType === 'text') return res.text()
+  return res.json()
 }
 
 // Profile checks happen during sign-in. Keep them reasonably short, but not so
@@ -86,6 +94,10 @@ export const renameConsultation = (id, title) => request(`/consultations/${id}`,
 // identified for a dictated message; the server replies in it.
 export const sendMessage = (id, content, attachmentIds = [], { inputMode, lang } = {}) =>
   request(`/consultations/${id}/messages`, { method: 'POST', body: { content, attachmentIds, ...(inputMode && { inputMode }), ...(lang && { lang }) } })
+// The reply in another language: { content, target, lang }. Cached server-side.
+// target: 'en' | 'hi' | 'hinglish'. The model call can be slow, hence 30 s.
+export const translateMessage = (consultationId, messageId, target) =>
+  request(`/consultations/${consultationId}/messages/${messageId}/translate`, { method: 'POST', body: { target } }, 30000)
 export const setMessageFeedback = (consultationId, messageId, feedback) =>
   request(`/consultations/${consultationId}/messages/${messageId}/feedback`, { method: 'POST', body: { feedback } })
 
@@ -94,3 +106,19 @@ export const listPins = () => request('/security/pins')
 export const createPin = ({ pin, label }) => request('/security/pins', { method: 'POST', body: { pin, label } })
 // Deleting a PIN requires the PIN itself (backend verifies it).
 export const deletePin = (pinId, pin) => request(`/security/pins/${pinId}`, { method: 'DELETE', body: { pin } })
+
+// --- admin console (aggregates only; the backend authorises every call) ---
+const adminOpts = (extra = {}) => ({ useAccessToken: true, ...extra })
+const rangeQuery = ({ from, to, granularity }) => `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&granularity=${encodeURIComponent(granularity)}`
+export const getAdminAnalytics = (range) => request(`/admin/analytics?${rangeQuery(range)}`, adminOpts(), 20000)
+export const exportAdminAnalyticsCsv = (range) => request(`/admin/analytics?${rangeQuery(range)}&format=csv`, adminOpts({ responseType: 'text' }), 20000)
+export const getAdminUsers = (range) => request(`/admin/users?${rangeQuery(range)}`, adminOpts(), 20000)
+export const getAdminFeedback = (range) => request(`/admin/feedback?${rangeQuery(range)}`, adminOpts(), 20000)
+export const getSystemHealth = () => request('/admin/system-health', adminOpts(), 20000)
+export const listAdmins = () => request('/admin/admins', adminOpts())
+export const removeAdmin = (sub, { confirmSelf = false } = {}) =>
+  request(`/admin/admins/${encodeURIComponent(sub)}${confirmSelf ? '?confirm_self=true' : ''}`, adminOpts({ method: 'DELETE' }))
+export const listInvitations = () => request('/admin/invitations', adminOpts())
+export const createInvitation = (email) => request('/admin/invitations', adminOpts({ method: 'POST', body: { email } }))
+export const revokeInvitation = (id) => request(`/admin/invitations/${encodeURIComponent(id)}`, adminOpts({ method: 'DELETE' }))
+export const getAuditLogs = (cursor) => request(`/admin/audit-logs?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, adminOpts())

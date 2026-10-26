@@ -237,8 +237,9 @@ SEVERITY_MODEL_REFRESH_SECONDS = int(os.getenv("SEVERITY_MODEL_REFRESH_SECONDS",
 TRIAGE_CONFIDENCE_THRESHOLD = float(os.getenv("TRIAGE_CONFIDENCE_THRESHOLD", "0.75"))
 TRIAGE_MAX_QUESTIONS = int(os.getenv("TRIAGE_MAX_QUESTIONS", "5"))
 # Generation sampling (assessment + questions). Translation keeps 0.1.
-AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", "0.7"))
-AI_TOP_P = float(os.getenv("AI_TOP_P", "0.9"))
+AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", "0.2"))  # low = consistent, factual medical replies
+AI_TOP_P = float(os.getenv("AI_TOP_P", "0.85"))
+AI_HISTORY_MESSAGES = int(os.getenv("AI_HISTORY_MESSAGES", "20"))
 # Whole-turn budget: API Gateway cuts HTTP APIs off at 30 s.
 TRIAGE_TIME_BUDGET_SECONDS = float(os.getenv("TRIAGE_TIME_BUDGET_SECONDS", "26"))
 # Feedback store (anonymised) + bandit counters. Empty disables both.

@@ -24,7 +24,7 @@ export default function ForgotPassword() {
   useEffect(() => () => { setPassword(''); setConfirm(''); setCode('') }, [])
 
   const parsed = parseIdentifier(identifier)
-  const idErr = !parsed ? 'Enter your username, email or phone number.' : ''
+  const idErr = !parsed ? 'Enter your email or phone number.' : ''
   const codeErr = code.length !== 6 ? 'Enter the 6-digit code.' : ''
   const pwErr = !passwordOk(password) ? 'Choose a password that meets every requirement.' : ''
   const confirmErr = confirm !== password || !confirm ? 'The passwords don’t match.' : ''
@@ -70,14 +70,14 @@ export default function ForgotPassword() {
     <AuthLayout
       title={step === 'request' ? 'Reset your password' : 'Choose a new password'}
       lead={step === 'request'
-        ? 'Enter your username, email or phone number. We’ll send a 6-digit code to the email or phone on the account.'
+        ? 'Enter your email or phone number. We’ll send a 6-digit code to the email or phone on the account.'
         : 'If that account exists, we sent a 6-digit code to its email or phone.'}
       footer={<p><Link className="auth-link" to="/login">Back to sign in</Link></p>}
     >
       {error && <Alert tone="danger">{error}</Alert>}
       {step === 'request' ? (
         <form className="ui-form" onSubmit={request} noValidate>
-          <Field label="Email, phone or username" required error={touched.identifier ? idErr || undefined : undefined}>
+          <Field label="Email or phone number" required error={touched.identifier ? idErr || undefined : undefined}>
             <Input ref={first} autoComplete="username" autoCapitalize="none" spellCheck={false} value={identifier}
               onChange={(e) => { setIdentifier(e.target.value); setError('') }} onBlur={() => setTouched({ identifier: true })} />
           </Field>
