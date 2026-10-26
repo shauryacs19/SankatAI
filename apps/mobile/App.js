@@ -79,32 +79,25 @@ function Gate() {
 
   if (status === AUTH_STATUS.INITIALIZING || !minElapsed) return <Splash />
 
+  const content = (
+    <>
+      {/* themed backdrop behind the navigator — stops white flashes on transitions */}
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <NavigationContainer theme={navTheme}>
+          <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.bg} />
+          <RootNavigator />
+        </NavigationContainer>
+      </View>
+      {/* Global panic gesture — shake the phone anywhere in the app to open emergency SOS. */}
+      <ShakeSOS />
+    </>
+  )
+
   if (status === AUTH_STATUS.AUTHENTICATED) {
-    return (
-      <ProfileProvider>
-        <ChatProvider>
-          {/* themed backdrop behind the navigator — stops white flashes on transitions */}
-          <View style={{ flex: 1, backgroundColor: colors.bg }}>
-            <NavigationContainer theme={navTheme}>
-              <StatusBar style={isDark ? 'light' : 'dark'} />
-              <RootNavigator />
-            </NavigationContainer>
-          </View>
-          {/* Global panic gesture — shake the phone to open emergency SOS. */}
-          <ShakeSOS />
-        </ChatProvider>
-      </ProfileProvider>
-    )
+    return <ChatProvider>{content}</ChatProvider>
   }
 
-  return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <NavigationContainer theme={navTheme}>
-        <StatusBar style={isDark ? 'light' : 'dark'} />
-        <RootNavigator />
-      </NavigationContainer>
-    </View>
-  )
+  return content
 }
 
 export default function App() {
@@ -112,7 +105,9 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Gate />
+        <ProfileProvider>
+          <Gate />
+        </ProfileProvider>
       </AuthProvider>
     </ThemeProvider>
   )

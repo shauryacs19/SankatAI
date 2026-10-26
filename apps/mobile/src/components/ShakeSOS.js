@@ -1,23 +1,25 @@
-// Global panic gesture: shake the phone aggressively to open saved emergency
-// contacts. Choosing a contact prepares a WhatsApp location message, then opens
-// the phone dialler. WhatsApp deliberately requires the user to tap Send.
+// Global foreground panic gesture. Three distinct accelerometer spikes open
+// the emergency sheet; the user can prepare one group SOS SMS for all contacts.
 
 import { useEffect, useRef, useState } from 'react'
-import { View, Text, TouchableOpacity, Modal, StyleSheet, Linking, Alert, ActivityIndicator, AppState } from 'react-native'
+import { View, Text, TouchableOpacity, Modal, StyleSheet, Linking, Alert, ActivityIndicator, AppState, Platform, DevSettings } from 'react-native'
 import { Accelerometer } from 'expo-sensors'
 import * as Location from 'expo-location'
-import { Siren, Phone, X, MapPin, Ambulance, User } from 'lucide-react-native'
+import { Siren, X, Ambulance, Users } from 'lucide-react-native'
 import { radius } from '../theme'
 import { useTheme } from '../context/ThemeContext'
 import { useProfile } from '../context/ProfileContext'
 
-const SHAKE_G = 1.8
+// Detect a sharp change between consecutive gravity-inclusive samples. A
+// magnitude-only threshold misses emulator pose rotations because gravity's
+// magnitude stays close to 1 g while its direction changes.
+const SHAKE_DELTA_G = 0.25
+const SHAKE_MAGNITUDE_DIFF_G = 0.35
 const NEEDED_SPIKES = 3
-const WINDOW_MS = 1200
-const SPIKE_GAP_MS = 180
+const WINDOW_MS = 2500
+const SPIKE_GAP_MS = 140
 const RETRIGGER_COOLDOWN_MS = 4000
 
-const waNumber = (value) => (value || '').replace(/[^\d]/g, '')
 const dialNumber = (value) => (value || '').replace(/[^\d+]/g, '')
 
 async function getLocationLink() {
@@ -49,9 +51,22 @@ export default function ShakeSOS() {
   const contacts = (Array.isArray(profile?.emergencyContacts) ? profile.emergencyContacts : []).filter((contact) => contact?.phone)
 
   const spikes = useRef([])
+  const lastReading = useRef(null)
   const lastTrigger = useRef(0)
   const openRef = useRef(false)
   const appState = useRef(AppState.currentState)
+
+  useEffect(() => {
+    if (__DEV__ && DevSettings && typeof DevSettings.addMenuItem === 'function') {
+      try {
+        DevSettings.addMenuItem('Trigger Emergency SOS (Shake)', () => {
+          setOpen(true)
+        })
+      } catch {
+        // DevSettings helper optional
+      }
+    }
+  }, [])
 
   useEffect(() => { openRef.current = open }, [open])
 
@@ -64,15 +79,18 @@ export default function ShakeSOS() {
   }, [])
 
   useEffect(() => {
-    // Do not run an always-on sensor when there is no usable emergency contact.
-    if (contacts.length === 0) return undefined
-
-    Accelerometer.setUpdateInterval(90)
+    Accelerometer.setUpdateInterval(60)
     const subscription = Accelerometer.addListener(({ x, y, z }) => {
-      if (appState.current !== 'active') return
 
-      const magnitude = Math.sqrt(x * x + y * y + z * z)
-      if (magnitude < SHAKE_G) return
+      if (appState.current === 'background' || appState.current === 'inactive') return
+
+      const previous = lastReading.current
+      lastReading.current = { x, y, z }
+      if (!previous) return
+      const delta = Math.sqrt((x - previous.x) ** 2 + (y - previous.y) ** 2 + (z - previous.z) ** 2)
+      const magnitude = Math.sqrt(x ** 2 + y ** 2 + z ** 2)
+      const magDiff = Math.abs(magnitude - 1.0)
+      if (delta < SHAKE_DELTA_G && magDiff < SHAKE_MAGNITUDE_DIFF_G) return
 
       const now = Date.now()
       const previousSpike = spikes.current[spikes.current.length - 1] || 0
@@ -80,26 +98,27 @@ export default function ShakeSOS() {
 
       spikes.current.push(now)
       spikes.current = spikes.current.filter((timestamp) => now - timestamp <= WINDOW_MS)
+
       if (spikes.current.length >= NEEDED_SPIKES && !openRef.current && now - lastTrigger.current > RETRIGGER_COOLDOWN_MS) {
+
         spikes.current = []
         lastTrigger.current = now
         setOpen(true)
       }
     })
     return () => subscription.remove()
-  }, [contacts.length])
+  }, [])
 
-  const triggerContact = async (contact) => {
+  const sendSos = async () => {
     if (busyPhone) return
 
-    const phone = dialNumber(contact.phone)
-    const whatsappPhone = waNumber(contact.phone)
-    if (!phone || whatsappPhone.length < 8) {
-      Alert.alert('Check this contact number', 'Save the contact number with its country code, for example +91..., before using SOS.')
+    const recipients = contacts.map((contact) => dialNumber(contact.phone)).filter((phone) => phone.length >= 8)
+    if (!recipients.length) {
+      Alert.alert('No emergency contacts saved', 'Call 108 now, or add trusted contacts in your profile so they can receive your SOS.')
       return
     }
 
-    setBusyPhone(phone)
+    setBusyPhone('all')
     let locationLink = ''
     try {
       locationLink = await getLocationLink()
@@ -107,25 +126,20 @@ export default function ShakeSOS() {
       // The emergency call remains available if GPS, network, or permissions fail.
     }
 
-    const message = `EMERGENCY - I need help.${locationLink ? ` My current location: ${locationLink}` : ' I could not get my location. Please call me.'}`
-    const whatsappAppUrl = `whatsapp://send?phone=${whatsappPhone}&text=${encodeURIComponent(message)}`
-    const whatsappWebUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}`
+    const message = `SOS: I need help.${locationLink ? ` My current location: ${locationLink}` : ' I could not get my location. Please call me.'}`
+    const recipientList = recipients.join(Platform.OS === 'ios' ? ',' : ';')
+    const separator = Platform.OS === 'ios' ? '&' : '?'
+    const scheme = Platform.OS === 'ios' ? 'sms' : 'smsto'
+    const smsUrl = `${scheme}:${recipientList}${separator}body=${encodeURIComponent(message)}`
 
     try {
-      const hasWhatsapp = await Linking.canOpenURL(whatsappAppUrl)
-      await Linking.openURL(hasWhatsapp ? whatsappAppUrl : whatsappWebUrl)
+      await Linking.openURL(smsUrl)
     } catch {
-      // A WhatsApp failure must not stop the phone call.
+      Alert.alert('Could not open your messaging app', 'Call 108 for urgent help. You can also copy the SOS message and contact your trusted people.')
     }
 
     setOpen(false)
     setBusyPhone(null)
-    // A device can foreground only one external application at a time. The
-    // dialler follows the WhatsApp composer so the contact can be called even
-    // when WhatsApp is unavailable.
-    setTimeout(() => {
-      Linking.openURL(`tel:${phone}`).catch(() => Alert.alert('Could not start the call.'))
-    }, 900)
   }
 
   const callAmbulance = () => {
@@ -144,31 +158,29 @@ export default function ShakeSOS() {
             </View>
             <TouchableOpacity onPress={() => setOpen(false)} hitSlop={10} accessibilityLabel="Close emergency SOS"><X size={20} color={colors.muted} /></TouchableOpacity>
           </View>
-          <Text style={styles.sub}>Tap a contact to prepare a WhatsApp location message, then open their phone call.</Text>
+          <Text style={styles.sub}>Three quick shakes opened this alert. Prepare one SOS text for all your saved emergency contacts with your current location.</Text>
 
           <TouchableOpacity style={styles.ambulance} onPress={callAmbulance} activeOpacity={0.85} accessibilityLabel="Call ambulance on 108">
             <Ambulance size={18} color="#fff" /><Text style={styles.ambulanceText}>Call Ambulance - 108</Text>
           </TouchableOpacity>
 
-          <View style={styles.contactList}>
-            {contacts.map((contact, index) => {
-              const busy = busyPhone === dialNumber(contact.phone)
-              return (
-                <TouchableOpacity key={`${contact.phone}-${index}`} style={styles.contact} onPress={() => triggerContact(contact)} disabled={Boolean(busyPhone)} activeOpacity={0.85} accessibilityLabel={`Contact ${contact.name || 'emergency contact'}`}>
-                  <View style={styles.avatar}><User size={18} color={colors.primary} /></View>
-                  <View style={styles.contactDetails}>
-                    <Text style={styles.contactName} numberOfLines={1}>{contact.name || 'Emergency contact'}</Text>
-                    <Text style={styles.contactMeta} numberOfLines={1}>{[contact.relationship, contact.phone].filter(Boolean).join(' - ')}</Text>
+          {contacts.length > 0 ? (
+            <>
+              <TouchableOpacity style={styles.sendAll} onPress={sendSos} disabled={Boolean(busyPhone)} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel={`Prepare SOS message for ${contacts.length} emergency contacts`}>
+                {busyPhone ? <ActivityIndicator color="#fff" /> : <><Users size={18} color="#fff" /><Text style={styles.sendAllText}>Prepare SOS for all {contacts.length} contacts</Text></>}
+              </TouchableOpacity>
+              <View style={styles.contactList}>
+                {contacts.map((contact, index) => (
+                  <View key={`${contact.phone}-${index}`} style={styles.contact}>
+                    <Text style={styles.contactName} numberOfLines={1}>{contact.name || `Emergency contact ${index + 1}`}</Text>
+                    <Text style={styles.contactMeta} numberOfLines={1}>{contact.phone}</Text>
                   </View>
-                  {busy ? <ActivityIndicator color={colors.primary} /> : (
-                    <View style={styles.actions}><MapPin size={16} color={colors.muted} /><View style={styles.callDot}><Phone size={15} color="#fff" /></View></View>
-                  )}
-                </TouchableOpacity>
-              )
-            })}
-          </View>
+                ))}
+              </View>
+            </>
+          ) : <Text style={styles.noContacts}>No trusted contacts saved yet. You can still call 108 above.</Text>}
 
-          <Text style={styles.foot}>WhatsApp requires you to tap Send. Triggered by shaking your phone.</Text>
+          <Text style={styles.foot}>Your messaging app opens with the recipients and location message filled in. Tap Send there to confirm delivery. Location access is requested only when you choose SOS.</Text>
         </View>
       </View>
     </Modal>
@@ -185,13 +197,12 @@ const makeStyles = (colors) => StyleSheet.create({
   sub: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 10 },
   ambulance: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.sevEmergency, borderRadius: radius.md, paddingVertical: 13, marginTop: 14 },
   ambulanceText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  sendAll: { minHeight: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 12, marginTop: 12 },
+  sendAllText: { color: '#fff', fontWeight: '800', fontSize: 14, textAlign: 'center' },
   contactList: { gap: 10, marginTop: 12 },
-  contact: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: colors.bg, borderColor: colors.border, borderWidth: 1, borderRadius: radius.md },
-  avatar: { width: 40, height: 40, borderRadius: 11, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  contactDetails: { flex: 1 },
+  contact: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: 10, backgroundColor: colors.bg, borderColor: colors.border, borderWidth: 1, borderRadius: radius.md },
   contactName: { fontSize: 15, fontWeight: '700', color: colors.text },
   contactMeta: { fontSize: 12, color: colors.muted, marginTop: 2 },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  callDot: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center' },
+  noContacts: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 14, textAlign: 'center' },
   foot: { color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 16 },
 })

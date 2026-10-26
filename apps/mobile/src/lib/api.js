@@ -15,10 +15,10 @@ export const fetchWithTimeout = async (url, options = {}, timeoutMs = DEFAULT_TI
     return await fetch(url, { ...options, signal: controller.signal })
   } catch (e) {
     if (e.name === 'AbortError') {
-      throw new Error(`Can't reach the server (timed out). Check that the backend is running and EXPO_PUBLIC_API_URL points at your computer's LAN IP.`)
+      throw new Error(`The account service at ${API_BASE_URL} timed out. Check the connection and try again.`)
     }
     if (e.message === 'Network request failed') {
-      throw new Error(`Network request failed — the app can't reach ${API_BASE_URL}. Make sure the backend is running on 0.0.0.0:5174, the phone is on the same Wi-Fi, and EXPO_PUBLIC_API_URL is your computer's LAN IP.`)
+      throw new Error(`Network request failed — the app can't reach the account service at ${API_BASE_URL}. Check the device connection and try again.`)
     }
     throw e
   } finally {
@@ -68,7 +68,7 @@ export const request = async (path, { method = 'GET', body, signOutOn401 = true,
 // Profile checks happen during sign-in. Keep them reasonably short, but not so
 // short that a normal mobile→AWS round trip aborts (which wrongly routes an
 // existing user to profile setup).
-const PROFILE_TIMEOUT_MS = 8000
+const PROFILE_TIMEOUT_MS = 20000
 export const getProfile = (opts = {}) => request('/profile', opts, PROFILE_TIMEOUT_MS)
 export const saveProfile = (profile) => request('/profile', { method: 'PUT', body: profile }, PROFILE_TIMEOUT_MS)
 // `q` searches BOTH chat titles and message bodies (server-side).
@@ -84,10 +84,13 @@ export const deleteConsultation = (id) => request(`/consultations/${id}`, { meth
 export const renameConsultation = (id, title) => request(`/consultations/${id}`, { method: 'PATCH', body: { title } })
 // meta: { inputMode: 'voice' | 'text', lang } — lang is the language Transcribe
 // identified for a dictated message; the server replies in it.
-export const sendMessage = (id, content, attachmentIds = [], { inputMode, lang } = {}) =>
-  request(`/consultations/${id}/messages`, { method: 'POST', body: { content, attachmentIds, ...(inputMode && { inputMode }), ...(lang && { lang }) } })
-export const setMessageFeedback = (consultationId, messageId, feedback) =>
-  request(`/consultations/${consultationId}/messages/${messageId}/feedback`, { method: 'POST', body: { feedback } })
+export const sendMessage = (id, content, attachmentIds = [], { inputMode, lang, answers } = {}) =>
+  request(`/consultations/${id}/messages`, { method: 'POST', body: { content, attachmentIds, ...(inputMode && { inputMode }), ...(lang && { lang }), ...(answers && { answers }) } })
+export const setMessageFeedback = (consultationId, messageId, feedback, extra = {}) =>
+  request(`/consultations/${consultationId}/messages/${messageId}/feedback`, { method: 'POST', body: { feedback, ...extra } })
+export const translateMessage = (consultationId, messageId, target) =>
+  request(`/consultations/${consultationId}/messages/${messageId}/translate`, { method: 'POST', body: { target } })
+export const findNearbyCare = (body) => request('/care/nearby', { method: 'POST', body })
 
 // --- account security PINs ---
 export const listPins = () => request('/security/pins')

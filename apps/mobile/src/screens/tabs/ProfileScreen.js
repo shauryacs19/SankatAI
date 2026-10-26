@@ -92,7 +92,7 @@ export default function ProfileScreen({ navigation }) {
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={navigation?.shellManaged ? [] : ['top']}>
       <ScreenHeader title="Profile" navigation={navigation} />
       <ScrollView contentContainerStyle={styles.scroll} refreshControl={refreshControl}>{body()}</ScrollView>
     </SafeAreaView>
@@ -106,13 +106,13 @@ const makeStyles = (colors) => StyleSheet.create({
   empty: { alignItems: 'center', gap: 12, paddingVertical: 50 },
   emptyText: { color: colors.muted, fontSize: 14 },
   emptyBtn: { backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 22 },
-  emptyBtnText: { color: '#fff', fontWeight: '700' },
+  emptyBtnText: { color: colors.onPrimary, fontWeight: '700' },
   emptyBtnGhost: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 },
   emptyBtnGhostText: { color: colors.textSecondary, fontWeight: '700' },
   card: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radius.lg, padding: 16 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: { width: 54, height: 54, borderRadius: 15, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#fff', fontSize: 22, fontWeight: '800' },
+  avatarText: { color: colors.onPrimary, fontSize: 22, fontWeight: '800' },
   name: { fontSize: 17, fontWeight: '700', color: colors.text },
   verified: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
   verifiedText: { color: colors.success, fontSize: 12, fontWeight: '600' },

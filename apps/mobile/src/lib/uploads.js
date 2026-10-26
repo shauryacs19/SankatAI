@@ -8,7 +8,44 @@
 // The backend derives user_id from the Cognito token; the client never sends it.
 
 import * as FileSystemLegacy from 'expo-file-system/legacy'
+import * as ImageManipulator from 'expo-image-manipulator'
 import { request } from './api'
+
+const TRIAGE_MAX_BYTES = 8 * 1024 * 1024
+const IMAGE_INPUT_MAX_BYTES = 30 * 1024 * 1024
+
+// Match the website's image-first triage flow. Re-encoding the pixels strips
+// EXIF location/device metadata before the image leaves the phone.
+export const uploadTriageImage = async (asset, consultationId) => {
+  if (!String(asset?.mimeType || '').startsWith('image/')) throw new Error('Choose a photo (JPEG, PNG, WebP or HEIC).')
+  if (asset.size > IMAGE_INPUT_MAX_BYTES) throw new Error('This photo is too large. Choose one under 30 MB.')
+
+  const width = Number(asset.width) || 0
+  const height = Number(asset.height) || 0
+  const longest = Math.max(width, height)
+  const actions = longest > 2048
+    ? [{ resize: width >= height ? { width: 2048 } : { height: 2048 } }]
+    : []
+  const prepared = await ImageManipulator.manipulateAsync(asset.uri, actions, {
+    compress: 0.9,
+    format: ImageManipulator.SaveFormat.JPEG,
+  })
+  const info = await FileSystemLegacy.getInfoAsync(prepared.uri, { size: true })
+  if (!info.exists || !info.size) throw new Error('This photo could not be prepared. Try another one.')
+  if (info.size > TRIAGE_MAX_BYTES) throw new Error('This photo is too large even after compression.')
+
+  const presign = await request('/v2/triage/images', {
+    method: 'POST',
+    body: { contentType: 'image/jpeg', size: info.size, ...(consultationId && { consultationId }) },
+  })
+  const result = await FileSystemLegacy.uploadAsync(presign.uploadUrl, prepared.uri, {
+    httpMethod: 'PUT',
+    uploadType: FileSystemLegacy.FileSystemUploadType.BINARY_CONTENT,
+    headers: presign.uploadHeaders || { 'Content-Type': 'image/jpeg' },
+  })
+  if (result.status < 200 || result.status >= 300) throw new Error('The photo could not be uploaded. Check your connection and try again.')
+  return request(`/v2/triage/images/${presign.imageId}/complete`, { method: 'POST' })
+}
 
 export const kindForAsset = (asset) => {
   const mime = asset?.mimeType || ''

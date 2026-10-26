@@ -58,7 +58,7 @@ export default function CreatePinModal({ visible, onClose, onCreated }) {
           <View style={styles.modalActions}>
             <TouchableOpacity style={styles.ghost} onPress={close} disabled={saving}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
             <TouchableOpacity style={[styles.primary, !canSave && { opacity: 0.5 }]} onPress={submit} disabled={!canSave}>
-              {saving ? <ActivityIndicator color="#fff" /> : <><Check size={15} color="#fff" /><Text style={styles.primaryText}>Create PIN</Text></>}
+              {saving ? <ActivityIndicator color={colors.onPrimary} /> : <><Check size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Create PIN</Text></>}
             </TouchableOpacity>
           </View>
         </View>
@@ -68,7 +68,7 @@ export default function CreatePinModal({ visible, onClose, onCreated }) {
 }
 
 const makeStyles = (colors) => StyleSheet.create({
-  scrim: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  scrim: { flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 24 },
   modal: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.lg, padding: 18 },
   modalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   modalTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
@@ -80,5 +80,5 @@ const makeStyles = (colors) => StyleSheet.create({
   ghost: { paddingVertical: 11, paddingHorizontal: 16, borderRadius: radius.md, backgroundColor: colors.surface2 },
   ghostText: { color: colors.textSecondary, fontWeight: '700' },
   primary: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 11, paddingHorizontal: 18, borderRadius: radius.md, backgroundColor: colors.primary },
-  primaryText: { color: '#fff', fontWeight: '700' },
+  primaryText: { color: colors.onPrimary, fontWeight: '700' },
 })

@@ -9,67 +9,101 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { initAuth, signIn as cognitoSignIn, signOut as cognitoSignOut, onSignOut } from '../lib/cognito'
 import { getProfile } from '../lib/api'
+import { isProfileComplete } from '@sankatai/shared'
 
 const AuthContext = createContext(null)
 
 export const AUTH_STATUS = { INITIALIZING: 'initializing', AUTHENTICATED: 'authenticated', UNAUTHENTICATED: 'unauthenticated' }
 
-// Where to land once authenticated: existing profile -> App, empty -> setup.
-// On a network/timeout error we default to App (not setup) so a slow profile
-// call can't force an existing user through onboarding again.
-//
-// `signOutOn401: false` is critical here: this probe runs *during* sign-in, right
-// after the session is minted. If the profile endpoint answers 401 (clock skew,
-// a transient reject, JWKS warm-up), the default API behaviour would sign the
-// user straight back out — the session gets torn down mid-login and the app never
-// settles on the authenticated stack. The route probe must never revert auth.
-async function resolveInitialRoute() {
-  try { return (await getProfile({ signOutOn401: false })) ? 'App' : 'ProfileSetup' }
-  catch { return 'App' }
-}
-
 export function AuthProvider({ children }) {
   const [status, setStatus] = useState(AUTH_STATUS.INITIALIZING)
-  const [initialRoute, setInitialRoute] = useState('App')
+  const [initialRoute, setInitialRoute] = useState('ProfileCheck')
+  const [profileSnapshot, setProfileSnapshot] = useState(null)
+  const [profileCheckComplete, setProfileCheckComplete] = useState(false)
+  const [profileCheckError, setProfileCheckError] = useState('')
   const mounted = useRef(true)
 
-  useEffect(() => () => { mounted.current = false }, [])
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+
+  // Fail closed: never send a user past onboarding until the profile check has
+  // succeeded. A transient API error gets a retry screen rather than silently
+  // treating an unknown profile as complete.
+  const checkProfile = useCallback(async () => {
+    if (mounted.current) {
+      setProfileCheckComplete(false)
+      setProfileCheckError('')
+    }
+    try {
+      const profile = await getProfile({ signOutOn401: false })
+      const route = isProfileComplete(profile) ? 'App' : 'ProfileSetup'
+      if (mounted.current) {
+        setProfileSnapshot(profile || null)
+        setInitialRoute(route)
+        setProfileCheckComplete(true)
+      }
+      return route
+    } catch (error) {
+      if (mounted.current) {
+        setProfileSnapshot(null)
+        setInitialRoute('ProfileCheck')
+        setProfileCheckError(/network request failed|network error|failed to fetch|timed out/i.test(String(error?.message || ''))
+          ? 'We couldn’t reach the profile service. Check your connection and try again.'
+          : error?.message || 'We couldn’t verify your health profile. Please try again.')
+      }
+      return null
+    }
+  }, [])
 
   useEffect(() => {
     (async () => {
       const session = await initAuth()
       if (!mounted.current) return
       if (session) {
-        setInitialRoute(await resolveInitialRoute())
+        await checkProfile()
         if (mounted.current) setStatus(AUTH_STATUS.AUTHENTICATED)
       } else {
         setStatus(AUTH_STATUS.UNAUTHENTICATED)
       }
     })()
-  }, [])
+  }, [checkProfile])
 
   // Out-of-band sign-out (refresh failure / hard 401 in the API client).
-  useEffect(() => onSignOut(() => { if (mounted.current) setStatus(AUTH_STATUS.UNAUTHENTICATED) }), [])
+  useEffect(() => onSignOut(() => {
+    if (!mounted.current) return
+    setProfileSnapshot(null)
+    setProfileCheckComplete(false)
+    setProfileCheckError('')
+    setStatus(AUTH_STATUS.UNAUTHENTICATED)
+  }), [])
 
   // Password sign-in. `identifier`: username, email or phone (E.164).
   const signIn = useCallback(async (identifier, password) => {
     await cognitoSignIn(identifier, password)
-    setInitialRoute(await resolveInitialRoute())
+    await checkProfile()
     setStatus(AUTH_STATUS.AUTHENTICATED)
-  }, [])
+  }, [checkProfile])
 
   // After a texted-code sign-in has stored its tokens.
   const finishSignIn = useCallback(async () => {
-    setInitialRoute(await resolveInitialRoute())
+    await checkProfile()
     setStatus(AUTH_STATUS.AUTHENTICATED)
-  }, [])
+  }, [checkProfile])
+
+  const retryProfileCheck = useCallback(() => checkProfile(), [checkProfile])
 
   const signOut = useCallback(async () => {
     await cognitoSignOut()
+    setProfileSnapshot(null)
+    setProfileCheckComplete(false)
+    setProfileCheckError('')
+    setInitialRoute('ProfileCheck')
     setStatus(AUTH_STATUS.UNAUTHENTICATED)
   }, [])
 
-  const value = useMemo(() => ({ status, initialRoute, signIn, finishSignIn, signOut }), [status, initialRoute, signIn, finishSignIn, signOut])
+  const value = useMemo(() => ({
+    status, initialRoute, profileSnapshot, profileCheckComplete, profileCheckError,
+    signIn, finishSignIn, retryProfileCheck, signOut,
+  }), [status, initialRoute, profileSnapshot, profileCheckComplete, profileCheckError, signIn, finishSignIn, retryProfileCheck, signOut])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 

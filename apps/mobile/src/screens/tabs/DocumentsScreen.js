@@ -388,13 +388,13 @@ export default function DocumentsScreen({ navigation }) {
   )
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={navigation?.shellManaged ? [] : ['top']}>
       <ScreenHeader title="Documents" navigation={navigation} />
       <ScrollView contentContainerStyle={styles.scroll} refreshControl={refreshControl} scrollEnabled={scrollEnabled}>
         <Text style={styles.sub}>Your secure vault. Files upload to storage and can be locked with a security PIN. Hold a file and drag it onto a category to move it.</Text>
 
         <View style={styles.uploadRow}>
-          <TouchableOpacity style={styles.uploadBtn} onPress={startNewUpload}><Upload size={15} color="#fff" /><Text style={styles.uploadText}>Upload file</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.uploadBtn} onPress={startNewUpload}><Upload size={15} color={colors.onPrimary} /><Text style={styles.uploadText}>Upload file</Text></TouchableOpacity>
           <TouchableOpacity style={styles.catBtn} onPress={() => { setNewCatOpen(true); setNewCatName('') }}><Plus size={15} color={colors.primary} /><Text style={styles.catBtnText}>Category</Text></TouchableOpacity>
           <TouchableOpacity
             style={styles.viewBtn}
@@ -490,7 +490,7 @@ export default function DocumentsScreen({ navigation }) {
             <View style={styles.sheetActions}>
               <TouchableOpacity style={styles.ghost} onPress={() => setPending(null)} disabled={uploading}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.primary, (uploading || !uploadName.trim()) && { opacity: 0.6 }]} onPress={doUpload} disabled={uploading || !uploadName.trim()}>
-                {uploading ? <ActivityIndicator color="#fff" /> : <><Upload size={15} color="#fff" /><Text style={styles.primaryText}>Upload</Text></>}
+                {uploading ? <ActivityIndicator color={colors.onPrimary} /> : <><Upload size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Upload</Text></>}
               </TouchableOpacity>
             </View>
           </View>
@@ -529,7 +529,7 @@ export default function DocumentsScreen({ navigation }) {
             <View style={styles.sheetActions}>
               <TouchableOpacity style={styles.ghost} onPress={() => setEditTarget(null)} disabled={editBusy}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.primary, (!editName.trim() || editBusy) && { opacity: 0.6 }]} onPress={submitEdit} disabled={!editName.trim() || editBusy}>
-                {editBusy ? <ActivityIndicator color="#fff" /> : <><Check size={15} color="#fff" /><Text style={styles.primaryText}>Save</Text></>}
+                {editBusy ? <ActivityIndicator color={colors.onPrimary} /> : <><Check size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Save</Text></>}
               </TouchableOpacity>
             </View>
           </View>
@@ -548,7 +548,7 @@ export default function DocumentsScreen({ navigation }) {
             <View style={styles.sheetActions}>
               <TouchableOpacity style={styles.ghost} onPress={() => setNewCatOpen(false)}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.primary, !newCatName.trim() && { opacity: 0.6 }]} onPress={submitNewCat} disabled={!newCatName.trim()}>
-                <Check size={15} color="#fff" /><Text style={styles.primaryText}>Create</Text>
+                <Check size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Create</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -581,7 +581,7 @@ export default function DocumentsScreen({ navigation }) {
             <View style={styles.sheetActions}>
               <TouchableOpacity style={styles.ghost} onPress={() => setDeleteTarget(null)} disabled={deleteBusy}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.primary, (!isDeleteConfirmed(deleteText) || deleteBusy) && { opacity: 0.6 }]} onPress={submitDelete} disabled={!isDeleteConfirmed(deleteText) || deleteBusy}>
-                {deleteBusy ? <ActivityIndicator color="#fff" /> : <><Trash2 size={15} color="#fff" /><Text style={styles.primaryText}>Delete</Text></>}
+                {deleteBusy ? <ActivityIndicator color={colors.onPrimary} /> : <><Trash2 size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Delete</Text></>}
               </TouchableOpacity>
             </View>
           </View>
@@ -623,11 +623,11 @@ export default function DocumentsScreen({ navigation }) {
                     setDeleteTarget(att); setDeleteText('')
                   }}
                 >
-                  <Check size={15} color="#fff" /><Text style={styles.primaryText}>Continue</Text>
+                  <Check size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Continue</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity style={[styles.primary, (pinValue.length !== 6 || opening) && { opacity: 0.6 }]} disabled={pinValue.length !== 6 || opening} onPress={() => openFile(pinPrompt.attachment, pinValue)}>
-                  {opening ? <ActivityIndicator color="#fff" /> : <><Eye size={15} color="#fff" /><Text style={styles.primaryText}>Open</Text></>}
+                  {opening ? <ActivityIndicator color={colors.onPrimary} /> : <><Eye size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Open</Text></>}
                 </TouchableOpacity>
               )}
             </View>
@@ -647,10 +647,10 @@ const makeStyles = (colors) => StyleSheet.create({
   sub: { color: colors.muted, marginTop: 4, fontSize: 13, lineHeight: 19 },
   uploadRow: { flexDirection: 'row', gap: 10, marginTop: 16, flexWrap: 'wrap' },
   uploadBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: colors.primary },
-  uploadText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  uploadText: { color: colors.onPrimary, fontWeight: '700', fontSize: 14 },
   catBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: 14, backgroundColor: colors.surface },
   catBtnText: { color: colors.primary, fontWeight: '700', fontSize: 14 },
-  errBox: { backgroundColor: colors.primarySoft, borderColor: colors.primaryBorder, borderWidth: 1, borderRadius: radius.md, padding: 12, marginTop: 14 },
+  errBox: { backgroundColor: colors.dangerSoft, borderColor: colors.dangerBorder, borderWidth: 1, borderRadius: radius.md, padding: 12, marginTop: 14 },
   errText: { color: colors.primary, fontSize: 13 },
   center: { paddingVertical: 40, alignItems: 'center' },
   empty: { alignItems: 'center', gap: 12, paddingVertical: 60, marginTop: 20, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: radius.lg },
@@ -679,8 +679,8 @@ const makeStyles = (colors) => StyleSheet.create({
   fileName: { fontSize: 14, fontWeight: '600', color: colors.text, flexShrink: 1 },
   fileMeta: { fontSize: 12, color: colors.muted, marginTop: 2 },
   iconBtn: { padding: 6 },
-  scrim: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'flex-end' },
-  scrimCenter: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  scrim: { flex: 1, backgroundColor: colors.scrim, justifyContent: 'flex-end' },
+  scrimCenter: { flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 24 },
   sheet: { backgroundColor: colors.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 18, paddingBottom: 28 },
   sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   sheetTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
@@ -699,7 +699,7 @@ const makeStyles = (colors) => StyleSheet.create({
   ghost: { paddingVertical: 12, paddingHorizontal: 18, borderRadius: radius.md, backgroundColor: colors.surface2 },
   ghostText: { color: colors.textSecondary, fontWeight: '700' },
   primary: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 12, paddingHorizontal: 20, borderRadius: radius.md, backgroundColor: colors.primary },
-  primaryText: { color: '#fff', fontWeight: '700' },
+  primaryText: { color: colors.onPrimary, fontWeight: '700' },
   pinModal: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.lg, padding: 18 },
   pinInput: { borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 18, color: colors.text, backgroundColor: colors.bg, letterSpacing: 6, textAlign: 'center', marginTop: 12 },
 })

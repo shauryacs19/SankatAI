@@ -2,6 +2,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { AUTH_STATUS, useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import LoginScreen from '../screens/LoginScreen'
+import ProfileCheckScreen from '../screens/ProfileCheckScreen'
+import GuestChatScreen from '../screens/GuestChatScreen'
 import ProfileSetupScreen from '../screens/ProfileSetupScreen'
 import DashboardTabs from '../screens/DashboardTabs'
 import PersonalInfoScreen from '../screens/profile/PersonalInfoScreen'
@@ -23,18 +25,22 @@ export default function RootNavigator() {
     headerShown: false,
     contentStyle: { backgroundColor: colors.bg },
     navigationBarColor: colors.bg,
+    animation: 'fade_from_bottom',
+    animationDuration: 280,
   }
 
   if (status === AUTH_STATUS.UNAUTHENTICATED) {
     return (
       <Stack.Navigator screenOptions={screenOptions}>
         <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Guest" component={GuestChatScreen} />
       </Stack.Navigator>
     )
   }
 
   return (
     <Stack.Navigator initialRouteName={initialRoute} screenOptions={screenOptions}>
+      <Stack.Screen name="ProfileCheck" component={ProfileCheckScreen} />
       <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
       <Stack.Screen name="App" component={DashboardTabs} />
       <Stack.Screen name="ProfilePersonal" component={PersonalInfoScreen} />

@@ -14,7 +14,7 @@ import 'react-native-get-random-values'
 
 import * as SecureStore from 'expo-secure-store'
 import {
-  CognitoUserPool, CognitoUser, AuthenticationDetails, CognitoUserAttribute,
+  CognitoUserPool, CognitoUser, AuthenticationDetails,
   CognitoRefreshToken,
 } from 'amazon-cognito-identity-js'
 import { createCognitoApi, normalizeUsername, uuidV4 } from '@sankatai/shared'
@@ -48,6 +48,41 @@ const userPool = new CognitoUserPool({
 })
 
 const api = () => createCognitoApi({ region: COGNITO.region, clientId: COGNITO.clientId })
+
+// Keep sign-up local to the native client. Metro can resolve a cached version
+// of the shared API package that predates createCognitoApi().signUp(), so don't
+// depend on that optional method being present at runtime.
+async function cognitoSignUpRequest(body) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+  const timer = controller ? setTimeout(() => controller.abort(), 15000) : null
+  let response
+  try {
+    response = await fetch(`https://cognito-idp.${COGNITO.region}.amazonaws.com/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-amz-json-1.1',
+        'X-Amz-Target': 'AWSCognitoIdentityProviderService.SignUp',
+      },
+      body: JSON.stringify(body),
+      ...(controller && { signal: controller.signal }),
+    })
+  } catch (error) {
+    const timedOut = error?.name === 'AbortError'
+    throw Object.assign(new Error(timedOut
+      ? 'The account service took too long to respond.'
+      : 'The account service could not be reached from this device.'), {
+      code: 'NetworkError', name: 'NetworkError',
+    })
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const code = String(data.__type || 'UnknownError').split('#').pop()
+    throw Object.assign(new Error(data.message || data.Message || code), { code, name: code })
+  }
+  return data
+}
 
 // --- in-memory session cache (synchronous reads) ---
 let currentSession = null
@@ -207,16 +242,21 @@ export async function getValidIdToken() {
  * triggers check it at sign-up and set it on confirmation.
  * @returns {Promise<{username: string}>} the Cognito username, needed to confirm.
  */
-export const signUp = ({ username, email, phone, name, password }) =>
-  new Promise((resolve, reject) => {
-    const cognitoUsername = uuidV4((a) => crypto.getRandomValues(a))
-    const attrs = []
-    if (email) attrs.push(new CognitoUserAttribute({ Name: 'email', Value: email.trim().toLowerCase() }))
-    if (phone) attrs.push(new CognitoUserAttribute({ Name: 'phone_number', Value: phone }))
-    if (name?.trim()) attrs.push(new CognitoUserAttribute({ Name: 'name', Value: name.trim() }))
-    const metadata = { preferred_username: normalizeUsername(username) }
-    userPool.signUp(cognitoUsername, password, attrs, null, (err) => (err ? reject(err) : resolve({ username: cognitoUsername })), metadata)
+export const signUp = async ({ username, email, phone, name, password }) => {
+  const cognitoUsername = uuidV4((a) => crypto.getRandomValues(a))
+  const attributes = []
+  if (email) attributes.push({ Name: 'email', Value: email.trim().toLowerCase() })
+  if (phone) attributes.push({ Name: 'phone_number', Value: phone })
+  if (name?.trim()) attributes.push({ Name: 'name', Value: name.trim() })
+  const response = await cognitoSignUpRequest({
+    ClientId: COGNITO.clientId,
+    Username: cognitoUsername,
+    Password: password,
+    UserAttributes: attributes,
+    ClientMetadata: { preferred_username: normalizeUsername(username) },
   })
+  return { username: cognitoUsername, delivery: response.CodeDeliveryDetails || null }
+}
 
 // ForceAliasCreation stays false: an email/phone another account has verified
 // is never moved to this one.

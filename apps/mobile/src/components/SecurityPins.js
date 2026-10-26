@@ -108,7 +108,7 @@ export default function SecurityPins() {
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.ghost} onPress={() => setDelTarget(null)} disabled={delBusy}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.primary, (delPin.length !== 6 || delBusy) && { opacity: 0.5 }]} onPress={submitRemove} disabled={delPin.length !== 6 || delBusy}>
-                {delBusy ? <ActivityIndicator color="#fff" /> : <><Trash2 size={15} color="#fff" /><Text style={styles.primaryText}>Delete PIN</Text></>}
+                {delBusy ? <ActivityIndicator color={colors.onPrimary} /> : <><Trash2 size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Delete PIN</Text></>}
               </TouchableOpacity>
             </View>
           </View>
@@ -139,7 +139,7 @@ const makeStyles = (colors) => StyleSheet.create({
   del: { padding: 6 },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 14, marginTop: 14 },
   addText: { color: colors.primary, fontWeight: '600' },
-  scrim: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  scrim: { flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 24 },
   modal: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.lg, padding: 18 },
   modalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   modalTitle: { fontSize: 16, fontWeight: '700', color: colors.text, flexShrink: 1 },
@@ -149,5 +149,5 @@ const makeStyles = (colors) => StyleSheet.create({
   ghost: { paddingVertical: 11, paddingHorizontal: 16, borderRadius: radius.md, backgroundColor: colors.surface2 },
   ghostText: { color: colors.textSecondary, fontWeight: '700' },
   primary: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 11, paddingHorizontal: 18, borderRadius: radius.md, backgroundColor: colors.primary },
-  primaryText: { color: '#fff', fontWeight: '700' },
+  primaryText: { color: colors.onPrimary, fontWeight: '700' },
 })

@@ -123,7 +123,7 @@ export default function EmergencyContactsScreen({ navigation }) {
               <View style={styles.modalActions}>
                 <TouchableOpacity style={styles.ghost} onPress={closeModal} disabled={saving}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
                 <TouchableOpacity style={[styles.primary, saving && { opacity: 0.6 }]} onPress={saveDraft} disabled={saving}>
-                  {saving ? <ActivityIndicator color="#fff" /> : <><Check size={15} color="#fff" /><Text style={styles.primaryText}>Save contact</Text></>}
+                  {saving ? <ActivityIndicator color={colors.onPrimary} /> : <><Check size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Save contact</Text></>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -140,7 +140,7 @@ const makeStyles = (colors) => StyleSheet.create({
   backBtn: { padding: 2 },
   headerTitle: { fontSize: 18, fontWeight: '800', color: colors.text },
   scroll: { padding: 20, paddingBottom: 40 },
-  errBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.primarySoft, borderColor: colors.primaryBorder, borderWidth: 1, borderRadius: radius.md, padding: 12, marginBottom: 12 },
+  errBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.dangerSoft, borderColor: colors.dangerBorder, borderWidth: 1, borderRadius: radius.md, padding: 12, marginBottom: 12 },
   errBannerText: { color: colors.primary, fontSize: 13, flex: 1 },
   hint: { color: colors.muted, fontSize: 13, lineHeight: 19 },
   empty: { alignItems: 'center', gap: 10, paddingVertical: 44, marginTop: 12, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: radius.lg },
@@ -154,7 +154,7 @@ const makeStyles = (colors) => StyleSheet.create({
   cardBtn: { padding: 6 },
   addBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 16, marginTop: 16 },
   addText: { color: colors.primary, fontWeight: '700', fontSize: 14 },
-  scrim: { flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  scrim: { flex: 1, backgroundColor: colors.scrim, alignItems: 'center', justifyContent: 'center', padding: 24 },
   modal: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.lg, padding: 18 },
   modalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   modalTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
@@ -162,5 +162,5 @@ const makeStyles = (colors) => StyleSheet.create({
   ghost: { paddingVertical: 11, paddingHorizontal: 16, borderRadius: radius.md, backgroundColor: colors.surface2 },
   ghostText: { color: colors.textSecondary, fontWeight: '700' },
   primary: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 11, paddingHorizontal: 18, borderRadius: radius.md, backgroundColor: colors.primary },
-  primaryText: { color: '#fff', fontWeight: '700' },
+  primaryText: { color: colors.onPrimary, fontWeight: '700' },
 })

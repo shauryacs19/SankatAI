@@ -1,46 +1,55 @@
-// ChatGPT-style shell: the active page fills the screen; everything else lives
-// behind a left slide-in drawer (open via the ☰ button or an edge swipe).
-// Built on RN's Animated + PanResponder so it needs no extra native deps and
-// runs reliably in Expo Go.
-
-import { useCallback, useMemo, useRef, useState } from 'react'
-import { View, Text, TouchableOpacity, Animated, PanResponder, Dimensions, StyleSheet, ScrollView } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { MessageSquare, User, FolderOpen, Siren, Settings as SettingsIcon, HeartPulse, Plus, Clock, Stethoscope, MapPin, FileText, Phone, ShieldCheck, ChevronRight } from 'lucide-react-native'
-import { radius, sevColor } from '../theme'
+// Mobile version of the website dashboard shell: a persistent page header,
+// four thumb-reachable tabs, and a More sheet for secondary destinations.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { View, Text, TouchableOpacity, Animated, Modal, ScrollView, StyleSheet, Pressable, Dimensions } from 'react-native'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
+import { HeartPulse, MessageSquare, Clock, FolderOpen, Siren, Settings, Plus, PanelRightOpen, MapPin, Upload, ShieldCheck, User, CloudOff, Activity, X, ChevronRight, Menu } from 'lucide-react-native'
+import { radius } from '../theme'
 import { useProfile } from '../context/ProfileContext'
 import { useTheme } from '../context/ThemeContext'
 import { useChat } from '../context/ChatContext'
+import { fetchWithTimeout } from '../lib/api'
+import { API_BASE_URL } from '../config'
 import ChatScreen from './tabs/ChatScreen'
 import HistoryScreen from './tabs/HistoryScreen'
 import ProfileScreen from './tabs/ProfileScreen'
 import DocumentsScreen from './tabs/DocumentsScreen'
 import EmergencyScreen from './tabs/EmergencyScreen'
 import SettingsScreen from './tabs/SettingsScreen'
+import OfflineScreen from './tabs/OfflineScreen'
 
-const PAGES = [
-  { key: 'Chat', label: 'Chat', Icon: MessageSquare, Comp: ChatScreen },
-  { key: 'History', label: 'History', Icon: Clock, Comp: HistoryScreen },
-  { key: 'Documents', label: 'File Storage', Icon: FolderOpen, Comp: DocumentsScreen },
-  { key: 'Emergency', label: 'Emergency', Icon: Siren, Comp: EmergencyScreen },
-  { key: 'Settings', label: 'Settings', Icon: SettingsIcon, Comp: SettingsScreen },
-  // reachable from the user card, not the nav list (the profile page is the
-  // "health profile" — a separate nav entry would duplicate it)
-  { key: 'Profile', label: 'Health Profile', Icon: User, Comp: ProfileScreen, hidden: true },
+const NAV = [
+  { key: 'Chat', label: 'Chat', Icon: MessageSquare, title: 'Symptom chat' },
+  { key: 'History', label: 'History', Icon: Clock, title: 'Chat history' },
+  { key: 'Documents', label: 'Documents', Icon: FolderOpen, title: 'Documents' },
+  { key: 'Emergency', label: 'Emergency', Icon: Siren, title: 'Emergency' },
 ]
-const isPage = (name) => PAGES.some((p) => p.key === name)
+const TITLES = { Settings: 'Settings', Profile: 'Health profile', Offline: 'Offline mode' }
+const PAGES = {
+  Chat: ChatScreen, History: HistoryScreen, Documents: DocumentsScreen,
+  Emergency: EmergencyScreen, Settings: SettingsScreen, Offline: OfflineScreen,
+  Profile: ProfileScreen,
+}
+const isPage = (name) => Boolean(PAGES[name])
 
-function QuickAction({ Icon, title, sub, danger, onPress, colors }) {
+function MoreRow({ Icon, title, sub, onPress, colors, danger = false }) {
   const styles = makeStyles(colors)
   return (
-    <TouchableOpacity style={styles.quickItem} onPress={onPress} activeOpacity={0.85}>
-      <View style={[styles.quickIc, danger && { backgroundColor: colors.primarySoft }]}>
-        <Icon size={17} color={danger ? colors.sevEmergency : colors.primary} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.quickTitleText, danger && { color: colors.sevEmergency }]}>{title}</Text>
-        <Text style={styles.quickSub}>{sub}</Text>
-      </View>
+    <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.75} accessibilityRole="button">
+      <View style={[styles.rowIcon, danger && { backgroundColor: colors.dangerSoft }]}><Icon size={18} color={danger ? colors.sevEmergency : colors.primary} /></View>
+      <View style={styles.rowCopy}><Text style={[styles.rowTitle, danger && { color: colors.sevEmergency }]}>{title}</Text>{!!sub && <Text style={styles.rowSub}>{sub}</Text>}</View>
+      <ChevronRight size={17} color={colors.muted} />
+    </TouchableOpacity>
+  )
+}
+
+function DrawerNavItem({ Icon, label, selected, onPress, colors }) {
+  const styles = makeStyles(colors)
+  return (
+    <TouchableOpacity style={[styles.drawerNavItem, selected && styles.drawerNavItemSelected]} onPress={onPress} activeOpacity={0.74} accessibilityRole="button" accessibilityState={{ selected }}>
+      <Icon size={19} color={selected ? colors.primary : colors.textSecondary} strokeWidth={selected ? 2.2 : 1.9} />
+      <Text style={[styles.drawerNavLabel, selected && styles.drawerNavLabelSelected]}>{label}</Text>
+      {selected && <View style={styles.drawerNavIndicator} />}
     </TouchableOpacity>
   )
 }
@@ -50,167 +59,170 @@ export default function DashboardTabs({ navigation }) {
   const { colors } = useTheme()
   const { startNew } = useChat()
   const styles = makeStyles(colors)
+  const insets = useSafeAreaInsets()
   const [active, setActive] = useState('Chat')
-  const [open, setOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [isOffline, setIsOffline] = useState(false)
+  const [chatActions, setChatActions] = useState(null)
+  const chatActionRef = useRef(null)
+  const pageOpacity = useRef(new Animated.Value(1)).current
+  const pageY = useRef(new Animated.Value(0)).current
+  const drawerX = useRef(new Animated.Value(-360)).current
+  const scrimOpacity = useRef(new Animated.Value(0)).current
+  const drawerWidth = Math.min(Dimensions.get('window').width * 0.86, 360)
 
-  const screenW = Dimensions.get('window').width
-  const DRAWER_W = Math.min(320, Math.round(screenW * 0.82))
-  const tx = useRef(new Animated.Value(-DRAWER_W)).current
-  const scrim = useRef(new Animated.Value(0)).current
+  useEffect(() => {
+    let alive = true
+    fetchWithTimeout(`${API_BASE_URL}/api/health`, {}, 8000)
+      .then((r) => { if (alive) setIsOffline(!r.ok) })
+      .catch(() => { if (alive) setIsOffline(true) })
+    return () => { alive = false }
+  }, [])
 
-  const animateTo = (toValue, dim, after) => {
+  useEffect(() => {
+    pageOpacity.setValue(0)
+    pageY.setValue(8)
     Animated.parallel([
-      Animated.timing(tx, { toValue, duration: 240, useNativeDriver: true }),
-      Animated.timing(scrim, { toValue: dim, duration: 240, useNativeDriver: true }),
-    ]).start(after)
-  }
-  const openDrawer = () => { setOpen(true); animateTo(0, 1) }
-  const closeDrawer = () => animateTo(-DRAWER_W, 0, () => setOpen(false))
-  const go = (key) => { setActive(key); closeDrawer() }
+      Animated.timing(pageOpacity, { toValue: 1, duration: 190, useNativeDriver: true }),
+      Animated.spring(pageY, { toValue: 0, stiffness: 250, damping: 25, mass: 0.75, useNativeDriver: true }),
+    ]).start()
+  }, [active, pageOpacity, pageY])
 
-  // Swipe right anywhere in the left 20% of the screen to open the drawer; drag
-  // on the open drawer to close. Capture-phase so it wins over page content,
-  // but ONLY for a rightward drag started inside that zone — leftward gestures
-  // (e.g. the chat's swipe-to-see-time) pass straight through.
-  const EDGE_ZONE = screenW * 0.2
-  const edgePan = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_e, g) => g.x0 <= EDGE_ZONE && g.dx > 8 && Math.abs(g.dy) < 20,
-      onMoveShouldSetPanResponder: (_e, g) => g.x0 <= EDGE_ZONE && g.dx > 8 && Math.abs(g.dy) < 20,
-      onPanResponderMove: (_e, g) => { tx.setValue(Math.min(0, -DRAWER_W + Math.max(0, g.dx))); scrim.setValue(Math.max(0, Math.min(1, g.dx / DRAWER_W))) },
-      onPanResponderRelease: (_e, g) => (g.dx > DRAWER_W * 0.4 ? (setOpen(true), animateTo(0, 1)) : closeDrawer()),
-    }),
-  ).current
-  const drawerPan = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_e, g) => g.dx < -8 && Math.abs(g.dy) < 20,
-      onMoveShouldSetPanResponderCapture: (_e, g) => g.dx < -8 && Math.abs(g.dy) < 20,
-      onPanResponderMove: (_e, g) => { tx.setValue(Math.max(-DRAWER_W, Math.min(0, g.dx))); scrim.setValue(Math.max(0, Math.min(1, 1 + g.dx / DRAWER_W))) },
-      onPanResponderRelease: (_e, g) => (g.dx < -DRAWER_W * 0.3 ? closeDrawer() : animateTo(0, 1)),
-    }),
-  ).current
+  const openDrawer = useCallback(() => {
+    setDrawerOpen(true)
+    drawerX.setValue(-drawerWidth); scrimOpacity.setValue(0)
+    Animated.parallel([
+      Animated.spring(drawerX, { toValue: 0, stiffness: 280, damping: 29, mass: 0.82, useNativeDriver: true }),
+      Animated.timing(scrimOpacity, { toValue: 1, duration: 190, useNativeDriver: true }),
+    ]).start()
+  }, [drawerX, drawerWidth, scrimOpacity])
+  const closeDrawer = useCallback(() => Animated.parallel([
+    Animated.timing(drawerX, { toValue: -drawerWidth, duration: 190, useNativeDriver: true }),
+    Animated.timing(scrimOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+  ]).start(({ finished }) => { if (finished) setDrawerOpen(false) }), [drawerX, drawerWidth, scrimOpacity])
 
-  // Navigation handed to each page: page names switch the drawer view; other
-  // routes (ProfileSetup, Login) delegate to the real stack navigator.
+  const go = useCallback((key) => {
+    if (isPage(key)) setActive(key)
+    else navigation.navigate(key)
+    if (drawerOpen) closeDrawer()
+  }, [navigation, drawerOpen, closeDrawer])
+  const registerChatActions = useCallback((actions) => { chatActionRef.current = actions }, [])
   const pageNav = useMemo(() => ({
-    navigate: (name, params) => (isPage(name) ? go(name) : navigation.navigate(name, params)),
-    reset: (...a) => navigation.reset(...a),
+    shellManaged: true,
+    navigate: (name, params) => isPage(name) ? go(name) : navigation.navigate(name, params),
+    reset: (...args) => navigation.reset(...args),
     goBack: () => navigation.goBack(),
+    addListener: (...args) => navigation.addListener(...args),
     openDrawer,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [navigation])
+    registerChatActions,
+  }), [navigation, go, openDrawer, registerChatActions])
 
-  const ActiveComp = PAGES.find((p) => p.key === active)?.Comp || ChatScreen
   const fullName = [profile?.firstName, profile?.middleName, profile?.lastName].filter(Boolean).join(' ') || 'Your profile'
-
-  const newChat = () => { startNew(); go('Chat') }
+  const current = NAV.find((item) => item.key === active)
+  const title = current?.title || TITLES[active] || 'SankatAI'
+  const ActiveComp = PAGES[active] || ChatScreen
+  const newChat = () => { startNew(); setActive('Chat'); if (drawerOpen) closeDrawer() }
+  const showOffline = () => go('Offline')
 
   return (
-    <View style={styles.root}>
-      {/* Active page */}
-      <View style={styles.page} {...(open ? {} : edgePan.panHandlers)}><ActiveComp navigation={pageNav} /></View>
-
-      {/* Scrim */}
-      {open && (
-        <Animated.View style={[styles.scrim, { opacity: scrim }]} pointerEvents={open ? 'auto' : 'none'}>
-          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={closeDrawer} />
-        </Animated.View>
-      )}
-
-      {/* Drawer */}
-      <Animated.View style={[styles.drawer, { width: DRAWER_W, transform: [{ translateX: tx }] }]} {...drawerPan.panHandlers}>
-        <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
-          <View style={styles.brandRow}>
-            <View style={styles.brandMark}><HeartPulse size={22} color={colors.primary} /></View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.brand}>Sankat<Text style={{ color: colors.primary }}>.AI</Text></Text>
-              <Text style={styles.brandSub}>AI Health Assistant</Text>
-            </View>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <View style={[styles.root, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.menuButton} onPress={openDrawer} accessibilityRole="button" accessibilityLabel="Open navigation menu" accessibilityState={{ expanded: drawerOpen }}>
+            <Menu size={22} color={colors.text} strokeWidth={2.1} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
+          {isOffline && <TouchableOpacity style={styles.offlineBadge} onPress={showOffline}><CloudOff size={13} color={colors.warning} /><Text style={styles.offlineText}>AI offline</Text></TouchableOpacity>}
+          <View style={styles.headerActions}>
+            {active === 'Chat' && <TouchableOpacity style={styles.iconButton} onPress={newChat} accessibilityLabel="New chat"><Plus size={20} color={colors.textSecondary} /></TouchableOpacity>}
+            {active === 'Chat' && <TouchableOpacity style={styles.iconButton} onPress={() => chatActionRef.current?.openAnalysis?.()} accessibilityLabel="AI analysis"><PanelRightOpen size={18} color={colors.textSecondary} /></TouchableOpacity>}
+            <TouchableOpacity style={styles.sosButton} onPress={() => go('Emergency')} accessibilityRole="button" accessibilityLabel="Emergency help">
+              <Siren size={15} color={colors.sevEmergency} /><Text style={styles.sosText}>SOS</Text>
+            </TouchableOpacity>
           </View>
+        </View>
 
-          <TouchableOpacity style={styles.newChatBtn} onPress={newChat}>
-            <Plus size={17} color={colors.primary} />
-            <Text style={styles.newChatText}>New Chat</Text>
-          </TouchableOpacity>
+        <View style={styles.content}>
+          <Animated.View key={active} style={[styles.page, { opacity: pageOpacity, transform: [{ translateY: pageY }] }]}>
+            <ActiveComp navigation={pageNav} />
+          </Animated.View>
+        </View>
 
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 10 }} showsVerticalScrollIndicator={false}>
-            <View style={styles.navList}>
-              {PAGES.filter((p) => !p.hidden).map((p) => {
-                const on = active === p.key
-                return (
-                  <TouchableOpacity key={p.key} style={[styles.navItem, on && styles.navItemOn]} onPress={() => go(p.key)}>
-                    <p.Icon size={19} color={on ? colors.primary : colors.textSecondary} />
-                    <Text style={[styles.navLabel, on && styles.navLabelOn]}>{p.label}</Text>
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
-
-            <View style={styles.separator} />
-
-            <Text style={styles.quickTitle}>Quick Actions</Text>
-            <QuickAction Icon={Stethoscope} title="Symptom Checker" sub="Check your symptoms" onPress={() => go('Chat')} colors={colors} />
-            <QuickAction Icon={MapPin} title="Find Nearby Hospitals" sub="Hospitals near you" onPress={() => go('Emergency')} colors={colors} />
-            <QuickAction Icon={FileText} title="Upload Reports" sub="Get AI analysis" onPress={() => go('Documents')} colors={colors} />
-            <QuickAction Icon={Phone} title="Emergency SOS" sub="Call for immediate help" danger onPress={() => go('Emergency')} colors={colors} />
-
-            <View style={styles.disclaimer}>
-              <View style={styles.disclaimerHead}>
-                <ShieldCheck size={15} color={colors.sevModerate} />
-                <Text style={styles.disclaimerTitle}>Disclaimer</Text>
+        <Modal visible={drawerOpen} transparent animationType="none" onRequestClose={closeDrawer} statusBarTranslucent>
+          <View style={styles.drawerRoot}>
+            <Animated.View pointerEvents="none" style={[styles.modalScrim, { opacity: scrimOpacity }]} />
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeDrawer} accessibilityLabel="Close navigation menu" />
+            <Animated.View style={[styles.drawer, { width: drawerWidth, paddingTop: Math.max(insets.top, 12) + 8, paddingBottom: Math.max(insets.bottom, 14), transform: [{ translateX: drawerX }] }]}>
+              <View style={styles.drawerHead}>
+                <View style={styles.drawerBrand}>
+                  <View style={styles.drawerBrandMark}><HeartPulse size={18} color={colors.onPrimary} strokeWidth={2.3} /></View>
+                  <View><Text style={styles.drawerBrandTitle}>Sankat<Text style={{ color: colors.primary }}>.AI</Text></Text><Text style={styles.drawerSubtitle}>Your health companion</Text></View>
+                </View>
+                <TouchableOpacity style={styles.closeButton} onPress={closeDrawer} accessibilityLabel="Close navigation menu"><X size={18} color={colors.muted} /></TouchableOpacity>
               </View>
-              <Text style={styles.disclaimerText}>
-                SankatAI is not a substitute for professional medical advice, diagnosis or treatment.
-                In life-threatening situations, call emergency services immediately.
-              </Text>
-            </View>
-            {/* profile card sits last, under the disclaimer */}
-          <TouchableOpacity style={styles.userRow} onPress={() => go('Profile')} activeOpacity={0.8}>
-            <View style={styles.avatar}><Text style={styles.avatarText}>{(profile?.firstName?.[0] || 'U').toUpperCase()}</Text></View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.userName} numberOfLines={1}>{fullName}</Text>
-              <Text style={styles.userEmail} numberOfLines={1}>View profile</Text>
-            </View>
-            <ChevronRight size={16} color={colors.muted} />
-          </TouchableOpacity>
-          </ScrollView>
-
-        </SafeAreaView>
-      </Animated.View>
-
-    </View>
+              <TouchableOpacity style={styles.newChatButton} onPress={newChat} activeOpacity={0.8} accessibilityRole="button">
+                <Plus size={17} color={colors.onPrimary} /><Text style={styles.newChatText}>New chat</Text>
+              </TouchableOpacity>
+              <ScrollView contentContainerStyle={styles.drawerScroll} showsVerticalScrollIndicator={false}>
+                <Text style={styles.drawerSectionLabel}>MAIN MENU</Text>
+                {NAV.map(({ key, label, Icon }) => <DrawerNavItem key={key} Icon={Icon} label={label} selected={active === key} colors={colors} onPress={() => go(key)} />)}
+                <View style={styles.drawerDivider} />
+                <Text style={styles.drawerSectionLabel}>YOUR ACCOUNT</Text>
+                <DrawerNavItem Icon={User} label="Health profile" selected={active === 'Profile'} colors={colors} onPress={() => go('Profile')} />
+                <DrawerNavItem Icon={Settings} label="Settings" selected={active === 'Settings'} colors={colors} onPress={() => go('Settings')} />
+                <DrawerNavItem Icon={Activity} label="Service status" selected={active === 'Offline'} colors={colors} onPress={() => go('Offline')} />
+                <View style={styles.drawerDivider} />
+                <Text style={styles.drawerSectionLabel}>QUICK ACTIONS</Text>
+                <MoreRow Icon={Upload} title="Upload a report" sub="Add a medical document or photo" colors={colors} onPress={() => go('Documents')} />
+                <MoreRow Icon={MapPin} title="Find nearby hospitals" sub="Use your location to find care" colors={colors} onPress={() => { setActive('Chat'); closeDrawer(); setTimeout(() => chatActionRef.current?.findHospitals?.(), 260) }} />
+              </ScrollView>
+              <View style={styles.disclaimer}><ShieldCheck size={16} color={colors.primary} /><Text style={styles.disclaimerText}>SankatAI is not a substitute for professional medical advice, diagnosis or treatment. In an emergency, call 112 or 108.</Text></View>
+            </Animated.View>
+          </View>
+        </Modal>
+      </View>
+    </SafeAreaView>
   )
 }
 
 const makeStyles = (colors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.bg },
   root: { flex: 1, backgroundColor: colors.bg },
+  header: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, backgroundColor: colors.bg, borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
+  menuButton: { width: 38, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md },
+  headerTitle: { flexShrink: 1, fontSize: 16, fontWeight: '700', letterSpacing: -0.2, color: colors.text },
+  headerActions: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 4 },
+  iconButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md },
+  sosButton: { minHeight: 37, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 11, borderRadius: radius.pill || 99, borderWidth: 1, borderColor: colors.dangerBorder, backgroundColor: colors.dangerSoft },
+  sosText: { color: colors.sevEmergency, fontWeight: '800', fontSize: 12 },
+  offlineBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 99, paddingHorizontal: 7, paddingVertical: 4, backgroundColor: colors.warningSoft },
+  offlineText: { fontSize: 10, color: colors.warning, fontWeight: '700' },
+  content: { flex: 1, minHeight: 0 },
   page: { flex: 1 },
-  scrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.45)' },
-  drawer: { position: 'absolute', top: 0, left: 0, bottom: 0, backgroundColor: colors.surface, borderRightColor: colors.border, borderRightWidth: 1, paddingHorizontal: 14, elevation: 16, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 2, height: 0 } },
-  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14, paddingHorizontal: 6 },
-  brand: { fontSize: 19, fontWeight: '800', color: colors.text },
-  brandMark: { width: 38, height: 38, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  brandSub: { fontSize: 11, color: colors.muted },
-  newChatBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: colors.primaryBorder, backgroundColor: colors.primarySoft, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 12 },
-  newChatText: { color: colors.primary, fontWeight: '700', fontSize: 14.5 },
-  quickTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', color: colors.muted, marginBottom: 8, paddingHorizontal: 2 },
-  quickItem: { flexDirection: 'row', alignItems: 'center', gap: 11, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radius.md, padding: 10, marginBottom: 8 },
-  quickIc: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface2 },
-  quickTitleText: { fontSize: 13.5, fontWeight: '700', color: colors.text },
-  quickSub: { fontSize: 11.5, color: colors.muted },
-  disclaimer: { marginTop: 10, padding: 12, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  disclaimerHead: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 6 },
-  disclaimerTitle: { fontSize: 13, fontWeight: '700', color: colors.text },
-  disclaimerText: { fontSize: 11.5, lineHeight: 17, color: colors.textSecondary },
-  navList: { gap: 4, marginTop: 8 },
-  navItem: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 13, paddingHorizontal: 12, borderRadius: radius.md },
-  navItemOn: { backgroundColor: colors.primarySoft },
-  navLabel: { fontSize: 15, fontWeight: '600', color: colors.textSecondary },
-  navLabelOn: { color: colors.primary },
-  separator: { height: 1, backgroundColor: colors.border, marginVertical: 12, marginHorizontal: 2 },
-  userRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: 10, paddingVertical: 10, marginTop: 12 },
-  avatar: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#fff', fontWeight: '800', fontSize: 17 },
-  userName: { fontSize: 14, fontWeight: '700', color: colors.text },
-  userEmail: { fontSize: 12, color: colors.muted },
+  drawerRoot: { flex: 1, flexDirection: 'row' },
+  modalScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.scrim },
+  drawer: { height: '100%', maxWidth: 360, paddingHorizontal: 16, backgroundColor: colors.surface, borderRightWidth: 1, borderRightColor: colors.border, borderTopRightRadius: 22, borderBottomRightRadius: 22, overflow: 'hidden' },
+  drawerHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, paddingBottom: 18 },
+  drawerBrand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  drawerBrandMark: { width: 40, height: 40, borderRadius: 13, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  drawerBrandTitle: { color: colors.text, fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+  drawerSubtitle: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  closeButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 17, backgroundColor: colors.surface2 },
+  newChatButton: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: radius.md, backgroundColor: colors.primary, marginBottom: 16 },
+  newChatText: { color: colors.onPrimary, fontSize: 14, fontWeight: '700' },
+  drawerScroll: { paddingBottom: 14 },
+  drawerSectionLabel: { color: colors.muted, fontSize: 10, fontWeight: '800', letterSpacing: 1, paddingHorizontal: 10, paddingTop: 6, paddingBottom: 7 },
+  drawerNavItem: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 11, borderRadius: 11, marginVertical: 2 },
+  drawerNavItemSelected: { backgroundColor: colors.primarySoft },
+  drawerNavLabel: { flex: 1, color: colors.textSecondary, fontSize: 14, fontWeight: '600' },
+  drawerNavLabelSelected: { color: colors.primary, fontWeight: '700' },
+  drawerNavIndicator: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary },
+  drawerDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: 12, marginHorizontal: 8 },
+  row: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  rowIcon: { width: 39, height: 39, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft },
+  rowCopy: { flex: 1 },
+  rowTitle: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  rowSub: { color: colors.muted, fontSize: 11, marginTop: 3 },
+  disclaimer: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12, marginTop: 10, borderRadius: radius.md, backgroundColor: colors.primarySoft, borderColor: colors.primaryBorder, borderWidth: 1 },
+  disclaimerText: { flex: 1, color: colors.textSecondary, fontSize: 11, lineHeight: 16 },
 })

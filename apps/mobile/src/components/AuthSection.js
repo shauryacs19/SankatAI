@@ -102,7 +102,7 @@ export default function AuthSection() {
             </View>
           )}
           <TouchableOpacity style={[styles.primary, (handleUnchanged || handleBusy) && { opacity: 0.5 }]} onPress={saveHandle} disabled={handleUnchanged || handleBusy}>
-            {handleBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{account.username ? 'Change username' : 'Save username'}</Text>}
+            {handleBusy ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.primaryText}>{account.username ? 'Change username' : 'Save username'}</Text>}
           </TouchableOpacity>
         </View>
 
@@ -124,7 +124,7 @@ export default function AuthSection() {
           {done && <View style={[styles.alert, styles.alertOk]}><Check size={14} color={colors.success} /><Text style={[styles.alertText, { color: colors.success }]}>Password updated.</Text></View>}
 
           <TouchableOpacity style={[styles.primary, !canSave && { opacity: 0.5 }]} onPress={submit} disabled={!canSave}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Update password</Text>}
+            {busy ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.primaryText}>Update password</Text>}
           </TouchableOpacity>
         </View>
 
@@ -153,11 +153,11 @@ const makeStyles = (colors) => StyleSheet.create({
   input: { borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 11, fontSize: 15, color: colors.text, backgroundColor: colors.bg },
   err: { fontSize: 12, color: colors.sevEmergency, marginTop: 6 },
   alert: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: radius.md, borderWidth: 1, padding: 10, marginTop: 14 },
-  alertErr: { backgroundColor: colors.primarySoft, borderColor: colors.primaryBorder },
+  alertErr: { backgroundColor: colors.dangerSoft, borderColor: colors.dangerBorder },
   alertOk: { backgroundColor: colors.surface2, borderColor: colors.border },
   alertText: { flex: 1, fontSize: 12.5 },
   primary: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 13, marginTop: 18 },
-  primaryText: { color: '#fff', fontWeight: '700', fontSize: 14.5 },
+  primaryText: { color: colors.onPrimary, fontWeight: '700', fontSize: 14.5 },
   signOut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14, borderWidth: 1, borderColor: colors.primaryBorder, backgroundColor: colors.primarySoft, borderRadius: radius.md, paddingVertical: 13 },
   signOutText: { color: colors.sevEmergency, fontWeight: '700', fontSize: 14.5 },
 })

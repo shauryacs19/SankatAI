@@ -4,9 +4,9 @@
     "slug": "sankatai-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "splash": {
-      "backgroundColor": "#F8FAFC"
+      "backgroundColor": "#F6F4ED"
     },
     "ios": {
       "supportsTablet": true,
@@ -34,6 +34,7 @@
       "expo-document-picker",
       "expo-image-picker",
       "expo-location",
+      "expo-system-ui",
       "expo-secure-store",
       "expo-web-browser",
       [

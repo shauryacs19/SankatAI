@@ -32,7 +32,7 @@ export default function SettingsScreen({ navigation }) {
 
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={navigation?.shellManaged ? [] : ['top']}>
       <ScreenHeader title="Settings" navigation={navigation} />
       <ScrollView contentContainerStyle={styles.scroll}>
         <View style={styles.card}>

@@ -1,51 +1,34 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet, KeyboardAvoidingView, Platform, Animated, Dimensions } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { User, HeartPulse, Phone, Plus, Trash2, ArrowLeft, ArrowRight, Check, AlertCircle } from 'lucide-react-native'
+import { User, HeartPulse, Phone, Plus, Trash2, Check, AlertCircle } from 'lucide-react-native'
 import { radius } from '../theme'
 import { useTheme } from '../context/ThemeContext'
 import { saveProfile } from '../lib/api'
 import { getCurrentEmail } from '../lib/cognito'
-import { useProfile } from '../context/ProfileContext'
+import { isProfileComplete, useProfile } from '../context/ProfileContext'
 import { isEmail, isISODate, isPhone } from '../lib/validators'
-import { Field, YesNo } from '../components/FormControls'
+import { Field } from '../components/FormControls'
 import SelectModal from '../components/SelectModal'
 import CountryPicker from '../components/CountryPicker'
 import { DateWheels } from '../components/WheelPicker'
 import { DEFAULT_COUNTRY, countryFromPhone, localNumber } from '../lib/countries'
-import { GENDERS, BLOOD_GROUPS as BLOOD, LANGUAGES as LANGS } from '../lib/profileOptions'
+import { ageFromDob, GENDERS, BLOOD_GROUPS as BLOOD, LANGUAGES as LANGS } from '../lib/profileOptions'
 
 const emptyContact = { name: '', relationship: '', phone: '' }
 const { width: SCREEN_W } = Dimensions.get('window')
 
-// One question per step (Hinge-style), grouped into 3 categories for the header.
-const STEP_LIST = [
-  { key: 'name', cat: 'Personal', title: "What's your name?", sub: 'This is how Sankat.AI will address you.' },
-  { key: 'gender', cat: 'Personal', title: 'How do you identify?', sub: 'Helps personalise medical guidance.' },
-  { key: 'dob', cat: 'Personal', title: 'When were you born?', sub: 'Your age helps tailor triage.' },
-  { key: 'phone', cat: 'Personal', title: 'Your phone number', sub: 'Pick your country, then enter your number.' },
-  { key: 'email', cat: 'Personal', title: 'Contact & language', sub: 'Where to reach you and your preferred language.' },
-  { key: 'medical', cat: 'Medical', title: 'Medical information', sub: 'Blood group is required; the rest is optional.' },
-  { key: 'contacts', cat: 'Contacts', title: 'Emergency contacts', sub: 'Up to 3 people we can reach for you.' },
-]
-const CATS = [
-  { key: 'Personal', Icon: User },
-  { key: 'Medical', Icon: HeartPulse },
-  { key: 'Contacts', Icon: Phone },
-]
-const REQUIRED_BY_STEP = { name: 'firstName', gender: 'gender', dob: 'dob', phone: 'phone', email: 'email', medical: 'bloodGroup' }
 const REQUIRED_ALL = ['firstName', 'gender', 'dob', 'phone', 'email', 'bloodGroup']
 const REQ_LABEL = { firstName: 'First name', gender: 'Gender', dob: 'Date of birth', phone: 'Phone number', email: 'Email', bloodGroup: 'Blood group' }
-const catFirstIndex = (cat) => STEP_LIST.findIndex((s) => s.cat === cat)
-const catLastIndex = (cat) => STEP_LIST.map((s) => s.cat).lastIndexOf(cat)
 
 const initial = (existing) => ({
   firstName: '', middleName: '', lastName: '', dob: '', gender: '', bloodGroup: '',
   phone: '', email: getCurrentEmail() || '', emergencyContacts: [{ ...emptyContact }],
   allergies: '', conditions: '', disability: '', preferredLanguage: 'English',
-  insurance: { provider: '', policyNumber: '', policyHolder: '', helpline: '' }, smoker: 'no', heartHistory: 'no',
   ...(existing || {}),
-  ...(existing && existing.emergencyContacts?.length ? { emergencyContacts: existing.emergencyContacts } : {}),
+  emergencyContacts: Array.isArray(existing?.emergencyContacts) && existing.emergencyContacts.length
+    ? existing.emergencyContacts
+    : [{ ...emptyContact }],
 })
 
 export default function ProfileSetupScreen({ navigation }) {
@@ -53,7 +36,6 @@ export default function ProfileSetupScreen({ navigation }) {
   const { colors } = useTheme()
   const styles = makeStyles(colors)
   const [form, setForm] = useState(() => initial(existing))
-  const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
   const [banner, setBanner] = useState('')
   const [errors, setErrors] = useState({})
@@ -62,29 +44,20 @@ export default function ProfileSetupScreen({ navigation }) {
   const [country, setCountry] = useState(() => countryFromPhone(existing?.phone) || DEFAULT_COUNTRY)
   const [localPhone, setLocalPhone] = useState(() => (existing?.phone ? localNumber(existing.phone, countryFromPhone(existing.phone) || DEFAULT_COUNTRY) : ''))
 
-  const current = STEP_LIST[step]
-  const isLast = step === STEP_LIST.length - 1
   const isEditing = Boolean(existing)
+  const age = ageFromDob(form.dob)
 
-  // Slide + fade transition between questions.
+  // Subtle entrance motion keeps the long single-page form feeling polished.
   const slide = useRef(new Animated.Value(0)).current
   const opacity = useRef(new Animated.Value(1)).current
-  const prevStep = useRef(0)
   useEffect(() => {
-    const dir = step >= prevStep.current ? 1 : -1
-    prevStep.current = step
-    slide.setValue(dir * SCREEN_W * 0.18)
+    slide.setValue(SCREEN_W * 0.035)
     opacity.setValue(0)
     Animated.parallel([
       Animated.timing(slide, { toValue: 0, duration: 260, useNativeDriver: true }),
       Animated.timing(opacity, { toValue: 1, duration: 260, useNativeDriver: true }),
     ]).start()
-  }, [step, slide, opacity])
-
-  // Seed a sensible default the first time the date step is shown.
-  useEffect(() => {
-    if (current.key === 'dob' && !form.dob) setForm((p) => ({ ...p, dob: '2000-01-01' }))
-  }, [current.key, form.dob])
+  }, [slide, opacity])
 
   // Keep form.phone in sync with country + local number.
   useEffect(() => {
@@ -93,102 +66,80 @@ export default function ProfileSetupScreen({ navigation }) {
     if (errors.phone && composed) setErrors((e) => ({ ...e, phone: undefined }))
   }, [country, localPhone]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const completion = useMemo(() => {
-    const filled = REQUIRED_ALL.filter((f) => String(form[f] || '').trim()).length
-    return Math.round((filled / REQUIRED_ALL.length) * 100)
-  }, [form])
-
   const set = (k) => (v) => { setForm((p) => ({ ...p, [k]: v })); if (errors[k]) setErrors((e) => ({ ...e, [k]: undefined })); if (banner) setBanner('') }
-  const setIns = (k) => (v) => setForm((p) => ({ ...p, insurance: { ...p.insurance, [k]: v } }))
   const setContact = (i, k) => (v) => setForm((p) => ({ ...p, emergencyContacts: p.emergencyContacts.map((c, j) => (j === i ? { ...c, [k]: v } : c)) }))
   const addContact = () => setForm((p) => (p.emergencyContacts.length >= 3 ? p : { ...p, emergencyContacts: [...p.emergencyContacts, { ...emptyContact }] }))
   const removeContact = (i) => setForm((p) => ({ ...p, emergencyContacts: p.emergencyContacts.filter((_, j) => j !== i) }))
 
-  const validateStep = () => {
-    const key = REQUIRED_BY_STEP[current.key]
-    if (!key) return null
-    if (!String(form[key] || '').trim()) return `${REQ_LABEL[key]} is required.`
-    if (key === 'dob' && !isISODate(form.dob)) return 'Enter a valid date.'
-    if (key === 'email' && !isEmail(form.email)) return 'Enter a valid email.'
-    if (key === 'phone' && !isPhone(form.phone)) return 'Enter a valid phone number.'
-    return null
+  const validateFields = (fields) => {
+    const next = {}
+    fields.forEach((key) => {
+      if (!String(form[key] || '').trim()) next[key] = `${REQ_LABEL[key]} is required.`
+      else if (key === 'dob' && !isISODate(form.dob)) next[key] = 'Enter a valid date of birth.'
+      else if (key === 'email' && !isEmail(form.email)) next[key] = 'Enter a valid email address.'
+      else if (key === 'phone' && !isPhone(form.phone)) next[key] = 'Enter a valid phone number.'
+    })
+    return next
   }
 
-  const advance = () => {
-    const err = validateStep()
-    if (err) {
-      const key = REQUIRED_BY_STEP[current.key]
-      setErrors({ [key]: true }); setBanner(err); return
-    }
+  const skipToFinish = () => {
+    const nextErrors = validateFields(REQUIRED_ALL)
+    if (Object.keys(nextErrors).length) { setErrors(nextErrors); setBanner(Object.values(nextErrors)[0]); return }
     setErrors({}); setBanner('')
-    if (!isLast) setStep(step + 1); else finish()
+    finish()
   }
-  const skip = () => { setErrors({}); setBanner(''); if (!isLast) setStep(step + 1); else finish() }
-  const back = () => { setErrors({}); setBanner(''); setStep((s) => Math.max(0, s - 1)) }
-  const gotoCat = (cat) => { const i = catFirstIndex(cat); if (i < step) { setErrors({}); setBanner(''); setStep(i) } }
 
   const finish = async () => {
+    const nextErrors = validateFields(REQUIRED_ALL)
+    if (Object.keys(nextErrors).length) {
+      setErrors(nextErrors)
+      setBanner(Object.values(nextErrors)[0])
+      return
+    }
     setBanner('')
     const cleaned = { ...form, emergencyContacts: form.emergencyContacts.filter((c) => c.name.trim() || c.phone.trim()) }
     setSaving(true)
     try {
       const saved = await saveProfile(cleaned)
+      if (!isProfileComplete(saved)) throw new Error('Some required details are still missing. Please review your profile.')
       setProfile(saved)
       navigation.reset({ index: 0, routes: [{ name: 'App' }] })
     } catch (e) { setBanner(e.message || 'Could not save your profile. Please try again.') }
     finally { setSaving(false) }
   }
 
-  const stepOptional = !REQUIRED_BY_STEP[current.key]
-
-  const renderStep = () => {
-    switch (current.key) {
-      case 'name':
-        return (
+  const renderForm = () => (
           <>
+            <View style={styles.sectionHeading}><User size={18} color={colors.primary} /><View style={styles.sectionHeadingCopy}><Text style={styles.sectionTitle}>Personal details</Text><Text style={styles.sectionSub}>Your details help us tailor guidance and reach you if needed.</Text></View></View>
             <Field label="First name *" value={form.firstName} onChangeText={set('firstName')} error={errors.firstName ? 'Required' : undefined} autoFocus />
-            <Field label="Middle name" value={form.middleName} onChangeText={set('middleName')} placeholder="Optional" />
-            <Field label="Last name" value={form.lastName} onChangeText={set('lastName')} placeholder="Optional" />
-          </>
-        )
-      case 'gender':
-        return <SelectModal label="Gender *" value={form.gender} options={GENDERS} onChange={set('gender')} placeholder="Select gender" />
-      case 'dob':
-        return <DateWheels value={form.dob} onChange={set('dob')} minYear={1947} />
-      case 'phone':
-        return (
-          <View style={styles.phoneRow}>
-            <CountryPicker value={country} onChange={setCountry} />
-            <View style={styles.phoneInputWrap}>
-              <TextInput style={styles.phoneInput} value={localPhone} onChangeText={(t) => setLocalPhone(t.replace(/[^\d]/g, ''))} placeholder="Phone number" placeholderTextColor={colors.muted} keyboardType="phone-pad" />
+            <Field label="Last name" value={form.lastName} onChangeText={set('lastName')} placeholder="Optional" autoComplete="family-name" />
+            <Field label="Middle name" value={form.middleName} onChangeText={set('middleName')} placeholder="Optional" autoComplete="additional-name" />
+            <Text style={styles.label}>Date of birth *</Text>
+            <DateWheels value={form.dob} onChange={set('dob')} minYear={1947} />
+            {age != null ? <Text style={styles.fieldHint}>Age: {age} years</Text> : <Text style={styles.fieldHint}>No date selected yet — scroll each wheel to choose.</Text>}
+            {!!errors.dob && <Text style={styles.inputError}>{errors.dob}</Text>}
+            <SelectModal label="Gender *" value={form.gender} options={GENDERS} onChange={set('gender')} placeholder="Choose…" />
+            {!!errors.gender && <Text style={styles.inputError}>{errors.gender}</Text>}
+            <View style={styles.phoneField}>
+              <Text style={styles.label}>Phone number *</Text>
+              <View style={styles.phoneRow}>
+                <CountryPicker value={country} onChange={setCountry} />
+                <View style={styles.phoneInputWrap}>
+                  <TextInput style={[styles.phoneInput, errors.phone && styles.inputInvalid]} value={localPhone} onChangeText={(t) => setLocalPhone(t.replace(/[^\d]/g, ''))} placeholder="98765 43210" placeholderTextColor={colors.muted} keyboardType="phone-pad" autoComplete="tel" />
+                </View>
+              </View>
+              {!!errors.phone && <Text style={styles.inputError}>{errors.phone}</Text>}
+              <Text style={styles.fieldHint}>Include your country code.</Text>
             </View>
-          </View>
-        )
-      case 'email':
-        return (
-          <>
-            <Field label="Email *" value={form.email} onChangeText={set('email')} keyboardType="email-address" autoCapitalize="none" error={errors.email ? 'Required' : undefined} />
+            <Field label="Email *" value={form.email} onChangeText={set('email')} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} error={errors.email ? 'Enter a valid email address.' : undefined} autoComplete="email" />
             <SelectModal label="Preferred language" value={form.preferredLanguage} options={LANGS} onChange={set('preferredLanguage')} searchable />
-          </>
-        )
-      case 'medical':
-        return (
-          <>
+            <View style={styles.sectionHeading}><HeartPulse size={18} color={colors.primary} /><View style={styles.sectionHeadingCopy}><Text style={styles.sectionTitle}>Medical information</Text><Text style={styles.sectionSub}>Blood group is required. Other details are optional and can help in an emergency.</Text></View></View>
             <SelectModal label="Blood group *" value={form.bloodGroup} options={BLOOD} onChange={set('bloodGroup')} placeholder="Select blood group" />
+            {!!errors.bloodGroup && <Text style={styles.inputError}>{errors.bloodGroup}</Text>}
             <Field label="Allergies" value={form.allergies} onChangeText={set('allergies')} multiline placeholder="e.g. Penicillin, peanuts — or 'None'" />
             <Field label="Medical conditions" value={form.conditions} onChangeText={set('conditions')} multiline placeholder="e.g. Asthma, diabetes — or 'None'" />
             <Field label="Disability" value={form.disability} onChangeText={set('disability')} multiline placeholder="Anything we should know — or 'None'" />
-            <YesNo label="Do you smoke?" value={form.smoker} onSelect={set('smoker')} />
-            <YesNo label="History of heart issues?" value={form.heartHistory} onSelect={set('heartHistory')} />
-            <Field label="Insurance provider" value={form.insurance.provider} onChangeText={setIns('provider')} placeholder="e.g. LIC, HDFC Ergo" />
-            <Field label="Policy number" value={form.insurance.policyNumber} onChangeText={setIns('policyNumber')} placeholder="Optional" />
-            <Field label="Policy holder" value={form.insurance.policyHolder} onChangeText={setIns('policyHolder')} placeholder="Name on card" />
-            <Field label="Insurance helpline" value={form.insurance.helpline} onChangeText={setIns('helpline')} keyboardType="phone-pad" placeholder="Emergency support #" />
-          </>
-        )
-      case 'contacts':
-        return (
-          <>
+            <View style={styles.sectionHeading}><Phone size={18} color={colors.primary} /><View style={styles.sectionHeadingCopy}><Text style={styles.sectionTitle}>Emergency contacts</Text><Text style={styles.sectionSub}>Add up to three people who can help. This section is optional.</Text></View></View>
             {form.emergencyContacts.map((c, i) => (
               <View key={i} style={styles.contact}>
                 <View style={styles.contactHead}>
@@ -206,53 +157,29 @@ export default function ProfileSetupScreen({ navigation }) {
               <TouchableOpacity style={styles.addBtn} onPress={addContact}><Plus size={16} color={colors.primary} /><Text style={styles.addText}>Add another contact</Text></TouchableOpacity>
             )}
           </>
-        )
-      default:
-        return null
-    }
-  }
+  )
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        {/* Header: category chips (green ✓ once passed) + segmented progress */}
         <View style={styles.header}>
-          <View style={styles.cats}>
-            {CATS.map(({ key, Icon }) => {
-              const done = step > catLastIndex(key)
-              const active = current.cat === key
-              return (
-                <TouchableOpacity key={key} style={[styles.cat, active && styles.catActive, done && styles.catDone]} onPress={() => gotoCat(key)} activeOpacity={done ? 0.7 : 1}>
-                  <View style={[styles.catDot, active && styles.catDotActive, done && styles.catDotDone]}>
-                    {done ? <Check size={13} color="#fff" /> : <Icon size={14} color={active ? '#fff' : colors.muted} />}
-                  </View>
-                  <Text style={[styles.catLabel, active && { color: colors.primary }, done && { color: colors.success }]} numberOfLines={1}>{key}</Text>
-                </TouchableOpacity>
-              )
-            })}
-          </View>
+          <Text style={styles.progressCount}>{isEditing ? 'Update your profile' : 'Complete your profile'}</Text>
+          <Text style={styles.headerSub}>Required details are marked with *. Medical notes and emergency contacts are optional.</Text>
         </View>
 
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <Animated.View style={{ opacity, transform: [{ translateX: slide }] }}>
-            <Text style={styles.qTitle}>{current.title}</Text>
-            <Text style={styles.qSub}>{current.sub}</Text>
             {!!banner && <View style={styles.errBanner}><AlertCircle size={15} color={colors.primary} /><Text style={styles.errBannerText}>{banner}</Text></View>}
-            <View style={styles.stepBody}>{renderStep()}</View>
+            <View style={styles.stepBody}>{renderForm()}</View>
           </Animated.View>
         </ScrollView>
 
-        {/* Floating footer: Back (left) · Skip + "›" next (bottom right) */}
         <View style={styles.footer} pointerEvents="box-none">
-          <View>
-            {step > 0 && (
-              <TouchableOpacity style={styles.backBtn} onPress={back} disabled={saving}><ArrowLeft size={16} color={colors.textSecondary} /><Text style={styles.backText}>Back</Text></TouchableOpacity>
-            )}
-          </View>
           <View style={styles.footerRight}>
-            {stepOptional && !isLast && <TouchableOpacity style={styles.skipBtn} onPress={skip} disabled={saving}><Text style={styles.skipText}>Skip</Text></TouchableOpacity>}
-            <TouchableOpacity style={styles.nextBtn} onPress={advance} disabled={saving} activeOpacity={0.85}>
-              {saving ? <ActivityIndicator color="#fff" /> : isLast ? <Check size={22} color="#fff" /> : <ArrowRight size={24} color="#fff" />}
+            <TouchableOpacity style={[styles.skipBtn, saving && styles.disabledBtn]} onPress={skipToFinish} disabled={saving} activeOpacity={0.8}><Text style={styles.skipText}>Skip optional steps</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.nextBtn} onPress={skipToFinish} disabled={saving} activeOpacity={0.85}>
+              {saving ? <ActivityIndicator color={colors.onPrimary} /> : <Check size={18} color={colors.onPrimary} />}
+              <Text style={styles.nextText}>{saving ? 'Saving…' : isEditing ? 'Save profile' : 'Finish setup'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -263,24 +190,25 @@ export default function ProfileSetupScreen({ navigation }) {
 
 const makeStyles = (colors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  header: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 12, backgroundColor: colors.surface, borderBottomColor: colors.border, borderBottomWidth: 1 },
-  cats: { flexDirection: 'row', gap: 8 },
-  cat: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  catActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
-  catDone: { borderColor: colors.success },
-  catDot: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.surface2, alignItems: 'center', justifyContent: 'center' },
-  catDotActive: { backgroundColor: colors.primary },
-  catDotDone: { backgroundColor: colors.success },
-  catLabel: { fontSize: 12, fontWeight: '700', color: colors.textSecondary, flexShrink: 1 },
-  scroll: { padding: 22, paddingBottom: 120, flexGrow: 1 },
-  qTitle: { fontSize: 26, fontWeight: '800', color: colors.text, letterSpacing: -0.3 },
-  qSub: { color: colors.muted, marginTop: 8, fontSize: 15, lineHeight: 21 },
-  errBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.primarySoft, borderColor: colors.primaryBorder, borderWidth: 1, borderRadius: radius.md, padding: 11, marginTop: 14 },
+  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 14, backgroundColor: colors.surface, borderBottomColor: colors.border, borderBottomWidth: 1 },
+  progressCount: { color: colors.muted, fontSize: 12, fontWeight: '600', marginBottom: 9 },
+  headerSub: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  scroll: { padding: 20, paddingBottom: 150, flexGrow: 1 },
+  errBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.dangerSoft, borderColor: colors.dangerBorder, borderWidth: 1, borderRadius: radius.md, padding: 11, marginTop: 14 },
   errBannerText: { color: colors.primary, fontSize: 13, flex: 1 },
-  stepBody: { marginTop: 10 },
-  phoneRow: { flexDirection: 'row', gap: 10, marginTop: 16, alignItems: 'stretch' },
+  stepBody: { marginTop: 0 },
+  sectionHeading: { flexDirection: 'row', alignItems: 'flex-start', gap: 11, marginTop: 22, marginBottom: 2, paddingTop: 17, borderTopWidth: 1, borderTopColor: colors.border },
+  sectionHeadingCopy: { flex: 1 },
+  sectionTitle: { color: colors.text, fontWeight: '800', fontSize: 17 },
+  sectionSub: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 3 },
+  label: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginTop: 16, marginBottom: 4 },
+  phoneField: { marginTop: 2 },
+  phoneRow: { flexDirection: 'row', gap: 10, marginTop: 4, alignItems: 'stretch' },
   phoneInputWrap: { flex: 1 },
   phoneInput: { flex: 1, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: colors.text, backgroundColor: colors.surface },
+  inputInvalid: { borderColor: colors.danger },
+  inputError: { color: colors.danger, fontSize: 12, marginTop: 5 },
+  fieldHint: { color: colors.muted, fontSize: 12, marginTop: 5 },
   contact: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: 14, marginTop: 14, backgroundColor: colors.surface },
   contactHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   contactTitle: { fontWeight: '700', color: colors.textSecondary },
@@ -288,11 +216,11 @@ const makeStyles = (colors) => StyleSheet.create({
   removeText: { color: colors.muted, fontSize: 12 },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 14, marginTop: 14 },
   addText: { color: colors.primary, fontWeight: '600' },
-  footer: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 12, paddingBottom: 18 },
-  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  backText: { color: colors.textSecondary, fontWeight: '700' },
-  footerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  skipBtn: { paddingVertical: 12, paddingHorizontal: 18, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  skipText: { color: colors.muted, fontWeight: '700', fontSize: 15 },
-  nextBtn: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', shadowColor: colors.primary, shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  footer: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingTop: 10, paddingBottom: 14, backgroundColor: colors.bg, borderTopWidth: 1, borderTopColor: colors.border },
+  footerRight: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  skipBtn: { paddingVertical: 12, paddingHorizontal: 9 },
+  skipText: { color: colors.muted, fontWeight: '600', fontSize: 12 },
+  disabledBtn: { opacity: 0.5 },
+  nextBtn: { minHeight: 48, borderRadius: radius.md, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingVertical: 12, paddingHorizontal: 16, shadowColor: colors.primary, shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
+  nextText: { color: colors.onPrimary, fontWeight: '700', fontSize: 14 },
 })

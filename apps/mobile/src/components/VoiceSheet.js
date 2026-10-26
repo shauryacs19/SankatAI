@@ -79,7 +79,7 @@ export default function VoiceSheet({ voice }) {
           <View style={styles.micWrap}>
             {!reduce && !error && <Ripple active={speaking && live} level={level} color={colors.primary} />}
             <Animated.View style={[styles.mic, error && styles.micError, { transform: [{ scale: micScale }] }]}>
-              {error ? <MicOff size={32} color={colors.primary} /> : <Mic size={32} color="#fff" />}
+              {error ? <MicOff size={32} color={colors.primary} /> : <Mic size={32} color={colors.onPrimary} />}
             </Animated.View>
           </View>
 
@@ -111,7 +111,7 @@ export default function VoiceSheet({ voice }) {
                 accessibilityRole="button"
                 accessibilityLabel="Stop"
               >
-                <Square size={16} color="#fff" fill="#fff" />
+                <Square size={16} color={colors.onDanger} fill={colors.onDanger} />
                 <Text style={styles.stopText}>Stop</Text>
               </TouchableOpacity>
             </>
@@ -123,7 +123,7 @@ export default function VoiceSheet({ voice }) {
 }
 
 const makeStyles = (colors) => StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
+  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: colors.scrim },
   sheet: {
     alignItems: 'center', gap: 12, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 36,
     backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
@@ -132,7 +132,7 @@ const makeStyles = (colors) => StyleSheet.create({
   close: { position: 'absolute', top: 16, right: 16, padding: 4 },
   micWrap: { width: 72, height: 72, marginVertical: 28, alignItems: 'center', justifyContent: 'center' },
   mic: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
-  micError: { backgroundColor: colors.primarySoft },
+  micError: { backgroundColor: colors.dangerSoft },
   status: { fontSize: 18, fontWeight: '600', color: colors.text },
   langChip: {
     marginTop: -6, paddingHorizontal: 10, paddingVertical: 2, borderRadius: 12, overflow: 'hidden',
@@ -146,5 +146,5 @@ const makeStyles = (colors) => StyleSheet.create({
   },
   stopText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   settingsBtn: { marginTop: 8, height: 44, paddingHorizontal: 20, borderRadius: 22, justifyContent: 'center', backgroundColor: colors.primary },
-  settingsText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  settingsText: { color: colors.onPrimary, fontSize: 15, fontWeight: '600' },
 })

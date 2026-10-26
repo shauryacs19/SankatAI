@@ -8,6 +8,8 @@ import { useTheme } from '../context/ThemeContext'
 export default function ScreenHeader({ title, navigation, right = null }) {
   const { colors } = useTheme()
   const styles = makeStyles(colors)
+  // DashboardTabs now owns the persistent website-matched app bar.
+  if (navigation?.shellManaged) return null
   return (
     <View style={styles.bar}>
       <TouchableOpacity onPress={() => navigation?.openDrawer?.()} hitSlop={10} style={styles.menuBtn}>
