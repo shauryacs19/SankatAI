@@ -3,15 +3,18 @@ import { ActivityIndicator, Alert, TouchableOpacity } from 'react-native'
 import { Pause, Volume2 } from 'lucide-react-native'
 import { loadTts, tts, ttsAvailable, useTtsState } from '../lib/tts'
 
-export default function SpeakerButton({ consultationId, messageId, color, activeColor, style }) {
+// `variant`: the translation currently shown, so Polly reads what is on screen.
+export default function SpeakerButton({ consultationId, messageId, variant, color, activeColor, style }) {
   const s = useTtsState()
   if (!ttsAvailable || !consultationId || !messageId) return null
-  const status = s.id === messageId ? s.status : 'idle'
+  // One player id per shown version: switching language stops the old audio.
+  const playId = variant ? `${messageId}:${variant}` : messageId
+  const status = s.id === playId ? s.status : 'idle'
   const playing = status === 'playing'
 
   const onPress = () => {
     if (playing) { tts.pause(); return }
-    tts.play(messageId, () => loadTts(consultationId, messageId))
+    tts.play(playId, () => loadTts(consultationId, messageId, variant))
       .catch((e) => Alert.alert('Read aloud', e?.message || 'Could not read this reply aloud.'))
   }
 

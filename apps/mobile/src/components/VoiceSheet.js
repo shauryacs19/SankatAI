@@ -79,7 +79,7 @@ export default function VoiceSheet({ voice }) {
           <View style={styles.micWrap}>
             {!reduce && !error && <Ripple active={speaking && live} level={level} color={colors.primary} />}
             <Animated.View style={[styles.mic, error && styles.micError, { transform: [{ scale: micScale }] }]}>
-              {error ? <MicOff size={32} color={colors.primary} /> : <Mic size={32} color="#fff" />}
+              {error ? <MicOff size={32} color={colors.primary} /> : <Mic size={32} color={colors.onPrimary} />}
             </Animated.View>
           </View>
 
@@ -146,5 +146,5 @@ const makeStyles = (colors) => StyleSheet.create({
   },
   stopText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   settingsBtn: { marginTop: 8, height: 44, paddingHorizontal: 20, borderRadius: 22, justifyContent: 'center', backgroundColor: colors.primary },
-  settingsText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  settingsText: { color: colors.onPrimary, fontSize: 15, fontWeight: '600' },
 })

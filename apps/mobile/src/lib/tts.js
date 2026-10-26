@@ -35,10 +35,11 @@ const blobToBase64 = (blob) => new Promise((resolve, reject) => {
   reader.readAsDataURL(blob)
 })
 
-// Downloads the reply's MP3 to a temp file; resolves to its uri.
-export async function loadTts(consultationId, messageId) {
-  const blob = await request('/tts', { method: 'POST', body: { consultationId, messageId }, responseType: 'blob' }, 30000)
-  const uri = `${FileSystem.cacheDirectory}tts-${messageId}-${Date.now()}.mp3`
+// Downloads the reply's MP3 to a temp file; resolves to its uri. `variant`
+// ('en' | 'hi' | 'hinglish') reads the translation shown in the bubble.
+export async function loadTts(consultationId, messageId, variant) {
+  const blob = await request('/tts', { method: 'POST', body: { consultationId, messageId, ...(variant && { variant }) }, responseType: 'blob' }, 30000)
+  const uri = `${FileSystem.cacheDirectory}tts-${messageId}-${variant || 'orig'}-${Date.now()}.mp3`
   await FileSystem.writeAsStringAsync(uri, await blobToBase64(blob), { encoding: FileSystem.EncodingType.Base64 })
   return uri
 }

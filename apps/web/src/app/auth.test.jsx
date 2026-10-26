@@ -22,7 +22,6 @@ const auth = vi.hoisted(() => ({
   changePassword: vi.fn(),
   startCodeSignIn: vi.fn(),
   confirmCodeSignIn: vi.fn(),
-  updateUsername: vi.fn(),
   signInWithPasskey: vi.fn(),
   addPasskey: vi.fn(),
   listPasskeys: vi.fn(async () => []),
@@ -123,7 +122,7 @@ describe('returnTo sanitising', () => {
 
 describe('login', () => {
   const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
-  const fill = () => { type('Email, phone or username', 'Asha@Gmail.com'); type('Password', 'Secret123') }
+  const fill = () => { type('Email or phone number', 'Asha@Gmail.com'); type('Password', 'Secret123') }
 
   it('signs in with SRP and returns to returnTo', async () => {
     auth.signIn.mockResolvedValue({ nextStep: 'DONE', user: USER })
@@ -219,20 +218,19 @@ describe('sign-up and verification', () => {
     renderAt('/signup')
     await screen.findByRole('heading', { name: 'Create your account' })
     type('Full name', 'Asha')
-    type('Username', 'Asha.K')
     type('Email', 'asha@gmail.com')
     type('Password', 'Secret123')
     type('Confirm password', 'Secret123')
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
     await waitFor(() => expect(loc()).toBe('/verify'))
-    expect(auth.signUp).toHaveBeenCalledWith({ name: 'Asha', username: 'Asha.K', password: 'Secret123', email: 'asha@gmail.com' })
+    expect(auth.signUp).toHaveBeenCalledWith({ name: 'Asha', password: 'Secret123', email: 'asha@gmail.com' })
     type('Verification code', '123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
     await waitFor(() => expect(loc()).toBe('/login'))
-    expect(auth.confirmSignUp).toHaveBeenCalledWith('uuid-1', '123456', 'asha.k')
-    // The sign-in form is pre-filled with the new username.
-    expect(screen.getByLabelText(/^Email, phone or username/, { selector: 'input' }).value).toBe('asha.k')
+    expect(auth.confirmSignUp).toHaveBeenCalledWith('uuid-1', '123456')
+    // The sign-in form is pre-filled with the verified email.
+    expect(screen.getByLabelText(/^Email or phone number/, { selector: 'input' }).value).toBe('asha@gmail.com')
   })
 
   it('shows the live password checklist and blocks weak passwords', async () => {
@@ -270,7 +268,7 @@ describe('forgot password', () => {
     auth.confirmResetPassword.mockResolvedValue('SUCCESS')
     renderAt('/forgot-password')
     await screen.findByRole('heading', { name: 'Reset your password' })
-    type('Email, phone or username', 'asha@gmail.com')
+    type('Email or phone number', 'asha@gmail.com')
     fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
     expect(await screen.findByRole('heading', { name: 'Choose a new password' })).toBeTruthy()
     type('Verification code', '654321')
@@ -286,7 +284,7 @@ describe('forgot password', () => {
     auth.confirmResetPassword.mockRejectedValue(cognitoError('CodeMismatchException'))
     renderAt('/forgot-password')
     await screen.findByRole('heading', { name: 'Reset your password' })
-    type('Email, phone or username', 'asha@gmail.com')
+    type('Email or phone number', 'asha@gmail.com')
     fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
     await screen.findByRole('heading', { name: 'Choose a new password' })
     type('Verification code', '000000')
@@ -333,12 +331,11 @@ describe('session loss and logout', () => {
 })
 
 describe('phone and code sign-in', () => {
-  it('signs up with a phone number and a username', async () => {
+  it('signs up with a phone number', async () => {
     auth.signUp.mockResolvedValue({ username: 'uuid-2' })
     renderAt('/signup')
     await screen.findByRole('heading', { name: 'Create your account' })
     type('Full name', 'Ravi')
-    type('Username', 'ravi_k')
     fireEvent.click(screen.getByRole('radio', { name: 'Phone' }))
     type('Phone number', '98765 43210')
     type('Password', 'Secret123')
@@ -346,17 +343,8 @@ describe('phone and code sign-in', () => {
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
     await waitFor(() => expect(loc()).toBe('/verify'))
-    expect(auth.signUp).toHaveBeenCalledWith({ name: 'Ravi', username: 'ravi_k', password: 'Secret123', phone: '+919876543210' })
+    expect(auth.signUp).toHaveBeenCalledWith({ name: 'Ravi', password: 'Secret123', phone: '+919876543210' })
     expect(await screen.findByRole('heading', { name: 'Verify your phone number' })).toBeTruthy()
-  })
-
-  it('rejects a username that looks wrong before calling Cognito', async () => {
-    renderAt('/signup')
-    await screen.findByRole('heading', { name: 'Create your account' })
-    type('Username', '9lives')
-    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
-    expect(await screen.findByText(/Start with a letter/)).toBeTruthy()
-    expect(auth.signUp).not.toHaveBeenCalled()
   })
 
   it('signs in with a texted code', async () => {
@@ -364,22 +352,42 @@ describe('phone and code sign-in', () => {
     auth.confirmCodeSignIn.mockResolvedValue({ nextStep: 'DONE', user: USER })
     renderAt(`/login?returnTo=${encodeURIComponent('/dashboard/files')}`)
     await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
-    fireEvent.click(screen.getByRole('radio', { name: 'Text me a code' }))
-    type('Phone number', '+91 98765 43210')
-    fireEvent.click(screen.getByRole('button', { name: 'Send code' }))
+    type('Email or phone number', '+91 98765 43210')
+    fireEvent.click(screen.getByRole('button', { name: 'Text me a code' }))
     expect(await screen.findByRole('heading', { name: 'Enter the code' })).toBeTruthy()
-    expect(auth.startCodeSignIn).toHaveBeenCalledWith('+919876543210')
+    expect(auth.startCodeSignIn).toHaveBeenCalledWith({ kind: 'phone', value: '+919876543210' })
+    expect(screen.getByText(/We texted a 6-digit code/)).toBeTruthy()
     type('6-digit code', '123456')
     fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
     await waitFor(() => expect(loc()).toBe('/dashboard/files'))
     expect(auth.confirmCodeSignIn).toHaveBeenCalledWith({ code: '123456', remember: true })
   })
 
-  it('accepts a phone number or username in the password form', async () => {
+  it('emails a code when an email is typed', async () => {
+    auth.startCodeSignIn.mockResolvedValue({ destination: 'a***@g***', kind: 'email' })
+    renderAt('/login')
+    await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
+    type('Email or phone number', 'Asha@Gmail.com')
+    fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
+    expect(await screen.findByText(/We emailed a 6-digit code to a\*\*\*@g\*\*\*/)).toBeTruthy()
+    expect(auth.startCodeSignIn).toHaveBeenCalledWith({ kind: 'email', value: 'asha@gmail.com' })
+  })
+
+  it('rejects a username in the identifier field', async () => {
+    renderAt('/login')
+    await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
+    type('Email or phone number', 'asha.k')
+    type('Password', 'Secret123')
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(await screen.findByText(/Check that/)).toBeTruthy()
+    expect(auth.signIn).not.toHaveBeenCalled()
+  })
+
+  it('accepts a phone number in the password form', async () => {
     auth.signIn.mockResolvedValue({ nextStep: 'DONE', user: USER })
     renderAt('/login')
     await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
-    type('Email, phone or username', '098765 43210')
+    type('Email or phone number', '098765 43210')
     type('Password', 'Secret123')
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(() => expect(auth.signIn).toHaveBeenCalledWith({ username: '+919876543210', password: 'Secret123', remember: true }))
@@ -397,10 +405,10 @@ describe('passkeys', () => {
     delete navigator.credentials
   })
 
-  it('hides the passkey tab where the browser has no passkey support', async () => {
+  it('hides the passkey link where the browser has no passkey support', async () => {
     renderAt('/login')
     await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
-    expect(screen.queryByRole('radio', { name: 'Passkey' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Use a passkey/ })).toBeNull()
   })
 
   it('signs in with a passkey for the typed account', async () => {
@@ -408,11 +416,10 @@ describe('passkeys', () => {
     auth.signInWithPasskey.mockResolvedValue({ nextStep: 'DONE', user: USER })
     renderAt(`/login?returnTo=${encodeURIComponent('/dashboard/chat')}`)
     await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
-    fireEvent.click(screen.getByRole('radio', { name: 'Passkey' }))
-    type('Email, phone or username', 'Asha.K')
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in with passkey' }))
+    type('Email or phone number', 'Asha@Gmail.com')
+    fireEvent.click(screen.getByRole('button', { name: /Use a passkey/ }))
     await waitFor(() => expect(loc()).toBe('/dashboard/chat'))
-    expect(auth.signInWithPasskey).toHaveBeenCalledWith({ username: 'asha.k', remember: true })
+    expect(auth.signInWithPasskey).toHaveBeenCalledWith({ username: 'asha@gmail.com', remember: true })
   })
 
   it('explains a cancelled passkey prompt', async () => {
@@ -420,9 +427,8 @@ describe('passkeys', () => {
     auth.signInWithPasskey.mockRejectedValue(Object.assign(new Error('cancelled'), { name: 'NotAllowedError', code: 0 }))
     renderAt('/login')
     await screen.findByRole('heading', { name: 'Sign in to SankatAI' })
-    fireEvent.click(screen.getByRole('radio', { name: 'Passkey' }))
-    type('Email, phone or username', 'asha.k')
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in with passkey' }))
+    type('Email or phone number', 'asha@gmail.com')
+    fireEvent.click(screen.getByRole('button', { name: /Use a passkey/ }))
     expect((await screen.findByRole('alert')).textContent).toMatch(/cancelled or timed out/)
   })
 })

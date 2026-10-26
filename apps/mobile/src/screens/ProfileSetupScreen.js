@@ -224,7 +224,7 @@ export default function ProfileSetupScreen({ navigation }) {
               return (
                 <TouchableOpacity key={key} style={[styles.cat, active && styles.catActive, done && styles.catDone]} onPress={() => gotoCat(key)} activeOpacity={done ? 0.7 : 1}>
                   <View style={[styles.catDot, active && styles.catDotActive, done && styles.catDotDone]}>
-                    {done ? <Check size={13} color="#fff" /> : <Icon size={14} color={active ? '#fff' : colors.muted} />}
+                    {done ? <Check size={13} color={colors.onPrimary} /> : <Icon size={14} color={active ? colors.onPrimary : colors.muted} />}
                   </View>
                   <Text style={[styles.catLabel, active && { color: colors.primary }, done && { color: colors.success }]} numberOfLines={1}>{key}</Text>
                 </TouchableOpacity>
@@ -252,7 +252,7 @@ export default function ProfileSetupScreen({ navigation }) {
           <View style={styles.footerRight}>
             {stepOptional && !isLast && <TouchableOpacity style={styles.skipBtn} onPress={skip} disabled={saving}><Text style={styles.skipText}>Skip</Text></TouchableOpacity>}
             <TouchableOpacity style={styles.nextBtn} onPress={advance} disabled={saving} activeOpacity={0.85}>
-              {saving ? <ActivityIndicator color="#fff" /> : isLast ? <Check size={22} color="#fff" /> : <ArrowRight size={24} color="#fff" />}
+              {saving ? <ActivityIndicator color={colors.onPrimary} /> : isLast ? <Check size={22} color={colors.onPrimary} /> : <ArrowRight size={24} color={colors.onPrimary} />}
             </TouchableOpacity>
           </View>
         </View>

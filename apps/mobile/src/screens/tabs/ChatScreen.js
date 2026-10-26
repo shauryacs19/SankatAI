@@ -4,15 +4,17 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as Location from 'expo-location'
 import * as DocumentPicker from 'expo-document-picker'
 import * as ImagePicker from 'expo-image-picker'
-import { ArrowRight, Ambulance, MapPin, HeartPulse, ClipboardList, Gauge, AlertTriangle, X, Phone, Activity, ThumbsUp, ThumbsDown, Menu, Paperclip, FileText, Image as ImageIcon, Trash2, BadgeCheck, Bell, ShieldCheck, Share2, Mic, CheckCheck, Siren, Lock } from 'lucide-react-native'
+import { ArrowRight, Ambulance, MapPin, HeartPulse, ClipboardList, Gauge, AlertTriangle, X, Phone, Activity, ThumbsUp, ThumbsDown, Menu, Paperclip, FileText, Image as ImageIcon, Trash2, Bell, ShieldCheck, Share2, Mic, CheckCheck, Siren, Lock, Languages, CloudOff, RotateCw, Hospital } from 'lucide-react-native'
 import { radius, sevColor } from '../../theme'
 import { useTheme } from '../../context/ThemeContext'
 import { useProfile } from '../../context/ProfileContext'
 import { useChat } from '../../context/ChatContext'
-import { createConsultation, getMessages, sendMessage as apiSend, setMessageFeedback, unsendMessage, fetchWithTimeout } from '../../lib/api'
+import { createConsultation, getMessages, sendMessage as apiSend, setMessageFeedback, unsendMessage, fetchWithTimeout, translateMessage } from '../../lib/api'
 import { uploadFile, deleteUpload, listUploads } from '../../lib/uploads'
 import { API_BASE_URL } from '../../config'
-import { fmtTime, MSG_SENT, MSG_RECEIVED, sevMeta, AI_DISCLAIMER, EMERGENCY_CALLOUT, CHAT_SUGGESTIONS } from '../../lib/chat'
+import { fmtTime, MSG_SENT, MSG_RECEIVED, sevMeta, AI_DISCLAIMER, EMERGENCY_CALLOUT, CHAT_SUGGESTIONS, TRANSLATION_LABELS, TRANSLATION_NAMES, nextTranslation, replyLanguageOf } from '../../lib/chat'
+import { errText } from '../../lib/errText'
+import { useToast } from '../../components/Toast'
 import { isImageFile, openInAppBrowser } from '../../lib/preview'
 import FilePreview from '../../components/FilePreview'
 import { useVoiceInput } from '../../lib/useVoiceInput'
@@ -36,7 +38,9 @@ const normalize = (content) => {
 const toBubble = (m) => (m.role === 'user'
   // persisted by the server => double tick
   ? { id: m.id, sender: 'user', text: m.content, attachmentIds: m.attachmentIds || [], createdAt: m.createdAt, status: MSG_RECEIVED }
-  : { id: m.id, sender: 'bot', ...normalize(m.content), raw: m.content, feedback: m.feedback ?? null, createdAt: m.createdAt })
+  : { id: m.id, sender: 'bot', ...normalize(m.content), raw: m.content, lang: m.lang || null, feedback: m.feedback ?? null, createdAt: m.createdAt, offline: Boolean(m.isOfflineFallback) })
+const MSG_FAILED = 'failed'
+const HOSPITALS_NEAR_ME = 'https://www.google.com/maps/search/hospitals+near+me'
 
 // Animated "Sending…" shown under a user message until the server persists it.
 // Once delivered nothing is shown (no tick markers).
@@ -97,12 +101,173 @@ function AnimatedMsg({ children }) {
   )
 }
 
+// Each tap shows the reply in the next language of the cycle
+// English -> Hindi -> Hinglish -> English, starting from the reply's own (web
+// parity). Translations are fetched once (cached server-side); severity never changes.
+function useTranslationCycle(m, consultationId, toast) {
+  const original = replyLanguageOf(m.lang, m.raw)
+  const [shown, setShown] = useState(original)
+  const [busy, setBusy] = useState(false)
+  const texts = useRef({ [original]: m.text })
+  const next = nextTranslation(shown)
+  const advance = async () => {
+    if (busy || !consultationId) return
+    if (texts.current[next] === undefined) {
+      setBusy(true)
+      try {
+        const res = await translateMessage(consultationId, m.id, next)
+        texts.current[next] = normalize(res.content).text
+      } catch (e) {
+        toast.error(errText(e, 'Couldn’t translate this reply. Try again.'))
+        return
+      } finally {
+        setBusy(false)
+      }
+    }
+    setShown(next)
+  }
+  const translated = shown !== original
+  return { text: translated ? texts.current[shown] : m.text, shown, next, busy, advance, translated }
+}
+
+// AI reply card. An OFFLINE keyword estimate looks visibly different (dashed,
+// warning, no AI mark) so it can never pass for an AI assessment.
+function BotMessage({ m, styles, colors, sev, consultationId, onFeedback, onShare, toast }) {
+  const tr = useTranslationCycle(m, consultationId, toast)
+  const offline = Boolean(m.offline)
+  const s = m.severity ? sev[m.severity] : null
+  const ink = s?.ink || colors.text
+  const canAct = Boolean(m.raw) && !String(m.id).startsWith('tmp-')
+  return (
+    <View style={[styles.aiCard, offline && styles.aiCardOffline, s && !offline && { borderColor: s.border }]}
+      accessibilityLabel={offline ? 'Offline estimate — not an AI assessment' : 'SankatAI assessment'}>
+      <View style={styles.aiWho}>
+        <View style={[styles.aiMark, offline && { backgroundColor: colors.surface2 }]}>
+          {offline ? <CloudOff size={14} color={colors.muted} /> : <HeartPulse size={14} color={colors.primary} />}
+        </View>
+        <Text style={styles.aiName}>{offline ? 'Offline estimate' : 'SankatAI'}</Text>
+        <Text style={styles.cardTime}>{fmtTime(m.createdAt)}</Text>
+      </View>
+      {m.severity && (
+        <View style={styles.aiCardHead}>
+          <View style={[styles.sevIcon, { backgroundColor: s?.soft }]}>
+            {m.severity === 'EMERGENCY' ? <Siren size={16} color={ink} /> : <HeartPulse size={16} color={ink} />}
+          </View>
+          <Text style={[styles.sevTitle, { color: ink }]} numberOfLines={1}>
+            {sevMeta(m.severity).title}{m.riskScore != null ? `  •  ${m.riskScore}/100` : ''}
+          </Text>
+          <View style={[styles.sevPill, { backgroundColor: s?.soft, borderColor: s?.border }]}>
+            <Text style={[styles.sevPillText, { color: ink }]}>{sevMeta(m.severity).label}</Text>
+          </View>
+        </View>
+      )}
+
+      {offline && (
+        <View style={styles.offlineAlert}>
+          <AlertTriangle size={14} color={colors.warning} />
+          <Text style={styles.offlineAlertText}>
+            <Text style={{ fontWeight: '700' }}>Offline mode — this is not an AI assessment. </Text>
+            The AI assistant is unavailable, so this is an automatic keyword estimate. If this could be an emergency,{' '}
+            <Text style={styles.link} onPress={() => Linking.openURL('tel:108')}>call 108</Text>.
+          </Text>
+        </View>
+      )}
+
+      {!!tr.text && <Text style={styles.aiBody}>{tr.text}</Text>}
+      {tr.translated && <Text style={styles.translated}>Translated to {TRANSLATION_NAMES[tr.shown]}</Text>}
+
+      {m.severity === 'EMERGENCY' && (
+        <View style={styles.callout}>
+          <Text style={styles.calloutText}>{EMERGENCY_CALLOUT}</Text>
+          <TouchableOpacity style={styles.calloutBtn} onPress={() => Linking.openURL('tel:108')} accessibilityRole="button">
+            <Ambulance size={16} color="#fff" /><Text style={styles.calloutBtnText}>Call 108 now</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {Array.isArray(m.recommendations) && m.recommendations.length > 0 && (
+        <View style={styles.recBlock}>
+          <Text style={[styles.recTitle, s && { color: ink }]}>Recommendations</Text>
+          {m.recommendations.map((r, i) => (
+            <View key={i} style={styles.recRow}><Text style={styles.recDot}>•</Text><Text style={styles.recText}>{r}</Text></View>
+          ))}
+        </View>
+      )}
+
+      {!!m.followUp && <Text style={styles.followUp}>{m.followUp}</Text>}
+
+      {m.severity && (
+        <View style={styles.disclaimerRow}>
+          <ShieldCheck size={13} color={colors.muted} />
+          <Text style={styles.disclaimerText}>{AI_DISCLAIMER}</Text>
+        </View>
+      )}
+
+      {canAct && (
+        <View style={styles.cardFooter}>
+          <TouchableOpacity style={styles.fbBtn2} onPress={() => onFeedback(m.id, 'like')} hitSlop={6}
+            accessibilityRole="button" accessibilityLabel="Helpful" accessibilityState={{ selected: m.feedback === 'like' }}>
+            <ThumbsUp size={14} color={m.feedback === 'like' ? colors.success : colors.muted} fill={m.feedback === 'like' ? colors.success : 'none'} />
+            <Text style={[styles.fbText, m.feedback === 'like' && { color: colors.success }]}>Yes</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.fbBtn2} onPress={() => onFeedback(m.id, 'dislike')} hitSlop={6}
+            accessibilityRole="button" accessibilityLabel="Not helpful" accessibilityState={{ selected: m.feedback === 'dislike' }}>
+            <ThumbsDown size={14} color={m.feedback === 'dislike' ? colors.primary : colors.muted} fill={m.feedback === 'dislike' ? colors.primary : 'none'} />
+            <Text style={[styles.fbText, m.feedback === 'dislike' && { color: colors.primary }]}>No</Text>
+          </TouchableOpacity>
+          <View style={{ flex: 1 }} />
+          <TouchableOpacity style={styles.fbBtn2} onPress={tr.advance} disabled={tr.busy} hitSlop={6}
+            accessibilityRole="button" accessibilityLabel={`Show this reply in ${TRANSLATION_NAMES[tr.next]}`} accessibilityState={{ busy: tr.busy }}>
+            {tr.busy ? <ActivityIndicator size="small" color={colors.primary} /> : <Languages size={14} color={colors.muted} />}
+            <Text style={styles.fbText}>{tr.busy ? 'Translating…' : TRANSLATION_LABELS[tr.next]}</Text>
+          </TouchableOpacity>
+          <SpeakerButton consultationId={consultationId} messageId={m.id} variant={tr.translated ? tr.shown : undefined} color={colors.muted} activeColor={colors.primary} style={styles.fbBtn2} />
+          <TouchableOpacity style={styles.fbBtn2} onPress={() => onShare({ ...m, text: tr.text })} hitSlop={6} accessibilityLabel="Share this response">
+            <Share2 size={14} color={colors.muted} />
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
+  )
+}
+
+// Failed send: a distinct, retryable error row — never an error dressed up as
+// an AI answer (web parity, DESIGN_AUDIT D5).
+function ErrorRow({ m, styles, colors, onRetry, onDismiss, retrying }) {
+  return (
+    <View style={styles.errRow} accessibilityRole="alert">
+      <AlertTriangle size={18} color={colors.danger} />
+      <View style={{ flex: 1, gap: 4 }}>
+        <Text style={styles.errTitle}>Your message wasn't sent.</Text>
+        <Text style={styles.errDesc}>
+          {m.text} Check your connection and try again. If this is an emergency,{' '}
+          <Text style={styles.link} onPress={() => Linking.openURL('tel:108')}>call 108</Text>.
+        </Text>
+        <View style={styles.errActions}>
+          {!!m.retry && (
+            <TouchableOpacity style={styles.errRetry} onPress={onRetry} disabled={retrying}>
+              {retrying ? <ActivityIndicator size="small" color={colors.text} /> : <RotateCw size={14} color={colors.text} />}
+              <Text style={styles.errRetryText}>{retrying ? 'Sending…' : 'Try again'}</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={styles.errDismiss} onPress={onDismiss}><Text style={styles.errDismissText}>Dismiss</Text></TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  )
+}
+
 export default function ChatScreen({ navigation }) {
   const { profile } = useProfile()
-  const { colors } = useTheme()
+  const { colors, sev } = useTheme()
   const styles = makeStyles(colors)
+  const toast = useToast()
   // Consultation list / active chat live in ChatContext (shared with the drawer).
-  const { activeId, selectionSeq, registerCreated, loadList } = useChat()
+  const { activeId, selectionSeq, registerCreated, loadList, listError, reloadChats } = useChat()
+  const [reloading, setReloading] = useState(false)
+  const [retryingId, setRetryingId] = useState(null)
+  // SOS opens the panel without an assessment: no severity badge, no "Risk 0".
+  const [emergencyFromAssessment, setEmergencyFromAssessment] = useState(false)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -219,8 +384,9 @@ export default function ChatScreen({ navigation }) {
     setMessages((p) => p.map((m) => (m.id === messageId ? { ...m, feedback: next } : m)))
     try {
       await setMessageFeedback(activeId, messageId, next)
-    } catch {
+    } catch (e) {
       setMessages((p) => p.map((m) => (m.id === messageId ? { ...m, feedback: current } : m)))
+      toast.error(errText(e, 'Could not save your feedback.'))
     }
   }
 
@@ -240,7 +406,7 @@ export default function ChatScreen({ navigation }) {
       const up = await uploadFile(asset, { scope: 'chat', chatId: cid })
       setAttachments((p) => [...p, { attachmentId: up.attachmentId, filename: up.filename, kind: up.kind }])
     } catch (e) {
-      Alert.alert('Attachment failed', e.message || 'Please try again.')
+      toast.error(errText(e, `Could not upload ${asset.name || 'the file'}.`))
     } finally { setAttaching(false) }
   }
   const attachPhoto = async () => {
@@ -333,31 +499,28 @@ export default function ChatScreen({ navigation }) {
     }),
   ).current
 
-  const send = async () => {
-    const text = input.trim()
-    const pending = attachments
-    if ((!text && pending.length === 0) || loading) return
-    // Dictated drafts carry the language Transcribe identified.
-    const meta = voice.state === 'review' ? { inputMode: 'voice', lang: voice.draftLang || undefined } : { inputMode: 'text' }
-    setInput(''); setAttachments([]); setLoading(true)
+  // Core send. `meta` = { inputMode, lang }. The user's message shows at once;
+  // a failure marks it "Not sent" and adds a retryable error row.
+  const sendText = async (text, pending, meta) => {
+    setLoading(true)
     const attachmentIds = pending.map((a) => a.attachmentId)
     const attachmentNames = pending.map((a) => a.filename)
     const tmpId = `tmp-${Date.now()}`
+    setMessages((p) => [...p, { id: tmpId, sender: 'user', text, attachmentNames, createdAt: new Date().toISOString(), status: MSG_SENT }])
+    let cid = activeId
     try {
-      const cid = await ensureConsultation()
-      setMessages((p) => [...p, { id: tmpId, sender: 'user', text, attachmentNames, createdAt: new Date().toISOString(), status: MSG_SENT }])
+      cid = await ensureConsultation()
       const res = await apiSend(cid, text, attachmentIds, meta)
       setIsOffline(Boolean(res.isOfflineFallback))
       // Reconcile the optimistic bubble with the server-persisted user message.
-      if (res.userMessage) {
-        setMessages((p) => p.map((m) => (m.id === tmpId ? { ...toBubble(res.userMessage), attachmentNames } : m)))
-      }
+      setMessages((p) => p.map((m) => (m.id === tmpId ? (res.userMessage ? { ...toBubble(res.userMessage), attachmentNames } : { ...m, status: MSG_RECEIVED }) : m)))
       // Attachment-only messages have no assistant reply.
       if (res.assistantMessage) {
         const bot = toBubble(res.assistantMessage)
+        if (res.isOfflineFallback) bot.offline = true
         setMessages((p) => [...p, bot])
         if (bot.riskScore != null) setLastRiskScore(bot.riskScore)
-        if (bot.severity === 'EMERGENCY') setEmergency(true)
+        if (bot.severity === 'EMERGENCY') { setEmergency(true); setEmergencyFromAssessment(true) }
         // Opt-in: read replies to spoken messages aloud.
         if (meta.inputMode === 'voice' && ttsAvailable && await getAutoRead()) {
           tts.play(bot.id, () => loadTts(cid, bot.id)).catch(() => {})
@@ -366,28 +529,57 @@ export default function ChatScreen({ navigation }) {
       if (attachmentIds.length) loadChatAttachments(cid)
       loadList()
     } catch (e) {
-      setMessages((p) => [...p, { id: `err-${Date.now()}`, sender: 'bot', text: e.message || 'Service unavailable.', createdAt: new Date().toISOString() }])
+      const errRow = { id: `err-${Date.now()}`, sender: 'error', text: errText(e, 'The service is unavailable right now.'), retry: { text, pending, meta, failedId: tmpId }, createdAt: new Date().toISOString() }
+      setMessages((p) => [...p.map((m) => (m.id === tmpId ? { ...m, status: MSG_FAILED } : m)), errRow])
     } finally { setLoading(false) }
   }
 
+  const send = async () => {
+    const text = input.trim()
+    const pending = attachments
+    if ((!text && pending.length === 0) || loading) return
+    // Dictated drafts carry the language Transcribe identified.
+    const meta = voice.state === 'review' ? { inputMode: 'voice', lang: voice.draftLang || undefined } : { inputMode: 'text' }
+    setInput(''); setAttachments([])
+    await sendText(text, pending, meta)
+  }
+  const retrySend = async (errId) => {
+    const row = messages.find((m) => m.id === errId)
+    if (!row?.retry || loading) return
+    setRetryingId(errId)
+    setMessages((p) => p.filter((m) => m.id !== errId && m.id !== row.retry.failedId))
+    await sendText(row.retry.text, row.retry.pending, row.retry.meta)
+    setRetryingId(null)
+  }
+  const dismissError = (errId) => setMessages((p) => p.filter((m) => m.id !== errId))
+
+  // Falls back to a "near me" search when location is refused or unavailable,
+  // rather than a dead end (web parity).
   const findHospital = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync()
-      if (status !== 'granted') return Alert.alert('Location permission is needed to find hospitals.')
+      if (status !== 'granted') {
+        toast.info('Location is off, so the map will search near you instead.')
+        Linking.openURL(HOSPITALS_NEAR_ME)
+        return
+      }
       const pos = await Location.getCurrentPositionAsync({})
       Linking.openURL(`https://www.google.com/maps/search/hospitals/@${pos.coords.latitude},${pos.coords.longitude},14z`)
-    } catch { Alert.alert('Could not get your location.') }
+    } catch {
+      toast.info('Couldn’t get your location, so the map will search near you instead.')
+      Linking.openURL(HOSPITALS_NEAR_ME)
+    }
   }
   const shareLocation = async () => {
     if (!primary?.phone) return
     try {
       const { status } = await Location.requestForegroundPermissionsAsync()
-      if (status !== 'granted') return
+      if (status !== 'granted') { toast.error('Could not get your location. Allow location access, or call your contact instead.'); return }
       const pos = await Location.getCurrentPositionAsync({})
       const link = `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`
       const sep = Platform.OS === 'ios' ? '&' : '?'
       Linking.openURL(`sms:${primary.phone}${sep}body=${encodeURIComponent(`Medical Emergency! My location: ${link}`)}`)
-    } catch { /* */ }
+    } catch { toast.error('Could not get your location. Allow location access, or call your contact instead.') }
   }
 
   // Long-press your own message -> popup -> Unsend. The server marks the row
@@ -401,12 +593,12 @@ export default function ChatScreen({ navigation }) {
     const prev = messages
     setMessages((p) => p.filter((x) => x.id !== m.id))
     try { await unsendMessage(activeId, m.id) }
-    catch (e) { setMessages(prev); Alert.alert('Could not unsend', e.message || 'Please try again.') }
+    catch (e) { setMessages(prev); toast.error(errText(e, 'Could not unsend the message.')) }
     finally { setUnsending(false); setUnsendTarget(null) }
   }
 
   const shareMessage = async (m) => {
-    try { await Share.share({ message: [m.severity ? sevMeta(m.severity).title : 'SankatAI', m.text].filter(Boolean).join('\n\n') }) }
+    try { await Share.share({ message: [m.severity ? sevMeta(m.severity).title : 'SankatAI', String(m.text || '').replace(/\*\*/g, '')].filter(Boolean).join('\n\n') }) }
     catch { /* user cancelled */ }
   }
 
@@ -425,49 +617,83 @@ export default function ChatScreen({ navigation }) {
           keyboard, which silently swallows any padding placed below it.)
           iOS keeps behavior="padding". */}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={0}>
-      {/* Top bar: brand + verified badge + analysis + Emergency */}
+      {/* Top bar: brand + analysis + Emergency (SOS stays reachable at all times) */}
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.topBtn} onPress={() => navigation?.openDrawer?.()} hitSlop={10}><Menu size={22} color={colors.text} /></TouchableOpacity>
         <View style={styles.brandCol}>
           <Text style={styles.brand}>SankatAI</Text>
           <View style={styles.brandSubRow}>
             <Text style={styles.brandSub}>AI Health Assistant</Text>
-            <BadgeCheck size={12} color={colors.primary} />
           </View>
         </View>
         {isOffline && <View style={styles.offline}><AlertTriangle size={12} color={colors.sevHigh} /><Text style={styles.offlineText}>Offline</Text></View>}
         <TouchableOpacity style={styles.topBtn} onPress={() => setAnalysisOpen(true)}><ClipboardList size={18} color={colors.textSecondary} /></TouchableOpacity>
-        <TouchableOpacity style={styles.emergencyBtn} onPress={() => setEmergency(true)}>
+        <TouchableOpacity style={styles.emergencyBtn} onPress={() => { setEmergencyFromAssessment(false); setEmergency(true) }} accessibilityLabel="Emergency help">
           <Bell size={14} color={colors.sevEmergency} />
           <Text style={styles.emergencyBtnText}>Emergency</Text>
         </TouchableOpacity>
       </View>
 
+      {/* Emergency panel: renders instantly (no animation, no data gate); the
+          first action is a direct call. Severity shows only after an assessment. */}
       {emergency && (
         <View style={styles.emerg}>
           <View style={styles.emergHead}>
-            <Text style={styles.emergTitle}>⚠️ Possible emergency</Text>
-            <Text style={styles.emergRisk}>Risk {lastRiskScore ?? 0}</Text>
+            <Siren size={17} color={sev.EMERGENCY.ink} />
+            <Text style={styles.emergTitle} accessibilityRole="header">Emergency help</Text>
+            {emergencyFromAssessment && (
+              <View style={[styles.sevPill, { backgroundColor: sev.EMERGENCY.soft, borderColor: sev.EMERGENCY.border }]}>
+                <Text style={[styles.sevPillText, { color: sev.EMERGENCY.ink }]}>Emergency{lastRiskScore != null ? ` · ${lastRiskScore}/100` : ''}</Text>
+              </View>
+            )}
+            <View style={{ flex: 1 }} />
+            <TouchableOpacity onPress={() => setEmergency(false)} hitSlop={10} accessibilityLabel="Close emergency panel"><X size={18} color={colors.muted} /></TouchableOpacity>
           </View>
+          <Text style={styles.emergText}>{EMERGENCY_CALLOUT}</Text>
+          <TouchableOpacity style={styles.emergBtnDanger} onPress={() => Linking.openURL('tel:108')} accessibilityRole="button">
+            <Ambulance size={16} color="#fff" /><Text style={styles.emergBtnDangerText}>Call 108 — Ambulance</Text>
+          </TouchableOpacity>
           <View style={styles.emergRow}>
-            <TouchableOpacity style={styles.emergBtnDanger} onPress={() => Linking.openURL('tel:108')}><Ambulance size={14} color="#fff" /><Text style={styles.emergBtnDangerText}>Ambulance</Text></TouchableOpacity>
-            {primary?.phone && <TouchableOpacity style={styles.emergBtn} onPress={() => Linking.openURL(`tel:${primary.phone}`)}><Phone size={13} color={colors.text} /><Text style={styles.emergBtnText}>Contact</Text></TouchableOpacity>}
-            {primary?.phone && <TouchableOpacity style={styles.emergBtn} onPress={shareLocation}><MapPin size={13} color={colors.text} /><Text style={styles.emergBtnText}>Location</Text></TouchableOpacity>}
-            <TouchableOpacity style={styles.emergBtn} onPress={findHospital}><MapPin size={13} color={colors.text} /><Text style={styles.emergBtnText}>Hospital</Text></TouchableOpacity>
+            <TouchableOpacity style={[styles.emergBtn, !primary?.phone && styles.btnDisabled]} disabled={!primary?.phone} onPress={() => Linking.openURL(`tel:${primary.phone}`)}>
+              <Phone size={14} color={colors.text} /><Text style={styles.emergBtnText} numberOfLines={1}>{primary?.phone ? `Call ${primary.name || 'contact'}` : 'Call contact'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.emergBtn, !primary?.phone && styles.btnDisabled]} disabled={!primary?.phone} onPress={shareLocation}>
+              <MapPin size={14} color={colors.text} /><Text style={styles.emergBtnText}>Share location</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.emergBtn} onPress={findHospital}>
+              <Hospital size={14} color={colors.text} /><Text style={styles.emergBtnText}>Nearby hospitals</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={() => setEmergency(false)}><Text style={styles.emergDismiss}>Dismiss</Text></TouchableOpacity>
+          {!primary?.phone && <Text style={styles.emergHint}>Add an emergency contact in your health profile to call or share your location with them.</Text>}
         </View>
       )}
 
         <Animated.View style={{ flex: 1, transform: [{ translateX: revealX }] }} {...revealPan.panHandlers}>
         <ScrollView ref={scrollRef} contentContainerStyle={styles.chat} onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
+          {!!listError && !activeId && (
+            <View style={styles.listErr}>
+              <AlertTriangle size={16} color={colors.danger} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.errTitle}>Couldn't load your chats.</Text>
+                <Text style={styles.errDesc}>You can still describe new symptoms below. If this is an emergency, call 108.</Text>
+              </View>
+              <TouchableOpacity style={styles.errRetry} disabled={reloading} onPress={async () => { setReloading(true); await reloadChats(); setReloading(false) }}>
+                {reloading ? <ActivityIndicator size="small" color={colors.text} /> : <Text style={styles.errRetryText}>Try again</Text>}
+              </TouchableOpacity>
+            </View>
+          )}
           {empty ? (
             <View style={styles.greeting}>
               <View style={styles.greetBadge}><HeartPulse size={26} color={colors.primary} /></View>
-              <Text style={styles.greetH}>Hi {firstName}, how can I help?</Text>
-              <Text style={styles.greetP}>Describe your symptoms and I'll assess the urgency.</Text>
+              <Text style={styles.greetH}>Hi {firstName}. What symptoms are you having?</Text>
+              <Text style={styles.greetP}>
+                Describe what you feel in your own words. I'll ask follow-up questions and tell you how urgent it is.
+                This is guidance, not a diagnosis. If someone is in danger,{' '}
+                <Text style={styles.link} onPress={() => Linking.openURL('tel:108')}>call 108 now</Text>.
+              </Text>
+              <Text style={styles.overline}>TRY DESCRIBING</Text>
               {['I have chest pain and shortness of breath', 'High fever and headache for 2 days', "Deep cut that won't stop bleeding"].map((s) => (
-                <TouchableOpacity key={s} style={styles.suggest} onPress={() => setInput(s)}><Text style={styles.suggestText}>{s}</Text></TouchableOpacity>
+                <TouchableOpacity key={s} style={styles.suggest} onPress={() => { setInput(s); inputRef.current?.focus() }}><ArrowRight size={15} color={colors.muted} /><Text style={styles.suggestText}>{s}</Text></TouchableOpacity>
               ))}
             </View>
           ) : messages.map((m) => (
@@ -478,7 +704,7 @@ export default function ChatScreen({ navigation }) {
                   <TouchableOpacity
                     style={styles.bubbleUser}
                     activeOpacity={0.9}
-                    onLongPress={() => (String(m.id).startsWith('tmp-') ? null : setUnsendTarget(m))}
+                    onLongPress={() => (String(m.id).startsWith('tmp-') || m.status === MSG_FAILED ? null : setUnsendTarget(m))}
                     delayLongPress={350}
                   >
                     {!!m.text && <Text style={styles.bubbleText}>{m.text}</Text>}
@@ -497,86 +723,36 @@ export default function ChatScreen({ navigation }) {
                       </View>
                     ) : null}
                     <View style={styles.msgMetaRow}>
-                      <Text style={styles.msgMetaTime}>{fmtTime(m.createdAt)}</Text>
-                      {m.status === MSG_RECEIVED
-                        ? <CheckCheck size={13} color={colors.primary} />
-                        : <SendingDots color={colors.muted} />}
+                      {m.status === MSG_FAILED ? (
+                        <><AlertTriangle size={12} color={colors.danger} /><Text style={[styles.msgMetaTime, { color: colors.danger, fontWeight: '600' }]}>Not sent</Text></>
+                      ) : (
+                        <>
+                          <Text style={styles.msgMetaTime}>{fmtTime(m.createdAt)}</Text>
+                          {m.status === MSG_RECEIVED
+                            ? <CheckCheck size={13} color={colors.primary} />
+                            : <SendingDots color={colors.muted} />}
+                        </>
+                      )}
                     </View>
                   </TouchableOpacity>
                 </View>
+              ) : m.sender === 'error' ? (
+                <View style={[styles.msgCol, { maxWidth: '100%', flex: 1 }]}>
+                  <ErrorRow m={m} styles={styles} colors={colors} retrying={retryingId === m.id} onRetry={() => retrySend(m.id)} onDismiss={() => dismissError(m.id)} />
+                </View>
               ) : (
                 <View style={[styles.msgCol, { alignItems: 'flex-start' }]}>
-                  <View style={[styles.aiCard, m.severity && { borderColor: `${sevColor(m.severity)}55` }]}>
-                    {m.severity && (
-                      <View style={styles.aiCardHead}>
-                        <View style={[styles.sevIcon, { backgroundColor: `${sevColor(m.severity)}1F` }]}>
-                          {m.severity === 'EMERGENCY'
-                            ? <Siren size={16} color={sevColor(m.severity)} />
-                            : <HeartPulse size={16} color={sevColor(m.severity)} />}
-                        </View>
-                        <Text style={[styles.sevTitle, { color: sevColor(m.severity) }]} numberOfLines={1}>
-                          {sevMeta(m.severity).title}{m.riskScore != null ? `  •  ${m.riskScore}/100` : ''}
-                        </Text>
-                        <View style={[styles.sevPill, { backgroundColor: `${sevColor(m.severity)}1F` }]}>
-                          <Text style={[styles.sevPillText, { color: sevColor(m.severity) }]}>{sevMeta(m.severity).label}</Text>
-                        </View>
-                      </View>
-                    )}
-
-                    {!!m.text && <Text style={styles.aiBody}>{m.text}</Text>}
-
-                    {m.severity === 'EMERGENCY' && (
-                      <View style={styles.callout}>
-                        <Phone size={16} color={colors.sevEmergency} />
-                        <Text style={styles.calloutText}>{EMERGENCY_CALLOUT}</Text>
-                      </View>
-                    )}
-
-                    {Array.isArray(m.recommendations) && m.recommendations.length > 0 && (
-                      <View style={styles.recBlock}>
-                        <Text style={[styles.recTitle, m.severity && { color: sevColor(m.severity) }]}>Recommendations</Text>
-                        {m.recommendations.map((r, i) => (
-                          <View key={i} style={styles.recRow}><Text style={styles.recDot}>•</Text><Text style={styles.recText}>{r}</Text></View>
-                        ))}
-                      </View>
-                    )}
-
-                    {!!m.followUp && <Text style={styles.followUp}>{m.followUp}</Text>}
-
-                    {m.severity && (
-                      <View style={styles.disclaimerRow}>
-                        <ShieldCheck size={13} color={colors.muted} />
-                        <Text style={styles.disclaimerText}>{AI_DISCLAIMER}</Text>
-                      </View>
-                    )}
-
-                    <View style={styles.cardFooter}>
-                      <Text style={styles.cardTime}>{fmtTime(m.createdAt)}</Text>
-                      <View style={{ flex: 1 }} />
-                      {m.raw && (
-                        <>
-                          <TouchableOpacity style={styles.fbBtn2} onPress={() => submitFeedback(m.id, 'like')} hitSlop={6}>
-                            <ThumbsUp size={14} color={m.feedback === 'like' ? colors.success : colors.muted} fill={m.feedback === 'like' ? colors.success : 'none'} />
-                            <Text style={[styles.fbText, m.feedback === 'like' && { color: colors.success }]}>Helpful</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity style={styles.fbBtn2} onPress={() => submitFeedback(m.id, 'dislike')} hitSlop={6}>
-                            <ThumbsDown size={14} color={m.feedback === 'dislike' ? colors.primary : colors.muted} fill={m.feedback === 'dislike' ? colors.primary : 'none'} />
-                            <Text style={[styles.fbText, m.feedback === 'dislike' && { color: colors.primary }]}>Not helpful</Text>
-                          </TouchableOpacity>
-                        </>
-                      )}
-                      {m.raw && <SpeakerButton consultationId={activeId} messageId={m.id} color={colors.muted} activeColor={colors.primary} style={styles.fbBtn2} />}
-                      <TouchableOpacity style={styles.fbBtn2} onPress={() => shareMessage(m)} hitSlop={6}>
-                        <Share2 size={14} color={colors.muted} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
+                  <BotMessage m={m} styles={styles} colors={colors} sev={sev} consultationId={activeId} onFeedback={submitFeedback} onShare={shareMessage} toast={toast} />
                 </View>
               )}
             </View>
             </AnimatedMsg>
           ))}
-          {loading && <View style={[styles.msgRow, styles.msgLeft]}><View style={styles.bubbleBot}><ActivityIndicator color={colors.primary} /></View></View>}
+          {loading && (
+            <View style={[styles.msgRow, styles.msgLeft]} accessibilityRole="progressbar" accessibilityLabel="Analysing your symptoms">
+              <View style={styles.thinking}><ActivityIndicator size="small" color={colors.primary} /><Text style={styles.thinkingText}>Analysing your symptoms…</Text></View>
+            </View>
+          )}
         </ScrollView>
         </Animated.View>
 
@@ -645,7 +821,7 @@ export default function ChatScreen({ navigation }) {
             <Mic size={17} color={colors.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.sendBtn, sendDisabled && { opacity: 0.5 }]} onPress={send} disabled={sendDisabled} accessibilityLabel="Send">
-            <ArrowRight size={20} color="#fff" />
+            <ArrowRight size={20} color={colors.onPrimary} />
           </TouchableOpacity>
         </View>
         {/* Blank breathing room under the composer: clears the keyboard while
@@ -743,23 +919,46 @@ const makeStyles = (colors) => StyleSheet.create({
   tickRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 3, marginRight: 2 },
   tickText: { fontSize: 11, color: colors.muted },
   fbBtn: { padding: 2 },
-  emerg: { backgroundColor: colors.primarySoft, borderColor: colors.primaryBorder, borderWidth: 1, margin: 12, borderRadius: radius.md, padding: 12 },
-  emergHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  emergTitle: { color: colors.primary, fontWeight: '700' },
-  emergRisk: { color: colors.primary, fontWeight: '700', fontSize: 12 },
+  emerg: { backgroundColor: colors.dangerSoft, borderColor: colors.dangerBorder, borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
+  emergHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  emergTitle: { color: colors.danger, fontWeight: '700', fontSize: 15 },
+  emergText: { color: colors.text, fontSize: 13.5, lineHeight: 19 },
+  emergHint: { color: colors.muted, fontSize: 12, lineHeight: 17 },
   emergRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  emergBtnDanger: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.sevEmergency, borderRadius: radius.sm, paddingVertical: 8, paddingHorizontal: 12 },
-  emergBtnDangerText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  emergBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radius.sm, paddingVertical: 8, paddingHorizontal: 12 },
+  emergBtnDanger: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.sevEmergency, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 14 },
+  emergBtnDangerText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  emergBtn: { flexGrow: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 12 },
   emergBtnText: { color: colors.text, fontWeight: '600', fontSize: 13 },
-  emergDismiss: { color: colors.muted, fontSize: 12, textDecorationLine: 'underline', marginTop: 8 },
+  btnDisabled: { opacity: 0.45 },
+  link: { color: colors.primary, fontWeight: '700', textDecorationLine: 'underline' },
+  overline: { alignSelf: 'flex-start', fontSize: 11, fontWeight: '700', letterSpacing: 0.8, color: colors.muted, marginTop: 4 },
+  listErr: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.dangerSoft, borderColor: colors.dangerBorder, borderWidth: 1, borderRadius: radius.md, padding: 12 },
+  errRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: colors.dangerSoft, borderColor: colors.dangerBorder, borderWidth: 1, borderRadius: 14, padding: 12 },
+  errTitle: { color: colors.text, fontWeight: '700', fontSize: 14 },
+  errDesc: { color: colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  errActions: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  errRetry: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radius.sm, paddingVertical: 7, paddingHorizontal: 12 },
+  errRetryText: { color: colors.text, fontWeight: '600', fontSize: 13 },
+  errDismiss: { paddingVertical: 7, paddingHorizontal: 10 },
+  errDismissText: { color: colors.muted, fontWeight: '600', fontSize: 13 },
+  thinking: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
+  thinkingText: { color: colors.muted, fontSize: 13 },
+  aiWho: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  aiMark: { width: 24, height: 24, borderRadius: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft },
+  aiName: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.text },
+  aiCardOffline: { borderStyle: 'dashed', borderColor: colors.warningBorder },
+  offlineAlert: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: colors.warningSoft, borderColor: colors.warningBorder, borderWidth: 1, borderRadius: 10, padding: 10 },
+  offlineAlertText: { flex: 1, color: colors.text, fontSize: 12.5, lineHeight: 18 },
+  translated: { fontSize: 11.5, color: colors.muted, fontStyle: 'italic', marginTop: -4 },
+  calloutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.sevEmergency, borderRadius: radius.md, paddingVertical: 11, marginTop: 8 },
+  calloutBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   chat: { padding: 16, gap: 12, flexGrow: 1 },
   greeting: { alignItems: 'center', marginTop: 40 },
   greetBadge: { width: 60, height: 60, borderRadius: 18, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
   greetH: { fontSize: 20, fontWeight: '700', color: colors.text, textAlign: 'center' },
   greetP: { color: colors.muted, textAlign: 'center', marginTop: 6, marginBottom: 18 },
-  suggest: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radius.md, padding: 13, marginTop: 10, width: '100%' },
-  suggestText: { color: colors.textSecondary },
+  suggest: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radius.md, padding: 13, marginTop: 10, width: '100%' },
+  suggestText: { flex: 1, color: colors.textSecondary },
   msgRow: { flexDirection: 'row' },
   msgLeft: { justifyContent: 'flex-start' },
   msgRight: { justifyContent: 'flex-end' },
@@ -772,11 +971,11 @@ const makeStyles = (colors) => StyleSheet.create({
   aiCardHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   sevIcon: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
   sevTitle: { flex: 1, fontSize: 13, fontWeight: '800', letterSpacing: 0.3 },
-  sevPill: { borderRadius: 999, paddingVertical: 3, paddingHorizontal: 9 },
+  sevPill: { borderRadius: 999, borderWidth: 1, borderColor: 'transparent', paddingVertical: 3, paddingHorizontal: 9 },
   sevPillText: { fontSize: 11, fontWeight: '700' },
   aiBody: { fontSize: 14.5, lineHeight: 21, color: colors.text },
-  callout: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.primarySoft, borderColor: colors.primaryBorder, borderWidth: 1, borderRadius: 12, padding: 12 },
-  calloutText: { flex: 1, fontSize: 13.5, fontWeight: '700', color: colors.sevEmergency, lineHeight: 19 },
+  callout: { backgroundColor: colors.dangerSoft, borderColor: colors.dangerBorder, borderWidth: 1, borderRadius: 12, padding: 12 },
+  calloutText: { fontSize: 13.5, fontWeight: '700', color: colors.danger, lineHeight: 19 },
   recBlock: { gap: 4 },
   recTitle: { fontSize: 13, fontWeight: '700', color: colors.text, marginBottom: 2 },
   recRow: { flexDirection: 'row', gap: 8, paddingLeft: 2 },
@@ -785,7 +984,7 @@ const makeStyles = (colors) => StyleSheet.create({
   followUp: { fontSize: 13, color: colors.muted, borderTopColor: colors.border, borderTopWidth: 1, paddingTop: 10 },
   disclaimerRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
   disclaimerText: { flex: 1, fontSize: 11.5, lineHeight: 17, color: colors.muted },
-  cardFooter: { flexDirection: 'row', alignItems: 'center', gap: 12, borderTopColor: colors.border, borderTopWidth: 1, paddingTop: 10 },
+  cardFooter: { flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderTopColor: colors.border, borderTopWidth: 1, paddingTop: 10 },
   cardTime: { fontSize: 11, color: colors.muted },
   fbBtn2: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   fbText: { fontSize: 12, color: colors.muted, fontWeight: '600' },
@@ -847,7 +1046,7 @@ const makeStyles = (colors) => StyleSheet.create({
   aHeadText: { fontSize: 12, fontWeight: '700', color: colors.muted, textTransform: 'uppercase', letterSpacing: 0.4 },
   aBody: { fontSize: 14, color: colors.text, lineHeight: 21 },
   action: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: 14, marginTop: 8, backgroundColor: colors.surface },
-  actionDanger: { backgroundColor: colors.primary, borderColor: colors.primary },
+  actionDanger: { backgroundColor: colors.sevEmergency, borderColor: colors.sevEmergency },
   actionText: { fontSize: 14, fontWeight: '600', color: colors.text },
   disclaimer: { fontSize: 11, color: colors.muted, textAlign: 'center', paddingVertical: 4 },
   aEmpty: { alignItems: 'center', justifyContent: 'center', gap: 12, padding: 40 },

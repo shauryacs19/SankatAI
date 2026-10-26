@@ -25,6 +25,9 @@ export const AUTH_CSS = `
 .auth-link { font-size: inherit; font-weight: var(--fw-semibold); color: var(--primary-text); text-decoration: underline; text-underline-offset: 3px; }
 .auth-link:hover { text-decoration-thickness: 2px; }
 .auth-row .auth-link { display: inline-flex; align-items: center; min-height: var(--touch); }
+.auth-alt { display: flex; align-items: center; justify-content: center; gap: var(--space-3); flex-wrap: wrap; font-size: var(--fs-md); color: var(--text-muted); }
+.auth-alt .auth-link { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--touch); background: none; border: 0; padding: 0; cursor: pointer; }
+.auth-alt .auth-link:disabled { opacity: .6; cursor: default; }
 .auth-links { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding-top: var(--space-5); border-top: 1px solid var(--border-subtle); font-size: var(--fs-md); color: var(--text-secondary); text-align: center; }
 .auth-pw .ui-input { padding-right: 3.25rem; }
 .auth-pw-toggle { display: grid; place-items: center; width: var(--touch); height: var(--touch); border: 0; background: transparent; color: var(--text-muted); border-radius: var(--radius-control); cursor: pointer; }

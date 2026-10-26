@@ -8,6 +8,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { listConsultations, renameConsultation, deleteConsultation } from '../lib/api'
 import { filterConsultations } from '../lib/chat'
+import { errText } from '../lib/errText'
 
 const ChatContext = createContext(null)
 
@@ -18,12 +19,24 @@ export function ChatProvider({ children }) {
   const [selectionSeq, setSelectionSeq] = useState(0)
   const [searchResults, setSearchResults] = useState(null) // null = not searching
   const [searching, setSearching] = useState(false)
+  const [listError, setListError] = useState('') // web parity: History/Chat offer a retry
   const started = useRef(false)
+  const activeRef = useRef(null)
+  activeRef.current = activeId
   const bump = () => setSelectionSeq((s) => s + 1)
 
   const loadList = useCallback(async (opts = {}) => {
-    try { const l = await listConsultations(opts); setConsultations(l); return l } catch { return [] }
+    try { const l = await listConsultations(opts); setConsultations(l); setListError(''); return l } catch (e) {
+      setListError(errText(e, 'Could not load your chats.'))
+      return []
+    }
   }, [])
+
+  // Retry after a failed load: reload and open the newest chat if none is open.
+  const reloadChats = useCallback(async () => {
+    const l = await loadList()
+    if (l.length && !activeRef.current) { setActiveId(l[0].consultationId); bump() }
+  }, [loadList])
 
   // On first mount, load the list and open the most recent chat.
   // This runs in the fragile window right after sign-in flips to AUTHENTICATED,
@@ -48,13 +61,16 @@ export function ChatProvider({ children }) {
   const renameChat = useCallback(async (id, title) => {
     const updated = await renameConsultation(id, title)
     const t = updated?.title || title
-    setConsultations((p) => p.map((c) => (c.consultationId === id ? { ...c, title: t } : c)))
+    const apply = (list) => list.map((c) => (c.consultationId === id ? { ...c, title: t } : c))
+    setConsultations(apply)
+    setSearchResults((p) => (p ? apply(p) : p))
     return t
   }, [])
 
   const deleteChat = useCallback(async (id) => {
     await deleteConsultation(id)
     setConsultations((p) => p.filter((c) => c.consultationId !== id))
+    setSearchResults((p) => (p ? p.filter((c) => c.consultationId !== id) : p))
     setActiveId((cur) => cur === id ? null : cur)
     setSelectionSeq((s) => s + 1) // reload messages if the active chat was removed
   }, [])
@@ -81,9 +97,9 @@ export function ChatProvider({ children }) {
   }, [consultations, search, searchResults])
 
   const value = useMemo(() => ({
-    consultations, filtered, activeId, search, setSearch, searching, selectionSeq,
-    select, startNew, loadList, registerCreated, renameChat, deleteChat,
-  }), [consultations, filtered, activeId, search, searching, selectionSeq, select, startNew, loadList, registerCreated, renameChat, deleteChat])
+    consultations, filtered, activeId, search, setSearch, searching, selectionSeq, listError,
+    select, startNew, loadList, reloadChats, registerCreated, renameChat, deleteChat,
+  }), [consultations, filtered, activeId, search, searching, selectionSeq, listError, select, startNew, loadList, reloadChats, registerCreated, renameChat, deleteChat])
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>
 }

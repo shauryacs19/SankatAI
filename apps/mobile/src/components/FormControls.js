@@ -82,7 +82,7 @@ export function SectionEditor({ title, navigation, children, onSave, saving, err
           {!!error && <View style={styles.errBanner}><AlertTriangle size={14} color={colors.primary} /><Text style={styles.errBannerText}>{error}</Text></View>}
           {children}
           <TouchableOpacity style={[styles.saveBtn, (!canSave || saving) && { opacity: 0.6 }]} onPress={onSave} disabled={!canSave || saving}>
-            {saving ? <ActivityIndicator color="#fff" /> : <><Check size={17} color="#fff" /><Text style={styles.saveText}>{saveLabel}</Text></>}
+            {saving ? <ActivityIndicator color={colors.onPrimary} /> : <><Check size={17} color={colors.onPrimary} /><Text style={styles.saveText}>{saveLabel}</Text></>}
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -111,5 +111,5 @@ const makeStyles = (colors) => StyleSheet.create({
   chipText: { color: colors.textSecondary, fontSize: 13, fontWeight: '500' },
   chipTextActive: { color: colors.primary, fontWeight: '700' },
   saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 15, marginTop: 28 },
-  saveText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  saveText: { color: colors.onPrimary, fontWeight: '700', fontSize: 16 },
 })

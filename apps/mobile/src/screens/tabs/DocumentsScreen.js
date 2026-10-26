@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import * as DocumentPicker from 'expo-document-picker'
 import * as ImagePicker from 'expo-image-picker'
 import * as SecureStore from 'expo-secure-store'
-import { Upload, Image as ImageIcon, FileText, FolderOpen, Folder, Trash2, Lock, Eye, ShieldCheck, X, Pencil, Plus, Check, LayoutGrid, List } from 'lucide-react-native'
+import { AlertTriangle, Upload, Image as ImageIcon, FileText, FolderOpen, Folder, Trash2, Lock, Eye, ShieldCheck, X, Pencil, Plus, Check, LayoutGrid, List } from 'lucide-react-native'
 import { radius } from '../../theme'
 import { useTheme } from '../../context/ThemeContext'
 import ScreenHeader from '../../components/ScreenHeader'
@@ -14,6 +14,8 @@ import CreatePinModal from '../../components/CreatePinModal'
 import FilePreview from '../../components/FilePreview'
 import { isImageFile, openInAppBrowser } from '../../lib/preview'
 import usePullRefresh from '../../components/usePullRefresh'
+import { useToast } from '../../components/Toast'
+import { errText } from '../../lib/errText'
 import {
   fmtFileSize, typeLabel, fmtDate, mergeCategories, VIEW_STORAGE_KEY, DEFAULT_DOC_VIEW,
   normalizeDocView, nextDocView, readProfileCategories, addProfileCategory,
@@ -28,6 +30,7 @@ const saveView = (v) => { SecureStore.setItemAsync(VIEW_STORAGE_KEY, v).catch(()
 export default function DocumentsScreen({ navigation }) {
   const { colors } = useTheme()
   const styles = makeStyles(colors)
+  const toast = useToast()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -79,7 +82,7 @@ export default function DocumentsScreen({ navigation }) {
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try { const l = await listUploads('vault'); setItems(Array.isArray(l) ? l : []) }
-    catch (e) { setError(e.message || 'Could not load files.') }
+    catch (e) { setError(errText(e, 'Could not load your documents.')) }
     finally { setLoading(false) }
   }, [])
   const loadPins = useCallback(async () => { try { const l = await listPins(); setPins(Array.isArray(l) ? l : []) } catch { /* ignore */ } }, [])
@@ -92,12 +95,12 @@ export default function DocumentsScreen({ navigation }) {
   // Custom categories live on the PROFILE (profile.fileCategories) so web and
   // mobile stay in sync. Profile PUT replaces the whole record — always merge.
   const persistCats = async (next) => {
-    if (profileLoading) { Alert.alert('Still loading your profile — try again in a moment.'); return }
+    if (profileLoading) { toast.info('Still loading your profile — try again in a moment.'); return }
     const prev = profile
     const merged = { ...(profile || {}), fileCategories: next }
     setProfile(merged)
     try { await saveProfile(merged) }
-    catch (e) { setProfile(prev); Alert.alert('Could not save the category.', e.message || '') }
+    catch (e) { setProfile(prev); toast.error(errText(e, 'Could not save the category.')) }
   }
   const addCustomCat = (name) => {
     const next = addProfileCategory(customCats, name)
@@ -145,8 +148,9 @@ export default function DocumentsScreen({ navigation }) {
       // Filename is sent verbatim, same as the web upload form.
       await uploadFile({ ...pending, name }, { scope: 'vault', kind: kindForAsset(pending), passwordProtected: protect, pinId })
       setPending(null)
+      toast.success(`“${name}” uploaded.`)
       await load()
-    } catch (e) { Alert.alert('Upload failed', e.message || 'Please try again.') }
+    } catch (e) { Alert.alert('Upload failed', errText(e, 'Please try again.')) }
     finally { setUploading(false) }
   }
 
@@ -178,7 +182,8 @@ export default function DocumentsScreen({ navigation }) {
       setItems((p) => p.map((x) => (x.attachmentId === editTarget.attachmentId
         ? { ...x, filename: updated?.filename || name, category: updated?.category ?? (category || null) } : x)))
       setEditTarget(null)
-    } catch (e) { Alert.alert('Could not update the file.', e.message || '') }
+      toast.success('Document updated.')
+    } catch (e) { toast.error(errText(e, 'Could not update the document.')) }
     finally { setEditBusy(false) }
   }
 
@@ -197,6 +202,7 @@ export default function DocumentsScreen({ navigation }) {
       await deleteUpload(deleteTarget.attachmentId, deletePin)
       setItems((p) => p.filter((x) => x.attachmentId !== deleteTarget.attachmentId))
       setDeleteTarget(null); setDeletePin(null)
+      toast.success('Document deleted.')
     } catch (e) {
       if (/403|incorrect pin/i.test(e.message || '')) {
         // PIN changed / wrong — restart at the PIN step.
@@ -204,7 +210,7 @@ export default function DocumentsScreen({ navigation }) {
         setDeleteTarget(null); setDeletePin(null)
         setPinPrompt({ attachment: att, mode: 'delete' }); setPinValue('')
         Alert.alert('Incorrect PIN', 'Please try again.')
-      } else Alert.alert('Could not delete.', e.message || '')
+      } else toast.error(errText(e, 'Could not delete the document.'))
     }
     finally { setDeleteBusy(false) }
   }
@@ -219,7 +225,7 @@ export default function DocumentsScreen({ navigation }) {
       if (category) addCustomCat(category)
     } catch (e) {
       setItems((p) => p.map((x) => (x.attachmentId === att.attachmentId ? { ...x, category: prevCat } : x)))
-      Alert.alert('Could not move the file.', e.message || '')
+      toast.error(errText(e, 'Could not move the document.'))
     }
   }
 
@@ -394,7 +400,7 @@ export default function DocumentsScreen({ navigation }) {
         <Text style={styles.sub}>Your secure vault. Files upload to storage and can be locked with a security PIN. Hold a file and drag it onto a category to move it.</Text>
 
         <View style={styles.uploadRow}>
-          <TouchableOpacity style={styles.uploadBtn} onPress={startNewUpload}><Upload size={15} color="#fff" /><Text style={styles.uploadText}>Upload file</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.uploadBtn} onPress={startNewUpload}><Upload size={15} color={colors.onPrimary} /><Text style={styles.uploadText}>Upload file</Text></TouchableOpacity>
           <TouchableOpacity style={styles.catBtn} onPress={() => { setNewCatOpen(true); setNewCatName('') }}><Plus size={15} color={colors.primary} /><Text style={styles.catBtnText}>Category</Text></TouchableOpacity>
           <TouchableOpacity
             style={styles.viewBtn}
@@ -406,12 +412,29 @@ export default function DocumentsScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {!!error && <View style={styles.errBox}><Text style={styles.errText}>{error}</Text></View>}
+        {!!error && !loading && items.length > 0 && (
+          <View style={styles.errBox}>
+            <Text style={[styles.errText, { flex: 1 }]}>Couldn't refresh your documents. {error}</Text>
+            <TouchableOpacity onPress={load} hitSlop={8}><Text style={styles.retryText}>Try again</Text></TouchableOpacity>
+          </View>
+        )}
 
-        {loading ? (
-          <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>
+        {loading && items.length === 0 ? (
+          <View style={styles.center}><ActivityIndicator color={colors.primary} /><Text style={styles.emptyText}>Loading your documents…</Text></View>
+        ) : error && items.length === 0 ? (
+          <View style={styles.empty}>
+            <AlertTriangle size={30} color={colors.muted} />
+            <Text style={styles.emptyTitle}>Couldn't load your documents</Text>
+            <Text style={styles.emptyText}>{error} Your files are safe — check your connection and try again.</Text>
+            <TouchableOpacity style={styles.emptyCta} onPress={load}><Text style={styles.emptyCtaText}>Try again</Text></TouchableOpacity>
+          </View>
         ) : items.length === 0 && categories.length === 0 ? (
-          <View style={styles.empty}><FolderOpen size={34} color={colors.muted} /><Text style={styles.emptyText}>No files yet.</Text></View>
+          <View style={styles.empty}>
+            <FolderOpen size={34} color={colors.muted} />
+            <Text style={styles.emptyTitle}>No documents yet</Text>
+            <Text style={styles.emptyText}>Upload prescriptions, lab reports or discharge summaries so they're with you when you need them. You can protect each one with a PIN.</Text>
+            <TouchableOpacity style={styles.emptyCta} onPress={startNewUpload}><Upload size={15} color={colors.onPrimary} /><Text style={styles.emptyCtaText}>Upload a document</Text></TouchableOpacity>
+          </View>
         ) : (
           <View style={{ marginTop: 16, gap: 14 }}>
             {categories.map((cat) => catSection(cat, items.filter((f) => f.category === cat), { removable: true }))}
@@ -490,7 +513,7 @@ export default function DocumentsScreen({ navigation }) {
             <View style={styles.sheetActions}>
               <TouchableOpacity style={styles.ghost} onPress={() => setPending(null)} disabled={uploading}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.primary, (uploading || !uploadName.trim()) && { opacity: 0.6 }]} onPress={doUpload} disabled={uploading || !uploadName.trim()}>
-                {uploading ? <ActivityIndicator color="#fff" /> : <><Upload size={15} color="#fff" /><Text style={styles.primaryText}>Upload</Text></>}
+                {uploading ? <ActivityIndicator color={colors.onPrimary} /> : <><Upload size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Upload</Text></>}
               </TouchableOpacity>
             </View>
           </View>
@@ -529,7 +552,7 @@ export default function DocumentsScreen({ navigation }) {
             <View style={styles.sheetActions}>
               <TouchableOpacity style={styles.ghost} onPress={() => setEditTarget(null)} disabled={editBusy}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.primary, (!editName.trim() || editBusy) && { opacity: 0.6 }]} onPress={submitEdit} disabled={!editName.trim() || editBusy}>
-                {editBusy ? <ActivityIndicator color="#fff" /> : <><Check size={15} color="#fff" /><Text style={styles.primaryText}>Save</Text></>}
+                {editBusy ? <ActivityIndicator color={colors.onPrimary} /> : <><Check size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Save</Text></>}
               </TouchableOpacity>
             </View>
           </View>
@@ -548,7 +571,7 @@ export default function DocumentsScreen({ navigation }) {
             <View style={styles.sheetActions}>
               <TouchableOpacity style={styles.ghost} onPress={() => setNewCatOpen(false)}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.primary, !newCatName.trim() && { opacity: 0.6 }]} onPress={submitNewCat} disabled={!newCatName.trim()}>
-                <Check size={15} color="#fff" /><Text style={styles.primaryText}>Create</Text>
+                <Check size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Create</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -581,7 +604,7 @@ export default function DocumentsScreen({ navigation }) {
             <View style={styles.sheetActions}>
               <TouchableOpacity style={styles.ghost} onPress={() => setDeleteTarget(null)} disabled={deleteBusy}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.primary, (!isDeleteConfirmed(deleteText) || deleteBusy) && { opacity: 0.6 }]} onPress={submitDelete} disabled={!isDeleteConfirmed(deleteText) || deleteBusy}>
-                {deleteBusy ? <ActivityIndicator color="#fff" /> : <><Trash2 size={15} color="#fff" /><Text style={styles.primaryText}>Delete</Text></>}
+                {deleteBusy ? <ActivityIndicator color={colors.onPrimary} /> : <><Trash2 size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Delete</Text></>}
               </TouchableOpacity>
             </View>
           </View>
@@ -623,11 +646,11 @@ export default function DocumentsScreen({ navigation }) {
                     setDeleteTarget(att); setDeleteText('')
                   }}
                 >
-                  <Check size={15} color="#fff" /><Text style={styles.primaryText}>Continue</Text>
+                  <Check size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Continue</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity style={[styles.primary, (pinValue.length !== 6 || opening) && { opacity: 0.6 }]} disabled={pinValue.length !== 6 || opening} onPress={() => openFile(pinPrompt.attachment, pinValue)}>
-                  {opening ? <ActivityIndicator color="#fff" /> : <><Eye size={15} color="#fff" /><Text style={styles.primaryText}>Open</Text></>}
+                  {opening ? <ActivityIndicator color={colors.onPrimary} /> : <><Eye size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Open</Text></>}
                 </TouchableOpacity>
               )}
             </View>
@@ -647,14 +670,18 @@ const makeStyles = (colors) => StyleSheet.create({
   sub: { color: colors.muted, marginTop: 4, fontSize: 13, lineHeight: 19 },
   uploadRow: { flexDirection: 'row', gap: 10, marginTop: 16, flexWrap: 'wrap' },
   uploadBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: colors.primary },
-  uploadText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  uploadText: { color: colors.onPrimary, fontWeight: '700', fontSize: 14 },
   catBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: 14, backgroundColor: colors.surface },
   catBtnText: { color: colors.primary, fontWeight: '700', fontSize: 14 },
-  errBox: { backgroundColor: colors.primarySoft, borderColor: colors.primaryBorder, borderWidth: 1, borderRadius: radius.md, padding: 12, marginTop: 14 },
-  errText: { color: colors.primary, fontSize: 13 },
+  errBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.dangerSoft, borderColor: colors.dangerBorder, borderWidth: 1, borderRadius: radius.md, padding: 12, marginTop: 14 },
+  errText: { color: colors.danger, fontSize: 13 },
   center: { paddingVertical: 40, alignItems: 'center' },
-  empty: { alignItems: 'center', gap: 12, paddingVertical: 60, marginTop: 20, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: radius.lg },
-  emptyText: { color: colors.muted },
+  empty: { alignItems: 'center', gap: 10, paddingVertical: 40, paddingHorizontal: 20, marginTop: 20, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: radius.lg },
+  emptyTitle: { color: colors.text, fontSize: 16, fontWeight: '700', textAlign: 'center' },
+  emptyText: { color: colors.muted, textAlign: 'center', lineHeight: 19 },
+  emptyCta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: 18 },
+  emptyCtaText: { color: colors.onPrimary, fontWeight: '700' },
+  retryText: { color: colors.primary, fontWeight: '700' },
   catGroup: { gap: 8, borderWidth: 1, borderColor: 'transparent', borderRadius: radius.md, padding: 4 },
   catGroupHover: { borderColor: colors.primary, borderStyle: 'dashed', backgroundColor: colors.primarySoft },
   dragGhost: { position: 'absolute', top: 0, left: 0, zIndex: 50, flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: 200, paddingVertical: 10, paddingHorizontal: 12, borderRadius: radius.md, borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.surface, elevation: 8, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
@@ -699,7 +726,7 @@ const makeStyles = (colors) => StyleSheet.create({
   ghost: { paddingVertical: 12, paddingHorizontal: 18, borderRadius: radius.md, backgroundColor: colors.surface2 },
   ghostText: { color: colors.textSecondary, fontWeight: '700' },
   primary: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 12, paddingHorizontal: 20, borderRadius: radius.md, backgroundColor: colors.primary },
-  primaryText: { color: '#fff', fontWeight: '700' },
+  primaryText: { color: colors.onPrimary, fontWeight: '700' },
   pinModal: { width: '100%', backgroundColor: colors.surface, borderRadius: radius.lg, padding: 18 },
   pinInput: { borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 18, color: colors.text, backgroundColor: colors.bg, letterSpacing: 6, textAlign: 'center', marginTop: 12 },
 })

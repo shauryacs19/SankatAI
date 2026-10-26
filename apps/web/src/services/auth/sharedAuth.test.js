@@ -1,18 +1,7 @@
 // @vitest-environment jsdom
 // @sankatai/shared auth helpers (used by web and mobile).
 import { describe, expect, it, vi } from 'vitest'
-import { createCognitoApi, parseIdentifier, preSignUpMessage, toE164, usernameError, uuidV4 } from '@sankatai/shared'
-
-describe('usernames', () => {
-  it.each([
-    ['asha.k', ''], ['Ravi_99', ''], ['ab', 'Use 3 to 20 characters.'], ['9lives', 'Start with a letter'],
-    ['a..b', 'Dots can'], ['asha.', 'Dots can'], ['admin', 'reserved'], ['asha@x', 'Start with a letter'],
-  ])('%s', (value, expected) => {
-    const error = usernameError(value)
-    if (expected) expect(error).toContain(expected)
-    else expect(error).toBe('')
-  })
-})
+import { createCognitoApi, parseIdentifier, preSignUpMessage, toE164, uuidV4 } from '@sankatai/shared'
 
 describe('phone numbers', () => {
   it.each([
@@ -25,8 +14,7 @@ describe('identifiers', () => {
   it.each([
     ['Asha@Gmail.com', { kind: 'email', value: 'asha@gmail.com' }],
     ['98765 43210', { kind: 'phone', value: '+919876543210' }],
-    ['Asha.K', { kind: 'username', value: 'asha.k' }],
-    ['not an email@', null], ['x', null],
+    ['Asha.K', null], ['not an email@', null], ['x', null],
   ])('%s', (input, expected) => expect(parseIdentifier(input)).toEqual(expected))
 })
 
@@ -49,7 +37,7 @@ describe('passwordless SMS calls', () => {
       .mockResolvedValueOnce(reply({ ChallengeName: 'SMS_OTP', Session: 'sess', ChallengeParameters: { CODE_DELIVERY_DESTINATION: '+91******3210' } }))
       .mockResolvedValueOnce(reply({ AuthenticationResult: { IdToken: 'i', AccessToken: 'a', RefreshToken: 'r', ExpiresIn: 3600 } }))
     const api = createCognitoApi({ region: 'ap-south-1', clientId: 'cid', fetchImpl })
-    expect(await api.startSmsSignIn('+919876543210')).toEqual({ session: 'sess', destination: '+91******3210' })
+    expect(await api.startSmsSignIn('+919876543210')).toEqual({ challenge: 'SMS_OTP', session: 'sess', destination: '+91******3210' })
     const [url, init] = fetchImpl.mock.calls[0]
     expect(url).toBe('https://cognito-idp.ap-south-1.amazonaws.com/')
     expect(init.headers['X-Amz-Target']).toBe('AWSCognitoIdentityProviderService.InitiateAuth')
@@ -73,5 +61,27 @@ describe('passwordless SMS calls', () => {
     const fetchImpl = vi.fn(async () => reply({ ChallengeName: 'SELECT_CHALLENGE', Session: 's' }))
     const api = createCognitoApi({ region: 'ap-south-1', clientId: 'cid', fetchImpl })
     await expect(api.startSmsSignIn('+919876543210')).rejects.toMatchObject({ code: 'SmsSignInUnavailable' })
+  })
+})
+
+describe('passwordless email calls', () => {
+  const reply = (body, ok = true) => ({ ok, json: async () => body })
+
+  it('starts USER_AUTH with EMAIL_OTP for an email and answers it', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(reply({ ChallengeName: 'EMAIL_OTP', Session: 'sess', ChallengeParameters: { CODE_DELIVERY_DESTINATION: 'a***@g***' } }))
+      .mockResolvedValueOnce(reply({ AuthenticationResult: { IdToken: 'i', AccessToken: 'a', RefreshToken: 'r', ExpiresIn: 3600 } }))
+    const api = createCognitoApi({ region: 'ap-south-1', clientId: 'cid', fetchImpl })
+    const started = await api.startCodeSignIn('asha@gmail.com', 'email')
+    expect(started).toEqual({ challenge: 'EMAIL_OTP', session: 'sess', destination: 'a***@g***' })
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body).AuthParameters).toEqual({ USERNAME: 'asha@gmail.com', PREFERRED_CHALLENGE: 'EMAIL_OTP' })
+    await api.answerCode({ identifier: 'asha@gmail.com', challenge: 'EMAIL_OTP', session: 'sess', code: '123456' })
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body).ChallengeResponses).toEqual({ USERNAME: 'asha@gmail.com', EMAIL_OTP: '123456' })
+  })
+
+  it('refuses an account without email sign-in', async () => {
+    const fetchImpl = vi.fn(async () => reply({ ChallengeName: 'SELECT_CHALLENGE', Session: 's' }))
+    const api = createCognitoApi({ region: 'ap-south-1', clientId: 'cid', fetchImpl })
+    await expect(api.startCodeSignIn('asha@gmail.com', 'email')).rejects.toMatchObject({ code: 'EmailSignInUnavailable' })
   })
 })

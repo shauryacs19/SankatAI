@@ -15,6 +15,10 @@ module "cognito" {
   # Passkeys are bound to the web app's own domain. No cycle: the distribution
   # depends only on the API's domain, not on the authorizer using this pool.
   passkey_relying_party_id = module.frontend.cloudfront_domain_name
+
+  # Email sign-in codes (EMAIL_OTP) through the project's SES sender, when set.
+  ses_sender_email = var.ses_sender_email
+  ses_identity_arn = one(aws_ses_email_identity.sender[*].arn)
 }
 
 module "frontend" {

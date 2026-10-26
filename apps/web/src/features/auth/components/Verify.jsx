@@ -64,10 +64,10 @@ export default function Verify() {
     setSubmitting(true)
     setError('')
     try {
-      await confirmSignUp(pending.username, code, pending.handle)
+      await confirmSignUp(pending.username, code)
       clearPendingSignUp()
       toast.success(`${byPhone ? 'Phone number' : 'Email'} verified. Sign in to continue.`)
-      navigate(loginPath(returnTo), { replace: true, state: { identifier: pending.handle || pending.destination } })
+      navigate(loginPath(returnTo), { replace: true, state: { identifier: pending.destination } })
     } catch (err) {
       setError(authErrorMessage(err, 'Couldn’t verify that code. Try again.'))
     } finally {

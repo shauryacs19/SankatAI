@@ -123,7 +123,7 @@ export default function EmergencyContactsScreen({ navigation }) {
               <View style={styles.modalActions}>
                 <TouchableOpacity style={styles.ghost} onPress={closeModal} disabled={saving}><Text style={styles.ghostText}>Cancel</Text></TouchableOpacity>
                 <TouchableOpacity style={[styles.primary, saving && { opacity: 0.6 }]} onPress={saveDraft} disabled={saving}>
-                  {saving ? <ActivityIndicator color="#fff" /> : <><Check size={15} color="#fff" /><Text style={styles.primaryText}>Save contact</Text></>}
+                  {saving ? <ActivityIndicator color={colors.onPrimary} /> : <><Check size={15} color={colors.onPrimary} /><Text style={styles.primaryText}>Save contact</Text></>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -162,5 +162,5 @@ const makeStyles = (colors) => StyleSheet.create({
   ghost: { paddingVertical: 11, paddingHorizontal: 16, borderRadius: radius.md, backgroundColor: colors.surface2 },
   ghostText: { color: colors.textSecondary, fontWeight: '700' },
   primary: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 11, paddingHorizontal: 18, borderRadius: radius.md, backgroundColor: colors.primary },
-  primaryText: { color: '#fff', fontWeight: '700' },
+  primaryText: { color: colors.onPrimary, fontWeight: '700' },
 })

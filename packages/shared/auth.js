@@ -3,42 +3,13 @@
 // same code runs in the browser and on React Native.
 //
 // Cognito pool model (infrastructure/terraform/modules/security/cognito):
-//   username            opaque UUID chosen at sign-up, never shown
-//   preferred_username  the person's unique, changeable handle (sign-in alias)
+//   username             opaque UUID chosen at sign-up, never shown
 //   email / phone_number sign-in aliases once verified
-// So "email, phone or username" all go to Cognito as the USERNAME parameter.
+// So "email or phone" goes to Cognito as the USERNAME parameter. There are no
+// user-chosen usernames (preferred_username stays a pool alias only because
+// Cognito can't change alias_attributes without replacing the pool).
 
 import { isEmail } from './validation'
-
-// ── usernames ────────────────────────────────────────────────────────────────
-// Starting with a letter keeps a username from ever looking like a phone
-// number, and "@" is not allowed, so never like an email. Cognito enforces
-// uniqueness (preferred_username is an alias), case-insensitively.
-export const USERNAME_MIN = 3
-export const USERNAME_MAX = 20
-const USERNAME_RE = /^[a-z][a-z0-9_.]*$/
-const RESERVED_USERNAMES = new Set([
-  'admin', 'administrator', 'root', 'sankatai', 'sankat', 'support', 'help', 'system',
-  'security', 'moderator', 'staff', 'official', 'doctor', 'emergency',
-])
-
-export const normalizeUsername = (raw) => String(raw || '').trim().toLowerCase()
-
-/** '' when valid, otherwise a message for the form. */
-export const usernameError = (raw) => {
-  const u = normalizeUsername(raw)
-  if (!u) return 'Choose a username.'
-  if (u.length < USERNAME_MIN || u.length > USERNAME_MAX) return `Use ${USERNAME_MIN} to ${USERNAME_MAX} characters.`
-  if (!USERNAME_RE.test(u)) return 'Start with a letter, then use only letters, numbers, dots and underscores.'
-  if (u.includes('..') || u.endsWith('.')) return 'Dots can’t be doubled or come last.'
-  if (RESERVED_USERNAMES.has(u)) return 'That username is reserved. Choose another.'
-  return ''
-}
-
-const isUsernameFormat = (raw) => {
-  const u = normalizeUsername(raw)
-  return u.length >= USERNAME_MIN && u.length <= USERNAME_MAX && USERNAME_RE.test(u)
-}
 
 // ── phone numbers ────────────────────────────────────────────────────────────
 // Cognito wants E.164 (+919876543210). A number typed without a country code
@@ -61,18 +32,16 @@ export const maskPhone = (e164) => (e164 ? `${e164.slice(0, 3)} ••••• 
 
 // ── identifiers ──────────────────────────────────────────────────────────────
 /**
- * Classify what someone typed in "Email, phone or username".
- * @returns {{kind: 'email'|'phone'|'username', value: string}|null}
+ * Classify what someone typed in "Email or phone number".
+ * @returns {{kind: 'email'|'phone', value: string}|null}
  */
 export const parseIdentifier = (raw) => {
   const s = String(raw || '').trim()
   if (!s) return null
   if (s.includes('@')) return isEmail(s) ? { kind: 'email', value: s.toLowerCase() } : null
-  if (/^[+\d][\d\s().-]*$/.test(s)) {
-    const phone = toE164(s)
-    return phone ? { kind: 'phone', value: phone } : null
-  }
-  return isUsernameFormat(s) ? { kind: 'username', value: normalizeUsername(s) } : null
+  if (!/^[+\d][\d\s().-]*$/.test(s)) return null
+  const phone = toE164(s)
+  return phone ? { kind: 'phone', value: phone } : null
 }
 
 // ── random values ────────────────────────────────────────────────────────────
@@ -119,26 +88,33 @@ export const createCognitoApi = ({ region, clientId, fetchImpl }) => {
     return { idToken: r.IdToken, accessToken: r.AccessToken, refreshToken: r.RefreshToken, expiresIn: r.ExpiresIn }
   }
   return {
-    /** Cognito texts a code to the account's verified phone. */
-    async startSmsSignIn(phone) {
+    /**
+     * One-time-code sign-in. `kind` 'email' → Cognito emails the code
+     * (EMAIL_OTP), 'phone' → texts it (SMS_OTP).
+     */
+    async startCodeSignIn(identifier, kind) {
+      const challenge = kind === 'email' ? 'EMAIL_OTP' : 'SMS_OTP'
       const res = await call('InitiateAuth', {
         ClientId: clientId,
         AuthFlow: 'USER_AUTH',
-        AuthParameters: { USERNAME: phone, PREFERRED_CHALLENGE: 'SMS_OTP' },
+        AuthParameters: { USERNAME: identifier, PREFERRED_CHALLENGE: challenge },
       })
-      if (res.ChallengeName !== 'SMS_OTP') throw cognitoError('SmsSignInUnavailable')
-      return { session: res.Session, destination: res.ChallengeParameters?.CODE_DELIVERY_DESTINATION || '' }
+      if (res.ChallengeName !== challenge) throw cognitoError(kind === 'email' ? 'EmailSignInUnavailable' : 'SmsSignInUnavailable')
+      return { challenge, session: res.Session, destination: res.ChallengeParameters?.CODE_DELIVERY_DESTINATION || '' }
     },
-    /** Answer with the texted code; resolves the tokens. */
-    async answerSmsCode({ phone, session, code }) {
+    /** Answer with the emailed/texted code; resolves the tokens. */
+    async answerCode({ identifier, challenge, session, code }) {
       const res = await call('RespondToAuthChallenge', {
         ClientId: clientId,
-        ChallengeName: 'SMS_OTP',
+        ChallengeName: challenge,
         Session: session,
-        ChallengeResponses: { USERNAME: phone, SMS_OTP: String(code).trim() },
+        ChallengeResponses: { USERNAME: identifier, [challenge]: String(code).trim() },
       })
       return tokensOf(res)
     },
+    // Back-compat wrappers (SMS only).
+    startSmsSignIn(phone) { return this.startCodeSignIn(phone, 'phone') },
+    answerSmsCode({ phone, session, code }) { return this.answerCode({ identifier: phone, challenge: 'SMS_OTP', session, code }) },
 
     // Passkeys (WebAuthn). Cognito returns and accepts the standard WebAuthn
     // JSON forms (base64url binary fields); the platform does the ceremony.
@@ -175,7 +151,7 @@ export const createCognitoApi = ({ region, clientId, fetchImpl }) => {
     async deletePasskey({ accessToken, credentialId }) {
       await call('DeleteWebAuthnCredential', { AccessToken: accessToken, CredentialId: credentialId })
     },
-    /** Change the signed-in person's own attributes, e.g. { preferred_username }. */
+    /** Change the signed-in person's own attributes, e.g. { name }. */
     async updateAttributes({ accessToken, attributes }) {
       await call('UpdateUserAttributes', {
         AccessToken: accessToken,

@@ -86,7 +86,7 @@ export default function DashboardLayout() {
         <div className="sh-side-extra">
           <p className="ui-overline sh-side-heading">Quick actions</p>
           <ul role="list" className="sh-nav">
-            <li><button type="button" className="sh-nav-item" onClick={d.handleFindHospitals}><MapPin size={20} aria-hidden="true" /><span className="sh-nav-label">Find nearby hospitals</span></button></li>
+            <li><button type="button" className="sh-nav-item" onClick={d.handleFindHospitalsNewChat}><MapPin size={20} aria-hidden="true" /><span className="sh-nav-label">Find nearby hospitals</span></button></li>
             <li><button type="button" className="sh-nav-item" onClick={() => navigate('/documents/upload')}><Upload size={20} aria-hidden="true" /><span className="sh-nav-label">Upload a report</span></button></li>
           </ul>
 
@@ -175,7 +175,7 @@ export default function DashboardLayout() {
           <li><button type="button" className="sh-more-item" onClick={() => go('/dashboard/profile')}><User size={20} aria-hidden="true" />Health profile</button></li>
           <li><button type="button" className="sh-more-item" onClick={() => go('/dashboard/settings')}><Settings size={20} aria-hidden="true" />Settings</button></li>
           <li><button type="button" className="sh-more-item" onClick={() => go('/documents/upload')}><Upload size={20} aria-hidden="true" />Upload a report</button></li>
-          <li><button type="button" className="sh-more-item" onClick={() => { setMoreOpen(false); d.handleFindHospitals() }}><MapPin size={20} aria-hidden="true" />Find nearby hospitals</button></li>
+          <li><button type="button" className="sh-more-item" onClick={() => { setMoreOpen(false); d.handleFindHospitalsNewChat() }}><MapPin size={20} aria-hidden="true" />Find nearby hospitals</button></li>
         </ul>
         <div className="sh-disclaimer sh-disclaimer--sheet"><ShieldCheck size={16} aria-hidden="true" /><p>{AI_DISCLAIMER}</p></div>
       </Modal>

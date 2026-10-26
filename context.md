@@ -3,7 +3,7 @@
 > **Purpose:** single source of truth so Claude can get up to speed without
 > re-reading the whole codebase. **Claude updates this file after every completed
 > task** (append to the Changelog + adjust the relevant sections).
-> Last updated: 2026-10-25 (nearby care in the chat: specialty-aware hospitals/clinics + map — §9i).
+> Last updated: 2026-10-26 (usernames removed; single email/phone sign-in + code/passkey links; EMAIL_OTP; favicon; nav nearby → new chat — §9g, §10).
 
 ---
 
@@ -148,6 +148,13 @@ Non-secret settings are inline in the compose files; `AUTH_SESSION_SECRET` and
   ⚠️ Profile **PUT replaces the whole record** — every section save merges edits over the
   current profile (`saveProfile({ ...profile, ...edits })`). Medical editor also holds risk
   factors + insurance. No new backend fields were invented (schema unchanged).
+- **Web-parity port (2026-10-08):** `components/Toast.js` (ToastProvider in `App.js`, wrapped in
+  `SafeAreaProvider`), `lib/errText.js`, `lib/authErrors.js` (web messages + `PASSWORD_RULES`),
+  `ThemeContext` adds `colors.onPrimary/warning*/danger*/success*` + `sev` (= shared `severityTokens`,
+  use `sev[X].ink` for severity TEXT). Admin console = stack screen `Admin` (`screens/AdminScreen.js`,
+  drawer entry only when the ID token's `cognito:groups` ∋ ADMIN); admin calls send the ACCESS token
+  (`request(..., { useAccessToken: true })`). Login: forgot password, NEW_PASSWORD challenge,
+  password checklist, terms checkbox, 60 s resend cooldown, 5 fails → 30 s lock.
 - Features: chat (search/rename/feedback/analysis/animations, content-hugging bubbles, attachments);
   profile (personal/medical/contacts, **insurance**, **risk factors**, **security PINs**
   via `components/SecurityPins.js`); documents (real S3 uploads, password-protect by PIN,
@@ -452,7 +459,7 @@ stored correctly (`en-IN`), but the model followed the Hindi history over the sy
 `openai_provider.build_messages` now also appends `language_reminder(lang)` to the **latest user
 turn in the prompt only** (never stored), and the directive says "even if earlier messages used
 another language"; the Devanagari rule applies to Hindi only.
-**Translate a reply (web; mobile not yet):** `POST /api/consultations/{cid}/messages/{mid}/translate
+**Translate a reply (web + mobile since 2026-10-08):** `POST /api/consultations/{cid}/messages/{mid}/translate
 {target: en|hi|hinglish}` → `{content, target, lang}` (`services/translation_service.py`). Only the
 caller's assistant replies; only text values (`reasoning`, `advice`, `disclaimer`,
 `followUpQuestions`) are translated — `severity`/`riskScore` always copied from the original.
@@ -667,45 +674,33 @@ unused. **Existing web sessions (memory-only) end once on deploy; users sign in 
 
 **Tests:** `app/auth.test.jsx` (26), `services/api/httpClient.test.js` (4).
 
-## 9g. Sign-in: username / email / phone, texted codes, passkeys (2026-09-26)
+## 9g. Sign-in: email / phone, emailed or texted codes, passkeys (2026-09-26, revised 2026-10-26)
 
-**Pool** (`modules/security/cognito`): new `sankatai-users` (Essentials tier, deletion
-protection ACTIVE). `alias_attributes = [email, phone_number, preferred_username]`, case-insensitive;
-Cognito `username` = client-generated UUID (never shown); the person's handle is
-`preferred_username` (unique via alias, changeable, rules in `@sankatai/shared` `usernameError`:
-3–20, starts with a letter, a-z0-9 . _, reserved names). `sign_in_policy` first factors
-`PASSWORD`, `SMS_OTP`, `WEB_AUTHN` (EMAIL_OTP off: needs SES as pool mailer, SES still sandbox;
-pool email = Cognito default, 50/day). MFA OFF. SMS via SNS role `sankatai-cognito-sms` —
-**SNS SMS sandbox: only verified destination numbers get texts; India needs TRAI DLT** before
-real traffic. Old pool/client/domain/group kept by `removed { destroy = false }` (no user deleted).
-Client `sankatai-app`: flows USER_AUTH, SRP, USER_PASSWORD (mobile), REFRESH; **no OAuth, no
-Cognito domain, IdP `COGNITO` only** — Google/Facebook were built then REMOVED on 2026-09-26 at the
-user's request (too much setup); the `sankatai-signin` domain was destroyed.
-**Triggers Lambda** `sankatai-cognito-pre-sign-up` (py3.12, `backend/lambdas/cognito_pre_sign_up.py`,
-tests `backend/tests/test_cognito_pre_sign_up.py`, zipped by the `hashicorp/archive` provider):
-pre sign-up needs email or phone, rejects an email/phone another account has VERIFIED, and checks
-the requested username. ⚠️ **Cognito refuses `preferred_username` on an unconfirmed account in an
-alias pool** (broke first sign-ups on 2026-09-26): the username goes as **ClientMetadata** on
-SignUp and again on ConfirmSignUp; the same Lambda as **post confirmation** trigger sets it with
-`AdminUpdateUserAttributes` (never fails the confirmation). ConfirmSignUp uses
-`ForceAliasCreation=false` (true would move a verified email/phone off another account).
+**No usernames (2026-10-26).** People sign in with a verified email or phone only. `preferred_username`
+stays in `alias_attributes` ONLY because changing that list replaces the pool (deletes all accounts);
+apps never set/read it. Shared `usernameError/normalizeUsername/USERNAME_*` removed; `parseIdentifier`
+returns only `email|phone`. Web `UsernameCard` + mobile username card deleted; `updateUsername` gone.
+**Pool** (`modules/security/cognito`): `sankatai-users` (Essentials, deletion protection ACTIVE),
+Cognito `username` = client UUID (never shown), case-insensitive. First factors `PASSWORD`, `SMS_OTP`,
+`WEB_AUTHN`, + **`EMAIL_OTP` only when `ses_sender_email` is set** (root passes `ses_sender_email` +
+`ses_identity_arn`; pool then uses `email_configuration` DEVELOPER via SES; root `email.tf` adds
+`aws_ses_identity_policy` for `email.cognito-idp.amazonaws.com`). ⚠️ SES sandbox: codes reach verified
+recipients only. MFA OFF. SMS via SNS role `sankatai-cognito-sms` — **SNS SMS sandbox + India TRAI DLT**.
+Client `sankatai-app`: USER_AUTH, SRP, USER_PASSWORD (mobile), REFRESH; no OAuth/domain, IdP COGNITO only.
+**Trigger Lambda** `sankatai-cognito-pre-sign-up` (`backend/lambdas/cognito_pre_sign_up.py`): pre sign-up
+only — needs email or phone, rejects one another account has VERIFIED. Post-confirmation trigger and
+`AdminUpdateUserAttributes` removed 2026-10-26. ConfirmSignUp `ForceAliasCreation=false`.
 
-**Shared** (`packages/shared/auth.js`): username/phone (`toE164`, default +91)/identifier parsing,
-`createCognitoApi` (USER_AUTH SMS_OTP + WEB_AUTHN, WebAuthn registration/list/delete,
-UpdateUserAttributes), `uuidV4`, `preSignUpMessage`. Tests: `apps/web/src/services/auth/
-sharedAuth.test.js`, `webauthn.test.js`.
+**Shared** (`packages/shared/auth.js`): `toE164` (default +91), `parseIdentifier`, `createCognitoApi`
+(`startCodeSignIn(id, kind)` → EMAIL_OTP|SMS_OTP, `answerCode`, back-compat `startSmsSignIn/answerSmsCode`,
+WebAuthn, UpdateUserAttributes), `uuidV4`, `preSignUpMessage`.
 
-**Web**: Login tabs Password (email/phone/username, SRP) | Text me a code | Passkey (only where
-the browser supports it). OTP/passkey tokens adopted into the library's storage (`adoptTokens`),
-so restore/refresh are unchanged. Signup: name, username, Email|Phone, password; pending sign-up
-(Cognito UUID + handle) in sessionStorage for `/verify`. Settings: username card, email/phone rows,
-passkeys card, change password. Sign-out asks first (web `SignOutDialog`, mobile `Alert`).
-`/auth/callback` just redirects to `/` (old bookmarks).
-**Passkeys (web only):** relying party = the CloudFront domain, so they work on the deployed
-site only (not localhost). Hand-written base64url conversion in `services/auth/webauthn.js`.
-Mobile passkeys not built (needs a native module + associated domains).
-**Mobile**: `LoginScreen` password or texted code; sign-up with username + email/phone.
-SecureStore key `sankatai_username` (was email). Pool/client defaults in `src/config.js`.
+**Web Login**: one "Email or phone number" field + password + Sign in; below it text links
+"Email me a code"/"Text me a code" (label follows what's typed; code goes to that email/phone) and
+"Use a passkey" (only where supported). Same field drives all three. Tokens adopted via `adoptTokens`.
+Signup: name, Email|Phone, password. Settings: email/phone rows, passkeys, change password.
+**Passkeys (web only):** RP = CloudFront domain (not localhost). Mobile passkeys not built.
+**Mobile** `LoginScreen`: same single field + password; "Email/Text me a code" link (no passkey).
 **Backend**: unchanged request path. `bootstrap_admin.py` first retires admin rows whose Cognito
 user no longer exists (`retire_orphaned_admins`). Root re-bootstrapped in the new pool 2026-09-26.
 
@@ -832,13 +827,6 @@ still read "Signing in…"); fixed 2026-10-20. Workflow YAML: never put `: ` in 
 a diagnosis; in-process bandit cache/vision executor per instance. **Not verified:** real Ollama generate/vision calls,
 the S3 registry against real AWS, the retrain workflow run, mobile UI (unchanged; reads the old keys).
 
-## 10. Changelog (most recent first)
-- **Questions come from Ollama; tap-to-answer questionnaire (2026-10-20, NOT committed — working tree on main):**
-  see §9h "Questions" / "Answers". The LLM decides whether to ask, what, and the answer options; the web renders them
-  (radios, "Other" box, text box) and sends one summary message + structured answers; severity stays model + rules.
-  Removed our own question picker. Fixes found on the way: Hindi yes/no ("हाँ"/"नहीं") never parsed (`\b` after a
-  vowel sign) — now a lookahead; red flags now also catch "lips are/look turning blue", "face going purple",
-  "chest feels tight/heavy". Verified: backend 245, web 161 tests, build OK, desktop preview (answer with taps +
 ## 9i. Nearby care in the chat (2026-10-25)
 
 **Care focus:** every assessment now carries `care: {issue, specialty}`. The LLM names it (prompt lists the 15 keys in
@@ -876,13 +864,20 @@ uses the AWS CLI profile locally and the instance role in AWS.
 **Not verified:** real Ollama returning `care` (no AI key locally; the fallback covers it), the endpoint in AWS,
 mobile (unchanged; can call the same endpoint later).
 
-  "Other" + text → exact payload, card collapses, assessment renders). Not verified: real Ollama output.
+## 10. Changelog (most recent first)
 - **Nearby care in the chat (2026-10-25, branch `feature/nearby-care`, PR):** see §9i. Specialty-aware
   hospitals/clinics (Amazon Location), in-chat card with top 3 + distances + map; auto at risk ≥ 65, button below;
   sidebar button uses chat context; fixed the 1.5-min blank Google Maps tab. IAM APPLIED. Invalid AWS keys removed
   from backend/.env. Dead code removed (vulture/ruff + knip scan; only truly unreferenced items): backend
   `security_pin_service.has_pins`, web `cognito.currentUser`, UI `Tabs` component. Backend 264,
   web 172 tests, build OK, lint = the 7 pre-existing errors. Checked with real place results (sample location).
+- **Questions come from Ollama; tap-to-answer questionnaire (2026-10-20, NOT committed — working tree on main):**
+  see §9h "Questions" / "Answers". The LLM decides whether to ask, what, and the answer options; the web renders them
+  (radios, "Other" box, text box) and sends one summary message + structured answers; severity stays model + rules.
+  Removed our own question picker. Fixes found on the way: Hindi yes/no ("हाँ"/"नहीं") never parsed (`\b` after a
+  vowel sign) — now a lookahead; red flags now also catch "lips are/look turning blue", "face going purple",
+  "chest feels tight/heavy". Verified: backend 245, web 161 tests, build OK, desktop preview (answer with taps +
+  "Other" + text → exact payload, card collapses, assessment renders). Not verified: real Ollama output.
   Then (same day, user request): questions shown ONE AT A TIME with ‹ › + dots + review step, and an animated thanks
   popup for Yes/No. Web 164 tests; preview checked with the pane visible (tap → next question ~0.4 s, review → send →
   card collapses; popup shows and leaves by itself). Measurements from a hidden Browser pane are throttled — ignore them.
@@ -966,6 +961,23 @@ mobile (unchanged; can call the same endpoint later).
     build OK. Preview QA (`__qa`/`__contrast`) on 13 routes × light/dark × 360/1280px: 0 contrast failures,
     no horizontal overflow; tablet rail, admin console, home → sign-up → chat hand-off checked.
     **Not verified:** real signed-in session, real devices, OS reduced-motion (code paths only).
+- **Mobile ↔ web parity (2026-10-08):** every web change since the redesign ported to `apps/mobile`
+  (frontend only; no backend/infra change). Chat: translate cycle (EN→हिन्दी→Hinglish, `translateMessage`,
+  read-aloud passes `variant`), failed send = "Not sent" + retryable error row (no fake AI reply),
+  offline-estimate card (dashed + warning, no AI mark), emergency panel without "Risk 0" (severity only
+  after an assessment; contact actions disabled + hint), hospital search falls back to "near me",
+  location/feedback/unsend/attach failures → toast, chats-load error + retry, "Analysing your
+  symptoms…", web empty-state copy, Verified badges removed. History grouped Today/Yesterday/Earlier
+  with relTime + severity, empty/error states, delete confirm + toasts. Emergency tab: Call 108 hero
+  first, contact empty state. Profile: required-only completion (hidden at 100%). Documents: empty/
+  error states + success toasts. Settings: service-status copy. Auth: see §6. Admin console (all 7
+  sections, IST ranges, CSV via Share, invites/revoke/remove/leave, audit "Load more"). Dark theme:
+  `onPrimary` ink on primary fills. Kept mobile-only: drawer + quick actions (copy fixed), Shake-SOS,
+  secure-note pill, swipe gestures, PIN-gated typed delete, grid/list + drag-to-category, pull-to-
+  refresh, SecureStore auth, profile hub/editors. Not ported: passkeys, invite-accept page (link opens
+  the web). Verified: babel parse + eslint no-undef on all touched files; `expo export --platform android`
+  (see result below). Not verified on a device.
+- **Project report (2026-10-08):** `SankatAI_Project_Report.docx` at repo root (college format: TNR 16/12, 1.5 spacing, 1" margins, A4, 10 pages incl. front, each major section on its own page). Team voice, not cloud-centric: Methodology = 3.1 Full Stack, 3.2 AI/ML, 3.3 Data Science, 3.4 Cloud & DevOps (one page each). Front page: 6 members, guide Dr. Indu Choudhary, KIIT University. Mobile app only in Future Scope; current AWS cost est. ~$50–55/mo (no added-then-removed history). Fig 2 = user-supplied AWS architecture image (full width). Earlier AWS-icon PNG + Eraser source kept at repo root.
 - **Root admin (2026-09-26):** see §9e. Backend 105 tests, web 90 tests + build pass. Prod row
   already set to root; protection takes effect when the backend is deployed (push to main).
 - **H1 fixed + APPLIED (2026-09-26, targeted apply, distribution Deployed; verified: 0 custom
@@ -2525,3 +2537,15 @@ mobile (unchanged; can call the same endpoint later).
 - **Chat upgrades**: rename, search, like/dislike feedback.
 - Fixed "network request failed": LAN-IP auto-detect + fetch timeouts.
 - **Upgraded Expo SDK 51 → 54** (fixed app not loading in current Expo Go).
+
+- **2026-10-26 — usernames removed + sign-in simplified (§9g):** single email/phone field, password,
+  then code/passkey links; EMAIL_OTP (Terraform, gated on `ses_sender_email`). Lambda: username logic +
+  post-confirmation removed. Tests updated (`apps/web/src/app/auth.test.jsx`, `sharedAuth.test.js`,
+  `backend/tests/test_cognito_pre_sign_up.py`) — **NOT yet run** (VM can't run Windows node_modules):
+  run vitest, pytest, `terraform validate/plan`, then `terraform apply` before deploying.
+- **2026-10-26 — web favicon:** `apps/web/public/favicon.svg` (HeartPulse on #426F68), `index.html` points to it
+  (was `/vite.svg`).
+- **2026-10-26 — nav "Find nearby hospitals" opens a NEW chat:** `useDashboard.handleFindHospitalsNewChat`
+  (`startDraft('')` + nearby care with `cid:null` → `end:new`); used by sidebar + mobile More menu.
+  Emergency/analysis buttons keep `handleFindHospitals` (current chat).
+

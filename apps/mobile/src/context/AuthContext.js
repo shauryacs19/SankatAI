@@ -51,7 +51,7 @@ export function AuthProvider({ children }) {
   // Out-of-band sign-out (refresh failure / hard 401 in the API client).
   useEffect(() => onSignOut(() => { if (mounted.current) setStatus(AUTH_STATUS.UNAUTHENTICATED) }), [])
 
-  // Password sign-in. `identifier`: username, email or phone (E.164).
+  // Password sign-in. `identifier`: email or phone (E.164).
   const signIn = useCallback(async (identifier, password) => {
     await cognitoSignIn(identifier, password)
     setInitialRoute(await resolveInitialRoute())

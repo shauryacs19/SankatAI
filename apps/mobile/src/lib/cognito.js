@@ -9,7 +9,7 @@ import 'react-native-get-random-values'
 // fast reads and persist tokens to the platform secure keystore (iOS Keychain /
 // Android Keystore via expo-secure-store) — never AsyncStorage/localStorage/plain files.
 //
-// Ways in: password (username, email or phone — all Cognito aliases) or a
+// Ways in: password (email or phone — Cognito aliases; no usernames) or a
 // texted one-time code (Cognito USER_AUTH / SMS_OTP).
 
 import * as SecureStore from 'expo-secure-store'
@@ -17,7 +17,7 @@ import {
   CognitoUserPool, CognitoUser, AuthenticationDetails, CognitoUserAttribute,
   CognitoRefreshToken,
 } from 'amazon-cognito-identity-js'
-import { createCognitoApi, normalizeUsername, uuidV4 } from '@sankatai/shared'
+import { createCognitoApi, uuidV4 } from '@sankatai/shared'
 import { COGNITO } from '../config'
 
 // Individual SecureStore entries (each token stays well under the 2KB limit).
@@ -185,7 +185,8 @@ export const getCurrentAccount = () => {
   return {
     email: c.email || null,
     phone: c.phone_number || null,
-    username: c.preferred_username || null,
+    // UX only (shows the Admin console entry); the backend decides access.
+    groups: Array.isArray(c['cognito:groups']) ? c['cognito:groups'] : [],
   }
 }
 export const getCurrentEmail = () => getCurrentAccount().email
@@ -197,34 +198,37 @@ export async function getValidIdToken() {
   return refreshSession()
 }
 
+// The admin API re-verifies an ACCESS token (token_use=access), so admin calls
+// send this one instead of the ID token. Refreshes first like the ID token.
+export async function getValidAccessToken() {
+  if (!currentSession?.refreshToken) return null
+  if (!currentSession.accessToken || isExpired(currentSession, EXPIRY_SKEW_MS)) await refreshSession()
+  return currentSession?.accessToken || null
+}
+
 // ── sign-up ─────────────────────────────────────────────────────────────────
 
 /**
  * Create an account with an email or a phone (E.164). The Cognito username is
- * a fresh UUID; people sign in with their chosen username, email or phone.
- * The chosen username goes as ClientMetadata (Cognito refuses
- * preferred_username on an unconfirmed account when it is an alias); the pool's
- * triggers check it at sign-up and set it on confirmation.
+ * a fresh UUID (never shown); people sign in with their email or phone.
  * @returns {Promise<{username: string}>} the Cognito username, needed to confirm.
  */
-export const signUp = ({ username, email, phone, name, password }) =>
+export const signUp = ({ email, phone, name, password }) =>
   new Promise((resolve, reject) => {
     const cognitoUsername = uuidV4((a) => crypto.getRandomValues(a))
     const attrs = []
     if (email) attrs.push(new CognitoUserAttribute({ Name: 'email', Value: email.trim().toLowerCase() }))
     if (phone) attrs.push(new CognitoUserAttribute({ Name: 'phone_number', Value: phone }))
     if (name?.trim()) attrs.push(new CognitoUserAttribute({ Name: 'name', Value: name.trim() }))
-    const metadata = { preferred_username: normalizeUsername(username) }
-    userPool.signUp(cognitoUsername, password, attrs, null, (err) => (err ? reject(err) : resolve({ username: cognitoUsername })), metadata)
+    userPool.signUp(cognitoUsername, password, attrs, null, (err) => (err ? reject(err) : resolve({ username: cognitoUsername })))
   })
 
 // ForceAliasCreation stays false: an email/phone another account has verified
 // is never moved to this one.
-export const confirmSignUp = (cognitoUsername, code, handle) =>
+export const confirmSignUp = (cognitoUsername, code) =>
   new Promise((resolve, reject) => {
     const user = new CognitoUser({ Username: cognitoUsername, Pool: userPool, Storage: memoryStore })
-    const metadata = handle ? { preferred_username: normalizeUsername(handle) } : undefined
-    user.confirmRegistration(code, false, (err, res) => (err ? reject(err) : resolve(res)), metadata)
+    user.confirmRegistration(code, false, (err, res) => (err ? reject(err) : resolve(res)))
   })
 
 export const resendConfirmationCode = (cognitoUsername) =>
@@ -235,7 +239,7 @@ export const resendConfirmationCode = (cognitoUsername) =>
 
 // ── password sign-in ────────────────────────────────────────────────────────
 
-/** `identifier`: username, verified email, or verified phone (E.164). */
+/** `identifier`: verified email or verified phone (E.164). */
 export const signIn = (identifier, password) =>
   new Promise((resolve, reject) => {
     const details = new AuthenticationDetails({ Username: identifier, Password: password })
@@ -256,7 +260,14 @@ export const signIn = (identifier, password) =>
       user.authenticateUser(details, {
         onSuccess,
         onFailure,
-        newPasswordRequired: () => onFailure(new Error('A new password is required. Please sign in on the website to set it first.')),
+        // Admin-created accounts must choose a password first (web parity:
+        // NEW_PASSWORD step). Held until completeNewPassword() answers it.
+        newPasswordRequired: () => {
+          pendingNewPassword = { user, onSuccess }
+          const e = new Error('Choose a new password to finish signing in.')
+          e.code = 'NewPasswordRequired'
+          reject(e)
+        },
         mfaRequired: () => onFailure(new Error('Multi-factor auth is not supported in the app yet.')),
         totpRequired: () => onFailure(new Error('Multi-factor auth is not supported in the app yet.')),
         mfaSetup: () => onFailure(new Error('Multi-factor setup is required. Please complete it on the website.')),
@@ -272,20 +283,52 @@ export const signIn = (identifier, password) =>
     })
   })
 
-// ── texted-code sign-in (passwordless) ──────────────────────────────────────
+let pendingNewPassword = null // { user, onSuccess } from a NEW_PASSWORD challenge
 
-let pendingCode = null // { phone, session }
+/** Answer the NEW_PASSWORD challenge from signIn(); stores the session on success. */
+export const completeNewPassword = (newPassword) =>
+  new Promise((resolve, reject) => {
+    const pending = pendingNewPassword
+    if (!pending) { const e = new Error('Your sign-in expired. Start again.'); e.code = 'NoPendingSignIn'; reject(e); return }
+    pending.user.completeNewPasswordChallenge(newPassword, {}, {
+      onSuccess: async (session) => {
+        pendingNewPassword = null
+        try { await writeSecure(sessionToData(session)); resolve(session) } catch (err) { await clearSecure(); reject(err) }
+      },
+      onFailure: reject,
+    })
+  })
+export const cancelNewPassword = () => { pendingNewPassword = null }
 
-/** Text a sign-in code to the account's verified phone (E.164). */
-export const startCodeSignIn = async (phone) => {
-  const { session, destination } = await api().startSmsSignIn(phone)
-  pendingCode = { phone, session }
-  return { destination }
+// ── forgot password ─────────────────────────────────────────────────────────
+
+/** Send a reset code to the account's email/phone. `identifier`: email or phone. */
+export const resetPassword = (identifier) =>
+  new Promise((resolve, reject) => {
+    const user = new CognitoUser({ Username: identifier, Pool: userPool, Storage: memoryStore })
+    user.forgotPassword({ onSuccess: resolve, onFailure: reject, inputVerificationCode: resolve })
+  })
+
+export const confirmResetPassword = (identifier, code, newPassword) =>
+  new Promise((resolve, reject) => {
+    const user = new CognitoUser({ Username: identifier, Pool: userPool, Storage: memoryStore })
+    user.confirmPassword(code, newPassword, { onSuccess: resolve, onFailure: reject })
+  })
+
+// ── one-time-code sign-in (passwordless) ────────────────────────────────────
+
+let pendingCode = null // { identifier, challenge, session }
+
+/** Email (EMAIL_OTP) or text (SMS_OTP) a sign-in code. `id` from parseIdentifier. */
+export const startCodeSignIn = async ({ kind, value }) => {
+  const { challenge, session, destination } = await api().startCodeSignIn(value, kind)
+  pendingCode = { identifier: value, challenge, session }
+  return { destination, kind }
 }
 
 export const confirmCodeSignIn = async (code) => {
   if (!pendingCode) throw new Error('That sign-in expired. Request a new code.')
-  const tokens = await api().answerSmsCode({ ...pendingCode, code })
+  const tokens = await api().answerCode({ ...pendingCode, code })
   pendingCode = null
   await writeSecure(tokensToData(tokens))
 }
@@ -298,18 +341,8 @@ export const signOut = async () => {
   const user = userPool.getCurrentUser()
   if (user) user.signOut()
   pendingCode = null
+  pendingNewPassword = null
   await clearSecure()
-}
-
-/**
- * Set or change the username (preferred_username). Cognito rejects a taken one
- * with AliasExistsException. Refreshes tokens so the new name shows at once.
- */
-export async function updateUsername(username) {
-  if (!currentSession?.accessToken) throw new Error('Sign in again to change your username.')
-  await api().updateAttributes({ accessToken: currentSession.accessToken, attributes: { preferred_username: normalizeUsername(username) } })
-  await refreshSession()
-  return getCurrentAccount()
 }
 
 // Change the account password. Re-authenticates with the current password first

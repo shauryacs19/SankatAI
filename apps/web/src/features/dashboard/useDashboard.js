@@ -367,6 +367,14 @@ export function useDashboard() {
     navigate('/dashboard/chat')
     void showNearbyCare({ cid: activeId, anchor })
   }
+  // Sidebar / mobile "More" nav "Find nearby hospitals": always a NEW chat
+  // (unsaved draft; created on first Send) showing nearby care, so the current
+  // conversation is left untouched.
+  const handleFindHospitalsNewChat = () => {
+    startDraft('')
+    navigate('/dashboard/chat')
+    void showNearbyCare({ cid: null, anchor: null })
+  }
   const handleSendLocationAlert = () => {
     if (!primaryContact?.phone) return
     if (!navigator.geolocation) { toast.error('This browser cannot share your location. Call your contact instead.'); return }
@@ -394,7 +402,7 @@ export function useDashboard() {
     attachments, removeAttachment, voice, chatAttachmentMap, nearby, showNearbyCare, retryNearby,
     search, setSearch, searching, visibleConsultations, onFilesSelected,
     selectConsultation, startNewConsultation, startDraft, deleteChat, openRename, closeRename, renameTarget, renameChat,
-    handleSend, sendQuick, sendAnswers, retrySend, dismissError, handleFindHospitals, handleSendLocationAlert, submitFeedback, submitFeedbackDetail,
+    handleSend, sendQuick, sendAnswers, retrySend, dismissError, handleFindHospitals, handleFindHospitalsNewChat, handleSendLocationAlert, submitFeedback, submitFeedbackDetail,
     handleSignOut, goEditProfile, goChat, unsendMessageById, triggerSos,
   }
 }

@@ -41,7 +41,7 @@ export default function DateField({ label, value, onChange, error }) {
               <TouchableOpacity onPress={() => setOpen(false)} hitSlop={10}><X size={20} color={colors.muted} /></TouchableOpacity>
             </View>
             <DateWheels value={draft} onChange={setDraft} minYear={1947} />
-            <TouchableOpacity style={styles.done} onPress={confirm} activeOpacity={0.85}><Check size={17} color="#fff" /><Text style={styles.doneText}>Done</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.done} onPress={confirm} activeOpacity={0.85}><Check size={17} color={colors.onPrimary} /><Text style={styles.doneText}>Done</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -61,5 +61,5 @@ const makeStyles = (colors) => StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   title: { fontSize: 16, fontWeight: '700', color: colors.text },
   done: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 14, marginTop: 18 },
-  doneText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  doneText: { color: colors.onPrimary, fontWeight: '700', fontSize: 16 },
 })

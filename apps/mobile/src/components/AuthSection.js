@@ -3,13 +3,12 @@
 
 import { useState } from 'react'
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native'
-import { KeyRound, Mail, ShieldCheck, LogOut, Check, AlertTriangle, Lock, Phone, AtSign } from 'lucide-react-native'
-import { normalizeUsername, usernameError } from '@sankatai/shared'
+import { KeyRound, Mail, ShieldCheck, LogOut, Check, AlertTriangle, Lock, Phone } from 'lucide-react-native'
 import { radius } from '../theme'
 import { useTheme } from '../context/ThemeContext'
 import { useProfile } from '../context/ProfileContext'
 import { useAuth } from '../context/AuthContext'
-import { changePassword, getCurrentAccount, updateUsername } from '../lib/cognito'
+import { changePassword, getCurrentAccount } from '../lib/cognito'
 
 const MIN_LEN = 8
 
@@ -23,27 +22,9 @@ export default function AuthSection() {
     "You'll need to sign in again to use SankatAI on this device. Your data stays in your account.",
     [{ text: 'Cancel', style: 'cancel' }, { text: 'Sign out', style: 'destructive', onPress: signOut }],
   )
-  const [account, setAccount] = useState(getCurrentAccount)
+  const [account] = useState(getCurrentAccount)
   const email = account.email || profile?.email || ''
-  const method = account.phone ? 'Password or texted code' : 'Password'
-
-  // Username (Cognito preferred_username; unique, usable to sign in).
-  const [handle, setHandle] = useState(account.username || '')
-  const [handleBusy, setHandleBusy] = useState(false)
-  const [handleMsg, setHandleMsg] = useState(null) // { ok: boolean, text }
-  const handleUnchanged = normalizeUsername(handle) === (account.username || '')
-  const saveHandle = async () => {
-    const problem = usernameError(handle)
-    if (problem) return setHandleMsg({ ok: false, text: problem })
-    setHandleBusy(true); setHandleMsg(null)
-    try {
-      setAccount(await updateUsername(handle))
-      setHandleMsg({ ok: true, text: 'Username saved.' })
-    } catch (e) {
-      setHandleMsg({ ok: false, text: e?.code === 'AliasExistsException' ? 'That username is taken. Try another.' : (e?.message || 'Could not save your username.') })
-    } finally { setHandleBusy(false) }
-    return undefined
-  }
+  const method = account.phone ? 'Password or texted code' : 'Password or emailed code'
 
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -92,21 +73,6 @@ export default function AuthSection() {
         </View>
 
         <View style={styles.card}>
-          <View style={styles.cardTitleRow}><AtSign size={15} color={colors.primary} /><Text style={styles.cardTitle}>Username</Text></View>
-          <Text style={styles.note}>{account.username ? 'You can sign in with your username, email or phone number.' : 'Choose a username. You can sign in with it instead of your email or phone.'}</Text>
-          <TextInput style={styles.input} value={handle} onChangeText={(t) => { setHandle(t); setHandleMsg(null) }} autoCapitalize="none" autoCorrect={false} maxLength={20} placeholder="asha.k" placeholderTextColor={colors.muted} accessibilityLabel="Username" />
-          {!!handleMsg && (
-            <View style={[styles.alert, handleMsg.ok ? styles.alertOk : styles.alertErr]}>
-              {handleMsg.ok ? <Check size={14} color={colors.success} /> : <AlertTriangle size={14} color={colors.sevEmergency} />}
-              <Text style={[styles.alertText, { color: handleMsg.ok ? colors.success : colors.sevEmergency }]}>{handleMsg.text}</Text>
-            </View>
-          )}
-          <TouchableOpacity style={[styles.primary, (handleUnchanged || handleBusy) && { opacity: 0.5 }]} onPress={saveHandle} disabled={handleUnchanged || handleBusy}>
-            {handleBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{account.username ? 'Change username' : 'Save username'}</Text>}
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.card}>
           <View style={styles.cardTitleRow}><KeyRound size={15} color={colors.primary} /><Text style={styles.cardTitle}>Change password</Text></View>
 
           <Text style={styles.label}>Current password</Text>
@@ -124,7 +90,7 @@ export default function AuthSection() {
           {done && <View style={[styles.alert, styles.alertOk]}><Check size={14} color={colors.success} /><Text style={[styles.alertText, { color: colors.success }]}>Password updated.</Text></View>}
 
           <TouchableOpacity style={[styles.primary, !canSave && { opacity: 0.5 }]} onPress={submit} disabled={!canSave}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>Update password</Text>}
+            {busy ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={styles.primaryText}>Update password</Text>}
           </TouchableOpacity>
         </View>
 
@@ -157,7 +123,7 @@ const makeStyles = (colors) => StyleSheet.create({
   alertOk: { backgroundColor: colors.surface2, borderColor: colors.border },
   alertText: { flex: 1, fontSize: 12.5 },
   primary: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 13, marginTop: 18 },
-  primaryText: { color: '#fff', fontWeight: '700', fontSize: 14.5 },
+  primaryText: { color: colors.onPrimary, fontWeight: '700', fontSize: 14.5 },
   signOut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14, borderWidth: 1, borderColor: colors.primaryBorder, backgroundColor: colors.primarySoft, borderRadius: radius.md, paddingVertical: 13 },
   signOutText: { color: colors.sevEmergency, fontWeight: '700', fontSize: 14.5 },
 })
