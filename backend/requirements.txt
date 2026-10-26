@@ -8,6 +8,7 @@ openai>=1.59.6
 python-dotenv>=1.0.1
 pydantic>=2.13.4
 boto3>=1.35.99
+pypdf>=5.1
 # PyJWT[crypto] is back ONLY for /api/admin/*, which re-verifies the Cognito
 # token (RS256 via the pool JWKS) behind the API Gateway authorizer. Every other
 # route still trusts the gateway's x-user-id header. cryptography ships cp314 wheels.

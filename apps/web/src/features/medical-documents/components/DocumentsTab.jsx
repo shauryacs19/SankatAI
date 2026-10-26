@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Upload, Image as ImageIcon, FileText, FolderOpen, Folder, Trash2, RefreshCw,
-  Lock, Download, Pencil, X, Plus, LayoutGrid, List, MoreVertical,
+  Lock, Download, Pencil, X, Plus, LayoutGrid, List, MoreVertical, Sparkles,
 } from 'lucide-react'
 import { listUploads, deleteUpload, updateUpload, getDownloadUrl } from '../../../services/uploads'
 import { listPins } from '../../../services/securityApi'
@@ -175,6 +175,17 @@ export default function DocumentsTab() {
       toast.error(errText(err, 'Could not move the document.'))
     }
   }
+  const toggleAiAccess = async (f) => {
+    const next = !f.aiAccess
+    setFiles((prev) => prev.map((x) => (x.attachmentId === f.attachmentId ? { ...x, aiAccess: next, aiStatus: next ? 'pending' : null } : x)))
+    try {
+      await updateUpload(f.attachmentId, { aiAccess: next })
+      toast.success(next ? 'The AI can now read this document.' : 'The AI can no longer read this document.')
+    } catch (err) {
+      setFiles((prev) => prev.map((x) => (x.attachmentId === f.attachmentId ? { ...x, aiAccess: f.aiAccess, aiStatus: f.aiStatus } : x)))
+      toast.error(errText(err, 'Could not update AI access.'))
+    }
+  }
   const onRowDragStart = (f, e) => { e.dataTransfer.setData('text/plain', f.attachmentId); e.dataTransfer.effectAllowed = 'move' }
   const onSectionDrop = (category, e) => {
     e.preventDefault()
@@ -241,6 +252,7 @@ export default function DocumentsTab() {
           <span className="sr-only">{busy ? 'Opening…' : `Open ${f.filename}`}{f.passwordProtected ? ' (protected — PIN required)' : ''}</span>
         </button>
         {f.passwordProtected && <Badge className="doc-lock" icon={Lock} title={`Protected with ${pinLabel(f)}`}>Protected</Badge>}
+        {f.aiAccess && <Badge className="doc-lock" icon={Sparkles} title={f.aiStatus === 'failed' ? "The AI couldn't read this file type" : 'The AI can use this document'}>{f.aiStatus === 'failed' ? 'AI: unreadable' : 'AI can read'}</Badge>}
         <span className="doc-actions">
           <IconButton label={`Download ${f.filename}`} icon={Download} size={16} tooltip={false} onClick={() => act(f, 'download')} className="doc-act-wide" />
           <IconButton label={`Edit ${f.filename}`} icon={Pencil} size={16} tooltip={false} onClick={() => openEdit(f)} className="doc-act-wide" />
@@ -249,6 +261,7 @@ export default function DocumentsTab() {
             <Menu label={`Actions for ${f.filename}`} icon={MoreVertical} items={[
               { key: 'dl', label: 'Download', icon: Download, onSelect: () => act(f, 'download') },
               { key: 'ed', label: 'Rename or move', icon: Pencil, onSelect: () => openEdit(f) },
+              ...(f.passwordProtected ? [] : [{ key: 'ai', label: f.aiAccess ? 'Stop AI reading' : 'Allow AI to read', icon: Sparkles, onSelect: () => toggleAiAccess(f) }]),
               { key: 'del', label: 'Delete', icon: Trash2, tone: 'danger', onSelect: () => openDelete(f) },
             ]} />
           </span>

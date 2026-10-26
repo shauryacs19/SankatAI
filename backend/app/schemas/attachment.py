@@ -18,6 +18,7 @@ class PresignRequest(BaseModel):
     chatId: Optional[str] = None  # required when scope == "chat"
     passwordProtected: bool = False
     pinId: Optional[str] = None  # which account security PIN protects the file
+    aiAccess: bool = False  # user consent: the AI may read this vault file for chat replies
 
 
 class PresignResponse(BaseModel):
@@ -36,6 +37,7 @@ class UpdateAttachmentRequest(BaseModel):
     # Only the provided fields change. category="" moves the file to Uncategorized.
     filename: Optional[str] = Field(default=None, min_length=1, max_length=120)
     category: Optional[str] = Field(default=None, max_length=60)
+    aiAccess: Optional[bool] = None
 
 
 class DownloadRequest(BaseModel):
@@ -67,3 +69,5 @@ class AttachmentView(BaseModel):
     passwordProtected: bool = False
     pinId: Optional[str] = None  # which account PIN protects it (resolve to a label client-side)
     category: Optional[str] = None
+    aiAccess: bool = False
+    aiStatus: Optional[str] = None  # pending | ready | failed (only when aiAccess)

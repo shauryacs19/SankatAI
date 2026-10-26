@@ -1,7 +1,7 @@
 // Chat surface. Tokens only.
 export const CHAT_CSS = `
 .chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.chat-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.chat-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .chat-thread { width: 100%; max-width: 46rem; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-6); display: flex; flex-direction: column; gap: var(--space-6); }
 
 /* ----- empty state ----- */
@@ -188,6 +188,9 @@ export const CHAT_CSS = `
 .msg-dots span:nth-child(2) { animation-delay: 0.2s; } .msg-dots span:nth-child(3) { animation-delay: 0.4s; }
 @keyframes msg-dot { 0%, 70%, 100% { opacity: 0.25; } 35% { opacity: 1; } }
 
+.chat-empty-head { display: flex; align-items: center; gap: var(--space-3); }
+.chat-empty-head .chat-empty-hello, .chat-empty-head .chat-empty-mark { margin: 0; }
+
 /* ----- composer ----- */
 .composer-wrap { flex-shrink: 0; background: var(--bg); padding: var(--space-2) var(--space-6) var(--space-4); }
 .composer-inner { max-width: 46rem; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
@@ -199,7 +202,7 @@ export const CHAT_CSS = `
 .composer:focus-within { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), 0 0 0 5px var(--focus-halo); }
 /* The input's ring is the container's; buttons inside keep their own. */
 .composer-input {
-  flex: 1; min-width: 0; min-height: 2.5rem; max-height: 13rem; padding: 0.5rem var(--space-2); border: 0; background: transparent; resize: none;
+  flex: 1; min-width: 0; min-height: 2.5rem; max-height: calc(5 * 1.6em + 1rem); padding: 0.5rem var(--space-2); border: 0; background: transparent; resize: none;
   font-size: var(--fs-md); line-height: 1.6; color: var(--text-primary); overflow-y: auto;
 }
 .composer-input:focus-visible { outline: none; }
@@ -208,7 +211,9 @@ export const CHAT_CSS = `
 .composer-actions > .ui-menu-anchor { order: -1; }
 .composer-actions .ui-btn, .composer-actions .ui-menu-anchor { flex-shrink: 0; }
 .composer-actions .ui-btn--ghost { color: var(--text-secondary); padding: 0 var(--space-3); }
-.composer-send { padding: 0 var(--space-5); }
+.composer-send { padding: 0; }
+.composer-actions .ui-btn-text { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.composer-actions .ui-btn { width: 2.5rem; min-width: 2.5rem; min-height: 2.5rem; padding: 0; justify-content: center; }
 .composer-note { display: flex; justify-content: center; gap: var(--space-2); padding: 0 var(--space-1); font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-muted); text-align: center; }
 .composer-note svg { margin-top: 0.1875rem; flex-shrink: 0; }
 .att-tray { display: flex; gap: var(--space-2); overflow-x: auto; padding: var(--space-1) 0; }

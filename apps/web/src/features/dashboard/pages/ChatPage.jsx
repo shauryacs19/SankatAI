@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
-import { ArrowRight, ClipboardList, HeartPulse, MapPin } from 'lucide-react'
-import { sevMeta, CHAT_SUGGESTIONS } from '@sankatai/shared'
-import { Alert, Button, Chip, severityUi, useReducedMotion, useToast } from '../../../components/ui'
+import { ArrowRight, HeartPulse } from 'lucide-react'
+import { sevMeta } from '@sankatai/shared'
+import { Alert, Button, severityUi, useReducedMotion, useToast } from '../../../components/ui'
 import { errText } from '../../../utils/errText'
 import { parseAnalysis } from '../../chat/utils/format.jsx'
 import { CHAT_CSS } from '../../chat/chat.styles'
@@ -123,8 +123,10 @@ export default function ChatPage() {
           )}
           {showEmpty ? (
             <div className="chat-empty">
-              <span className="chat-empty-mark" aria-hidden="true"><HeartPulse size={24} /></span>
-              <p className="chat-empty-hello">Hello, {d.firstName}.</p>
+              <div className="chat-empty-head">
+                <span className="chat-empty-mark" aria-hidden="true"><HeartPulse size={24} /></span>
+                <p className="chat-empty-hello">Hello, {d.firstName}.</p>
+              </div>
               <h2>What would you like help with today?</h2>
               <p className="chat-empty-lead">
                 Describe your symptoms in your own words. I'll ask a few questions and tell you how urgent it may be.
@@ -141,17 +143,6 @@ export default function ChatPage() {
                   </li>
                 ))}
               </ul>
-              <div className="chat-chips">
-                {CHAT_SUGGESTIONS.map((c) => (
-                  <Chip
-                    key={c.key}
-                    icon={c.action === 'hospital' ? MapPin : ClipboardList}
-                    onClick={() => (c.action === 'hospital' ? d.handleFindHospitals() : d.setInput(c.prompt))}
-                  >
-                    {c.label}
-                  </Chip>
-                ))}
-              </div>
             </div>
           ) : (
             <AnimatePresence initial={false} key={d.activeId || 'new'}>

@@ -34,7 +34,7 @@ from app.schemas.attachment import (
     PresignResponse,
     UpdateAttachmentRequest,
 )
-from app.services import security_pin_service
+from app.services import document_ai_service, security_pin_service
 from app.services.attachment_service import AttachmentError, AttachmentService, NotFoundError, PinError
 
 router = APIRouter(prefix="/api/uploads", tags=["Uploads"])
@@ -59,7 +59,7 @@ def presign(body: PresignRequest, user: CurrentUser = Depends(get_current_user),
     try:
         return svc.create_upload(
             user.user_id, user.email, body.scope, body.kind, body.filename, body.contentType,
-            body.chatId, body.passwordProtected, body.pinId,
+            body.chatId, body.passwordProtected, body.pinId, ai_access=body.aiAccess,
         )
     except AttachmentError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -69,6 +69,7 @@ def presign(body: PresignRequest, user: CurrentUser = Depends(get_current_user),
 def complete(attachment_id: str, body: CompleteRequest | None = None, user: CurrentUser = Depends(get_current_user), svc: AttachmentService = Depends(get_service)):
     try:
         svc.mark_uploaded(user.user_id, attachment_id, body.size if body else None)
+        document_ai_service.prefetch_by_id(user.user_id, attachment_id)
     except NotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found.")
 
@@ -95,7 +96,10 @@ def download(attachment_id: str, body: DownloadRequest | None = None, user: Curr
 @router.patch("/{attachment_id}", response_model=AttachmentView, summary="Rename and/or set a file's category")
 def update(attachment_id: str, body: UpdateAttachmentRequest, user: CurrentUser = Depends(get_current_user), svc: AttachmentService = Depends(get_service)):
     try:
-        return svc.update(user.user_id, attachment_id, body.filename, body.category)
+        view = svc.update(user.user_id, attachment_id, body.filename, body.category, body.aiAccess)
+        if body.aiAccess:
+            document_ai_service.prefetch_by_id(user.user_id, attachment_id)
+        return view
     except NotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found.")
     except AttachmentError as e:

@@ -18,7 +18,7 @@ from app.repositories import profile_repository
 from app.schemas.triage import Message as ChatMessage
 from app.schemas.triage import PatientProfile
 from app.core import config
-from app.services import analytics_service, feedback_service, language_service, vision_service
+from app.services import analytics_service, document_ai_service, feedback_service, language_service, vision_service
 from app.services.triage_service import run_triage
 
 PHOTO_PLACEHOLDER = "[Sent a photo]"  # stands in for a photo-only turn in the AI's context
@@ -185,6 +185,10 @@ def post_message(user_id: str, consultation_id: str, content: str,
     findings = vision_service.findings_for(user_id, [*earlier_photos, *photos], deadline) if (photos or earlier_photos) else []
 
     patient_profile = _patient_profile_from_profile(profile_repository.get_profile(user_id))
+    docs = document_ai_service.context(user_id)
+    if docs:
+        patient_profile = patient_profile or PatientProfile()
+        patient_profile.documents = docs
 
     input_type = "image" if photos else "voice" if input_mode == "voice" else "text"
     analytics_service.emit("AI_REQUEST", user_id, input_type=input_type, has_attachments=bool(attachment_ids))

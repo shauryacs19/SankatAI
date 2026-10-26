@@ -204,6 +204,8 @@ def _state_lines(d: Decision, profile: Optional[PatientProfile], image_findings:
             f"- Profile: gender {profile.gender or 'unspecified'}; conditions {profile.conditions or 'none listed'}; "
             f"allergies {profile.allergies or 'none listed'}; medications {profile.medications or 'none listed'}"
         )
+    for doc in (getattr(profile, "documents", None) or [])[:5]:
+        lines.append(f"- Their document \"{doc.get('name')}\" (uploaded {doc.get('date') or 'unknown date'}): {doc.get('summary')}")
     for i, img in enumerate(image_findings[:3], 1):
         lines.append(
             f"- Photo {i}: region {img.get('bodyRegion') or 'unclear'}; signs {', '.join(map(str, img.get('visibleSigns') or [])) or 'none'}; "
@@ -223,6 +225,7 @@ _RULES = """RULES:
 - Base likely causes on standard clinical knowledge and the details given; list only causes that fit ALL their symptoms, age and duration. If the details fit several causes equally, say so and name what would tell them apart.
 - Use correct medical facts only (common Indian OTC names like paracetamol are fine; give doses only as "as per the label"). If unsure, say you are unsure rather than guess.
 - Re-read the whole conversation before replying; never ask again for something already answered and never drop an earlier symptom.
+- Use their shared documents only when relevant to the current problem; cite the document by name, note if it may be outdated, and never let it override what they tell you now.
 - Never claim to be a doctor."""
 
 _ASSESSMENT_JSON = ('{"type": "assessment", "reasoning": "...", "advice": "...", "likelyCauses": ["..."], "homeCare": ["..."], '

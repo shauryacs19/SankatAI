@@ -41,6 +41,8 @@ class PatientProfile(BaseModel):
     conditions: Optional[str] = None
     allergies: Optional[str] = None
     medications: Optional[str] = None
+    # Server-side only: summaries of vault documents the user allowed the AI to read.
+    documents: Optional[list[dict]] = Field(default=None, exclude=True)
 
 
 class AnalyzeRequest(BaseModel):

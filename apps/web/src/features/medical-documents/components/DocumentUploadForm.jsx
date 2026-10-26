@@ -3,8 +3,8 @@
 // Collects a name, one file (any type — drag-and-drop or click) and optional
 // protection with one of the user's ACCOUNT security PINs. On submit it uploads
 // to the vault via the backend: pre-sign -> PUT to S3 -> confirm.
-// (The old "allow AI analysis" toggle was removed: it was never sent anywhere,
-// so it collected a consent that did nothing — see DESIGN_AUDIT.md D5.)
+// "Allow AI to read" sends aiAccess: the backend summarises the file and the chat
+// assistant uses that summary. Not available for PIN-protected files.
 
 import { useEffect, useRef, useState } from 'react'
 import { Upload, ShieldCheck, X, FileText, Image as ImageIcon } from 'lucide-react'
@@ -42,6 +42,7 @@ export default function DocumentUploadForm({ onSuccess, onCancel }) {
   const [file, setFile] = useState(null)
   const [previewUrl, setPreviewUrl] = useState(null)
   const [passwordProtect, setPasswordProtect] = useState(false)
+  const [aiAccess, setAiAccess] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [dragOver, setDragOver] = useState(false)
@@ -87,6 +88,7 @@ export default function DocumentUploadForm({ onSuccess, onCancel }) {
 
   const togglePassword = (on) => {
     setPasswordProtect(on)
+    if (on) setAiAccess(false)
     if (on && !pinId && pins[0]) setPinId(pins[0].id)
   }
 
@@ -103,6 +105,7 @@ export default function DocumentUploadForm({ onSuccess, onCancel }) {
       const rec = await uploadFile(file, {
         scope: 'vault', kind, filename: fileName.trim(),
         passwordProtected: passwordProtect, pinId: passwordProtect ? pinId : null,
+        aiAccess: aiAccess && !passwordProtect,
       })
       onSuccess?.({ ...rec, fileName: fileName.trim(), passwordProtected: passwordProtect })
     } catch (err) {
@@ -151,6 +154,18 @@ export default function DocumentUploadForm({ onSuccess, onCancel }) {
         <Field label="Document name" required hint="This is how it will appear in your documents." error={nameTouched && !fileName.trim() ? 'Give the document a name.' : undefined}>
           <Input value={fileName} onChange={(e) => setFileName(e.target.value)} onBlur={() => setNameTouched(true)} placeholder="e.g. Blood test — March 2026" />
         </Field>
+
+        <div className="up-protect">
+          <Switch
+            checked={aiAccess && !passwordProtect}
+            onChange={setAiAccess}
+            disabled={passwordProtect}
+            label="Allow AI to read this document"
+            description={passwordProtect
+              ? 'Not available for PIN-protected files.'
+              : 'When on, the AI can scan this document and use its details to give you more personalised answers. You can turn this off anytime.'}
+          />
+        </div>
 
         <div className="up-protect">
           <Switch
