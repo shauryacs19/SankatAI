@@ -4,12 +4,13 @@
 import { useCallback, useState } from 'react'
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert, Modal, ActivityIndicator } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { Search, X, Plus, MessageSquare, Pencil, Trash2, History as HistoryIcon, Check } from 'lucide-react-native'
+import { Search, X, Plus, MessageSquare, Pencil, Trash2, History as HistoryIcon, Check, Stethoscope } from 'lucide-react-native'
 import { radius, sevColor } from '../../theme'
 import { useTheme } from '../../context/ThemeContext'
 import { useChat } from '../../context/ChatContext'
 import ScreenHeader from '../../components/ScreenHeader'
 import usePullRefresh from '../../components/usePullRefresh'
+import DoctorReportSheet from '../health/DoctorReportView'
 
 const groupConsults = (list) => {
   const today = new Date()
@@ -47,6 +48,7 @@ export default function HistoryScreen({ navigation }) {
 
   // Rename modal (Alert.prompt is iOS-only, so this is a real modal)
   const [renameTarget, setRenameTarget] = useState(null)
+  const [reportChat, setReportChat] = useState(null)
   const [renameValue, setRenameValue] = useState('')
   const [saving, setSaving] = useState(false)
   const openRename = (c) => { setRenameTarget(c); setRenameValue(c.title || '') }
@@ -99,6 +101,7 @@ export default function HistoryScreen({ navigation }) {
                       <Text numberOfLines={1} style={[styles.rowText, on && { color: colors.primary }]}>{c.title || 'New consultation'}</Text>
                       <Text style={styles.rowMeta}>{relativeTime(c.updatedAt)}</Text>
                     </View>
+                    <TouchableOpacity onPress={() => setReportChat(c)} hitSlop={8} style={styles.act} accessibilityLabel="Doctor report for this chat"><Stethoscope size={15} color={colors.muted} /></TouchableOpacity>
                     <TouchableOpacity onPress={() => openRename(c)} hitSlop={8} style={styles.act} accessibilityLabel="Rename chat"><Pencil size={15} color={colors.muted} /></TouchableOpacity>
                     <TouchableOpacity onPress={() => confirmDelete(c.consultationId)} hitSlop={8} style={styles.act} accessibilityLabel="Delete chat"><Trash2 size={15} color={colors.muted} /></TouchableOpacity>
                   </TouchableOpacity>
@@ -109,6 +112,7 @@ export default function HistoryScreen({ navigation }) {
         ))}
       </ScrollView>
 
+      {reportChat && <DoctorReportSheet chat={reportChat} onClose={() => setReportChat(null)} />}
       <Modal visible={!!renameTarget} animationType="fade" transparent onRequestClose={closeRename}>
         <View style={styles.scrim}>
           <View style={styles.modal}>

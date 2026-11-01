@@ -150,6 +150,7 @@ export const UI_CSS = `
   overflow: hidden;
 }
 .ui-modal--md { width: min(100%, 36rem); }
+.ui-modal--lg { width: min(100%, 60rem); }
 .ui-modal form { display: contents; }
 .ui-modal-head { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-6) var(--space-6) 0; }
 .ui-modal-icon { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; border-radius: var(--radius-pill); background: var(--primary-soft); color: var(--primary-text); flex-shrink: 0; }

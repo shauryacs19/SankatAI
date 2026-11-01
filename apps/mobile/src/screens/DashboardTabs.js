@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, TouchableOpacity, Animated, Modal, ScrollView, StyleSheet, Pressable, Dimensions } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { HeartPulse, MessageSquare, Clock, FolderOpen, Siren, Settings, Plus, PanelRightOpen, MapPin, Upload, ShieldCheck, User, CloudOff, Activity, X, ChevronRight, Menu } from 'lucide-react-native'
+import { HeartPulse, MessageSquare, Clock, FolderOpen, Siren, Settings, Plus, PanelRightOpen, MapPin, Upload, ShieldCheck, User, CloudOff, Activity, X, ChevronRight, Menu, ClipboardList, Stethoscope } from 'lucide-react-native'
 import { radius } from '../theme'
 import { useProfile } from '../context/ProfileContext'
 import { useTheme } from '../context/ThemeContext'
@@ -17,17 +17,20 @@ import DocumentsScreen from './tabs/DocumentsScreen'
 import EmergencyScreen from './tabs/EmergencyScreen'
 import SettingsScreen from './tabs/SettingsScreen'
 import OfflineScreen from './tabs/OfflineScreen'
+import HealthScreen from './health/HealthScreen'
+import DoctorReportSheet from './health/DoctorReportView'
 
 const NAV = [
   { key: 'Chat', label: 'Chat', Icon: MessageSquare, title: 'Symptom chat' },
   { key: 'History', label: 'History', Icon: Clock, title: 'Chat history' },
   { key: 'Documents', label: 'Documents', Icon: FolderOpen, title: 'Documents' },
   { key: 'Emergency', label: 'Emergency', Icon: Siren, title: 'Emergency' },
+  { key: 'Health', label: 'Health records', Icon: ClipboardList, title: 'Health records' },
 ]
 const TITLES = { Settings: 'Settings', Profile: 'Health profile', Offline: 'Offline mode' }
 const PAGES = {
   Chat: ChatScreen, History: HistoryScreen, Documents: DocumentsScreen,
-  Emergency: EmergencyScreen, Settings: SettingsScreen, Offline: OfflineScreen,
+  Emergency: EmergencyScreen, Settings: SettingsScreen, Offline: OfflineScreen, Health: HealthScreen,
   Profile: ProfileScreen,
 }
 const isPage = (name) => Boolean(PAGES[name])
@@ -57,7 +60,8 @@ function DrawerNavItem({ Icon, label, selected, onPress, colors }) {
 export default function DashboardTabs({ navigation }) {
   const { profile } = useProfile()
   const { colors } = useTheme()
-  const { startNew } = useChat()
+  const { startNew, activeId, consultations: chats } = useChat()
+  const [reportChat, setReportChat] = useState(null) // doctor report for this chat
   const styles = makeStyles(colors)
   const insets = useSafeAreaInsets()
   const [active, setActive] = useState('Chat')
@@ -135,6 +139,7 @@ export default function DashboardTabs({ navigation }) {
           {isOffline && <TouchableOpacity style={styles.offlineBadge} onPress={showOffline}><CloudOff size={13} color={colors.warning} /><Text style={styles.offlineText}>AI offline</Text></TouchableOpacity>}
           <View style={styles.headerActions}>
             {active === 'Chat' && <TouchableOpacity style={styles.iconButton} onPress={newChat} accessibilityLabel="New chat"><Plus size={20} color={colors.textSecondary} /></TouchableOpacity>}
+            {active === 'Chat' && !!activeId && <TouchableOpacity style={styles.iconButton} onPress={() => setReportChat((chats || []).find((c) => c.consultationId === activeId) || { consultationId: activeId })} accessibilityLabel="Doctor report for this chat"><Stethoscope size={18} color={colors.textSecondary} /></TouchableOpacity>}
             {active === 'Chat' && <TouchableOpacity style={styles.iconButton} onPress={() => chatActionRef.current?.openAnalysis?.()} accessibilityLabel="AI analysis"><PanelRightOpen size={18} color={colors.textSecondary} /></TouchableOpacity>}
             <TouchableOpacity style={styles.sosButton} onPress={() => go('Emergency')} accessibilityRole="button" accessibilityLabel="Emergency help">
               <Siren size={15} color={colors.sevEmergency} /><Text style={styles.sosText}>SOS</Text>
@@ -148,6 +153,7 @@ export default function DashboardTabs({ navigation }) {
           </Animated.View>
         </View>
 
+        {reportChat && <DoctorReportSheet chat={reportChat} onClose={() => setReportChat(null)} />}
         <Modal visible={drawerOpen} transparent animationType="none" onRequestClose={closeDrawer} statusBarTranslucent>
           <View style={styles.drawerRoot}>
             <Animated.View pointerEvents="none" style={[styles.modalScrim, { opacity: scrimOpacity }]} />

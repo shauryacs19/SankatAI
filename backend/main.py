@@ -29,6 +29,7 @@ from app.api.routes.care import router as care_router
 from app.api.routes.consultations import router as consultations_router
 from app.api.routes.guest import router as guest_router
 from app.api.routes.health import router as health_router
+from app.api.routes.health_records import router as health_records_router
 from app.api.routes.profile import router as profile_router
 from app.api.routes.security import router as security_router
 from app.api.routes.triage import router as triage_router
@@ -116,6 +117,7 @@ app.include_router(uploads_router)
 app.include_router(voice_router)
 app.include_router(tts_router)
 app.include_router(care_router)
+app.include_router(health_records_router)
 app.include_router(admin_router)
 
 

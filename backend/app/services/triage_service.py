@@ -145,7 +145,7 @@ def run_triage(
     try:
         result = triage_engine.run(messages, patient_profile, provider=provider, lang=lang, session_id=session_id,
                                    image_findings=image_findings, deadline=deadline)
-        return result.content, not result.llm_used
+        return result.content, not (result.llm_used or result.safety_stop)
     except Exception as error:  # noqa: BLE001 - last-resort safety net
         logger.exception("Triage engine failed (%s); keyword fallback.", type(error).__name__)
         return emergency_fallback_analyze(messages), True

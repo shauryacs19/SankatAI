@@ -13,6 +13,8 @@ const CSS = `
 .em-title { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--fs-md); line-height: var(--lh-md); font-weight: var(--fw-semibold); color: var(--sev-emergency-ink); }
 .em-close { margin-left: auto; }
 .em-text { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--text-primary); }
+.em-flags { font-size: var(--fs-sm); line-height: var(--lh-sm); color: var(--sev-emergency-ink); font-weight: var(--fw-medium); }
+.em-note { font-size: var(--fs-xs, var(--fs-sm)); color: var(--text-muted); }
 .em-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 @media (max-width: 767px) {
   .em-inner { padding: var(--space-3) var(--space-4); }
@@ -22,7 +24,7 @@ const CSS = `
 }
 `
 
-export default function EmergencyPanel({ fromAssessment, riskScore, primaryContact, contactsLoading, onShareLocation, onFindHospitals, onDismiss }) {
+export default function EmergencyPanel({ fromAssessment, reasons = [], riskScore, primaryContact, contactsLoading, onShareLocation, onFindHospitals, onDismiss }) {
   const hasContact = Boolean(primaryContact?.phone)
   const noContactHint = contactsLoading ? 'Still loading your emergency contacts…' : 'Add an emergency contact in your health profile to use this.'
   return (
@@ -34,8 +36,10 @@ export default function EmergencyPanel({ fromAssessment, riskScore, primaryConta
           {fromAssessment && <SeverityBadge severity="EMERGENCY" score={riskScore} />}
           <IconButton label="Close emergency panel" icon={X} className="em-close" onClick={onDismiss} tooltipAlign="end" />
         </div>
-        <p className="em-text">{EMERGENCY_CALLOUT}</p>
+        {fromAssessment && reasons.length > 0 && <p className="em-flags">Warning signs found: {reasons.join(', ')}</p>}
+        <p className="em-text">{fromAssessment ? 'Call 112 (or 108 for an ambulance) now, or go to the nearest emergency department. Do not wait for more questions.' : EMERGENCY_CALLOUT}</p>
         <div className="em-actions">
+          <Button variant="emergency" icon={Siren} href="tel:112">Call 112 — Emergency</Button>
           <Button variant="emergency" icon={Ambulance} href="tel:108">Call 108 — Ambulance</Button>
           <Button
             variant="secondary"
@@ -49,6 +53,7 @@ export default function EmergencyPanel({ fromAssessment, riskScore, primaryConta
           <Button variant="secondary" icon={MapPin} onClick={onShareLocation} disabled={!hasContact} hint={hasContact ? undefined : noContactHint}>Share my location</Button>
           <Button variant="secondary" icon={Hospital} onClick={onFindHospitals}>Nearby hospitals</Button>
         </div>
+        {fromAssessment && <p className="em-note">SankatAI cannot rule out an emergency. If you are unsure, call 112.</p>}
       </div>
     </section>
   )

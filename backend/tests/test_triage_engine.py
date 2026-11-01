@@ -153,7 +153,14 @@ def test_no_questions_in_an_emergency_or_right_after_answers(model):
     llm = FakeProvider(QUESTIONS)
     r = run(["I have chest pain"], llm)
     assert r["severity"] == "EMERGENCY" and "questionnaire" not in r
+    assert llm.calls == []  # a rule-based emergency never reaches the LLM
+
+    model("EMERGENCY", 0.9)  # model-only emergency: the LLM writes the assessment, still no questions
+    llm = FakeProvider(QUESTIONS)
+    r = run(["I feel really unwell"], llm)
+    assert r["severity"] == "EMERGENCY" and "questionnaire" not in r
     assert "give the assessment now, with no questions" in llm.calls[0]["messages"][0]["content"]
+    assert r["emergency"]["source"] == "model"
 
     model("MODERATE", 0.4)
     first = run(["I have a headache"], FakeProvider(QUESTIONS))
@@ -163,6 +170,44 @@ def test_no_questions_in_an_emergency_or_right_after_answers(model):
     r = triage_engine.run(msgs, None, provider=llm, session_id="s").reply
     assert "just answered your questions" in llm.calls[0]["messages"][0]["content"]
     assert r["triage"]["mode"] == "final" and r["severity"] == "MODERATE"
+
+
+# --- emergency safety layer: predefined scenarios ---------------------------
+
+@pytest.mark.parametrize("text", [
+    "crushing chest pain spreading to my left arm",
+    "I can't breathe properly and my lips are turning blue",
+    "my father's face is drooping and his speech is slurred",
+    "my mother collapsed and is unconscious",
+    "he cut his hand and it is bleeding heavily, it won't stop",
+    "my son is having a seizure",
+])
+def test_red_flag_scenarios_stop_before_the_llm(model, text):
+    model("LOW", 0.99)  # even a confident LOW model cannot lower a rule
+    llm = FakeProvider(QUESTIONS)
+    result = triage_engine.run([Message(role="user", content=text)], None, provider=llm, session_id="s")
+    r = result.reply
+    assert llm.calls == [] and result.safety_stop and not result.llm_used
+    assert r["severity"] == "EMERGENCY" and r["followUpQuestions"] == [] and "questionnaire" not in r
+    assert r["emergency"]["detected"] and r["emergency"]["source"] == "rules" and r["emergency"]["reasons"]
+    assert "112" in r["emergency"]["numbers"] and "112" in r["advice"]
+    assert r["homeCare"] == []
+
+
+def test_safety_stop_is_not_reported_as_ai_offline(monkeypatch, model):
+    from app.services import triage_service
+    model("LOW", 0.99)
+    monkeypatch.setattr(triage_service, "ai_key_configured", lambda: True)
+    text, offline = triage_service.run_triage([Message(role="user", content="I have chest pain")], None,
+                                              provider=FakeProvider())
+    assert not offline and json.loads(text)["emergency"]["source"] == "rules"
+
+
+def test_negated_red_flag_does_not_trigger_the_safety_stop(model):
+    model("LOW", 0.99)
+    llm = FakeProvider()
+    r = run(["mild cough, no chest pain and no trouble breathing"], llm)
+    assert llm.calls and r["severity"] != "EMERGENCY" and "emergency" not in r
 
 
 def test_the_llm_may_assess_straight_away(model):

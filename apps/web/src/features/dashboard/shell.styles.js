@@ -17,9 +17,15 @@ html:has(.sh), body:has(.sh) { overflow: hidden; height: 100%; }
 .sh-brand-mark { display: none; }
 .sh-newchat-icon { display: none; }
 .sh-nav { display: flex; flex-direction: column; gap: var(--space-1); list-style: none; margin: 0; padding: 0; }
-.sh-side > .sh-nav { margin-top: var(--space-3); }
+.sh-group { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-4); }
+.sh-group-label { padding: 0 var(--space-3); color: var(--text-muted); }
+.sh-group .sh-nav { gap: 2px; }
+.sh--side-hidden { grid-template-columns: minmax(0, 1fr); }
+.sh--side-hidden .sh-side { display: none; }
+.sh-bar-sidetoggle { margin-left: calc(var(--space-3) * -1); color: var(--text-secondary); }
+.sh-more-label { padding: var(--space-3) var(--space-3) var(--space-1); color: var(--text-muted); }
 .sh-nav-item {
-  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: var(--touch); padding: 0 var(--space-3);
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 2.5rem; padding: 0 var(--space-3);
   border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; color: var(--text-secondary);
   font-size: var(--fs-md); line-height: var(--lh-sm); font-weight: var(--fw-medium); text-align: left;
   transition: background-color var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
@@ -30,7 +36,7 @@ html:has(.sh), body:has(.sh) { overflow: hidden; height: 100%; }
 .sh-nav-item.active { background: var(--surface); border-color: var(--border-subtle); box-shadow: var(--shadow-0); color: var(--text-primary); font-weight: var(--fw-semibold); }
 .sh-nav-item.active svg { color: var(--primary); }
 .sh-nav-short { display: none; }
-.sh-side-extra { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-1); padding-top: var(--space-6); }
+.sh-side-extra { margin-top: auto; display: flex; flex-direction: column; gap: var(--space-1); padding-top: var(--space-4); }
 .sh-side-heading { padding: 0 var(--space-3) var(--space-1); }
 .sh-disclaimer { display: flex; gap: var(--space-3); padding: var(--space-4); margin-top: var(--space-3); border-radius: var(--radius-card); background: var(--surface); border: 1px solid var(--border-subtle); }
 .sh-disclaimer svg { color: var(--primary); margin-top: 0.1875rem; flex-shrink: 0; }
@@ -92,11 +98,13 @@ html:has(.sh), body:has(.sh) { overflow: hidden; height: 100%; }
 /* ----- 768-1023: compact icon rail ----- */
 @media (max-width: 1023px) {
   .sh-side { width: 6rem; align-items: center; padding-left: var(--space-2); padding-right: var(--space-2); }
-  .sh-brand-full, .sh-newchat-full, .sh-nav-label, .sh-side-extra, .sh-user-text, .sh-user-chev { display: none; }
+  .sh-brand-full, .sh-newchat-full, .sh-nav-label, .sh-disclaimer, .sh-user-text, .sh-user-chev { display: none; }
+  .sh-group { width: 100%; margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border-subtle); }
+  .sh-group-label { display: none; }
+  .sh-side-extra { width: 100%; padding-top: var(--space-2); }
   .sh-brand-mark { display: grid; }
   .sh-side-brand { justify-content: center; padding: 0; width: var(--touch); }
   .sh-newchat-icon { display: inline-flex; }
-  .sh-side > .sh-nav { width: 100%; }
   .sh-nav-item { flex-direction: column; justify-content: center; gap: var(--space-1); min-height: 4rem; padding: var(--space-1); text-align: center; }
   .sh-nav-short { display: block; font-size: var(--fs-xs); line-height: var(--lh-xs); }
   .sh-user { margin-top: auto; padding: var(--space-1); justify-content: center; }
@@ -107,6 +115,7 @@ html:has(.sh), body:has(.sh) { overflow: hidden; height: 100%; }
 @media (max-width: 767px) {
   .sh { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .sh-side { display: none; }
+  .sh-bar-sidetoggle { display: none; }
   .sh-bar { min-height: 3.5rem; padding-left: var(--space-4); padding-right: var(--space-3); gap: var(--space-2); }
   .sh-bar-mark { display: grid; }
   .sh-bar-title { font-size: var(--fs-md); line-height: var(--lh-md); }
