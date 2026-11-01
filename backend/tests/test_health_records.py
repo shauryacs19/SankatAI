@@ -270,3 +270,176 @@ def test_doctor_report_from_selected_timeline_records(api):
     assert api.post("/api/doctor-report/selection", headers=BOB, json={"ids": ids}).status_code == 400
     assert api.post("/api/doctor-report/selection", headers=ALICE, json={"ids": []}).status_code == 422
     assert api.post("/api/doctor-report/selection", headers=ALICE, json={"ids": ["x-../../etc"]}).status_code == 422
+
+
+# --- extra paths: AI photos, fallbacks, limits, stale jobs, medicines ------------
+
+def _png(lines=("TSH 6.8 uIU/mL 0.4 - 4.0",)) -> bytes:
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (400, 120), "white")
+    draw = ImageDraw.Draw(img)
+    for i, text in enumerate(lines):
+        draw.text((10, 10 + i * 20), text, fill="black")
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
+
+
+@pytest.fixture
+def ai(monkeypatch):
+    """AI 'configured' with a scripted provider: set .image / .text to a dict or an Exception."""
+    from app.integrations.ai import openai_provider
+    from app.services import triage_service
+
+    class Fake:
+        image = None
+        text = None
+
+        def _out(self, v):
+            if isinstance(v, Exception):
+                raise v
+            return json.dumps(v)
+
+        def analyze_image(self, b64, mime, **kw):
+            return self._out(self.image)
+
+        def generate(self, messages, **kw):
+            return self._out(self.text)
+
+    fake = Fake()
+    monkeypatch.setattr(triage_service, "ai_key_configured", lambda: True)
+    monkeypatch.setattr(openai_provider, "get_provider", lambda: fake)
+    return fake
+
+
+def _analyse(api, att):
+    api.post(f"/api/reports/{att}/analyze", headers=ALICE)
+    return api.get(f"/api/reports/{att}", headers=ALICE).json()
+
+
+def test_photo_report_read_by_ai_feeds_medicines_into_timeline_and_reports(api, ai):
+    ai.image = {"isMedical": True, "reportType": "Thyroid", "summary": "Thyroid panel.", "medications": ["Thyronorm 25 mcg"],
+                "parameters": [{"name": "TSH", "value": "6.8", "unit": "uIU/mL", "referenceRange": "0.4 - 4.0", "explanation": "Thyroid signal."},
+                               "junk", {"name": "", "value": "1"}]}
+    _upload("alice", "thy", _png(), filename="thyroid.png", ctype="image/png", kind="photo")
+    got = _analyse(api, "thy")
+    a = got["analysis"]
+    assert got["status"] == "ready"
+    assert a["source"] == "ai"
+    assert a["verifiedAgainstText"] is False
+    assert [p["status"] for p in a["parameters"]] == ["high"]
+    assert a["medications"] == ["Thyronorm 25 mcg"]
+    meds = api.get("/api/timeline?category=medication", headers=ALICE).json()["events"]
+    assert meds[0]["details"]["medications"] == ["Thyronorm 25 mcg"]
+
+    pdf = api.post("/api/doctor-report/selection", headers=ALICE, json={"ids": [meds[0]["id"], "u-thy"]})
+    from pypdf import PdfReader
+    text = "".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf.content)).pages)
+    assert "TSH" in text
+    assert "Thyronorm" in text
+
+
+@pytest.mark.parametrize("image,data,error", [
+    (RuntimeError("down"), None, "couldn't read this photo"),
+    ({"isMedical": False}, None, "doesn't look like a medical report"),
+    ({"isMedical": True, "parameters": []}, None, "No test results could be read"),
+    ({"isMedical": True}, b"not an image", "could not be opened"),
+])
+def test_photo_report_failures_explain_why(api, ai, image, data, error):
+    ai.image = image
+    _upload("alice", "p1", data or _png(), filename="scan.png", ctype="image/png", kind="photo")
+    got = _analyse(api, "p1")
+    assert got["status"] == "failed"
+    assert error in got["error"]
+
+
+def test_text_reports_and_ai_fallback(api, ai):
+    ai.text = RuntimeError("timeout")  # AI fails -> the regex reader still works
+    _upload("alice", "t1", "\n".join(LAB_TEXT).encode(), filename="cbc.txt", ctype="text/plain")
+    got = _analyse(api, "t1")
+    assert got["status"] == "ready"
+    assert got["analysis"]["source"] == "rules"
+    assert got["abnormalCount"] == 2
+
+    _upload("alice", "d1", b"PK\x03\x04", filename="notes.docx", ctype="application/vnd.openxmlformats")
+    assert "Only PDF, text and image" in _analyse(api, "d1")["error"]
+
+
+def test_unexpected_failure_and_stale_jobs(api, monkeypatch):
+    def boom(item):
+        raise RuntimeError("bug")
+    monkeypatch.setattr(reports, "_analyse", boom)
+    _upload("alice", "x1", _pdf(LAB_TEXT))
+    assert _analyse(api, "x1")["error"] == "The report could not be analysed. Try again."
+
+    _upload("alice", "x2", _pdf(LAB_TEXT), report_status="processing", report_started_at="2020-01-01T00:00:00Z")
+    stale = api.get("/api/reports/x2", headers=ALICE).json()
+    assert stale["status"] == "failed"
+    assert "interrupted" in stale["error"]
+    _upload("alice", "x3", _pdf(LAB_TEXT), report_status="processing", report_started_at="not a date")
+    assert api.get("/api/reports/x3", headers=ALICE).json()["status"] == "failed"
+
+    from app.integrations.aws.dynamo_client import now_iso
+    _upload("alice", "x4", _pdf(LAB_TEXT), report_status="processing", report_started_at=now_iso())
+    assert api.post("/api/reports/x4/analyze", headers=ALICE).json()["status"] == "processing"  # no second job
+
+    _upload("alice", "x5", _pdf(LAB_TEXT), report_status="ready", report_analysis="{broken json")
+    assert "analysis" not in api.get("/api/reports/x5", headers=ALICE).json()
+
+
+def test_analysis_rate_limit(api, monkeypatch):
+    monkeypatch.setattr(reports.analyze_limiter, "allow", lambda key: False)
+    _upload("alice", "r1", _pdf(LAB_TEXT))
+    assert api.post("/api/reports/r1/analyze", headers=ALICE).status_code == 429
+
+
+def test_ai_symptom_summary_and_its_fallbacks(api, ai, monkeypatch):
+    for sev in (3, 6):
+        api.post("/api/symptoms", headers=ALICE, json={"name": "Knee pain", "severity": sev, "notes": "after running"})
+    ai.text = {"summary": "Your knee pain ratings went from 3 to 6."}
+    r = api.post("/api/symptoms/summary", headers=ALICE, json={"name": "knee pain"}).json()
+    assert r["source"] == "ai"
+    assert "3 to 6" in r["summary"]
+
+    ai.text = RuntimeError("down")
+    assert api.post("/api/symptoms/summary", headers=ALICE, json={"name": "knee pain"}).json()["source"] == "rules"
+
+    monkeypatch.setattr(symptom_service.summary_limiter, "allow", lambda key: False)
+    assert api.post("/api/symptoms/summary", headers=ALICE, json={"name": "knee pain"}).status_code == 429
+
+
+@pytest.mark.parametrize("body", [
+    {"name": "   ", "severity": 3},
+    {"name": "x", "severity": 5, "recordedAt": "1990-01-01T00:00:00Z"},
+])
+def test_more_symptom_validation(api, body):
+    assert api.post("/api/symptoms", headers=ALICE, json=body).status_code == 422
+
+
+def test_naive_times_are_treated_as_utc(api):
+    r = api.post("/api/symptoms", headers=ALICE, json={"name": "Nausea", "severity": 2, "recordedAt": "2026-10-20T08:00:00"}).json()
+    assert r["recordedAt"].startswith("2026-10-20T08:00")
+
+
+def test_chat_report_counts_shared_photos_and_emergency_signs(api):
+    from app.repositories import consultation_repository as repo
+
+    chat = api.post("/api/consultations", headers=ALICE, json={}).json()["consultationId"]
+    repo.add_message("alice", chat, "user", "He collapsed and is not responding")
+    repo.add_message("alice", chat, "user", "My answers: x", answers={"items": [], "note": "It happened after lunch"})
+    repo.add_message("alice", chat, "user", "My answers: y",
+                     answers={"items": [{"question": "Breathing?", "answer": "Yes"}], "note": "Lips look blue"})
+    repo.add_message("alice", chat, "assistant", json.dumps({"severity": "EMERGENCY", "reasoning": "Unresponsive.",
+                                                             "emergency": {"reasons": ["unconscious or unresponsive"]}}),
+                     severity="EMERGENCY")
+    repo.add_message("alice", chat, "assistant", "plain text, not json")
+    boto3.resource("dynamodb", region_name="ap-south-1").Table(config.ATTACHMENTS_TABLE).put_item(Item={
+        "user_id": "alice", "attachment_id": "ph1", "scope": "chat", "chat_id": chat, "status": "uploaded", "kind": "photo"})
+    c = api.get(f"/api/consultations/{chat}/doctor-report", headers=ALICE).json()["chats"][0]
+    assert c["attachments"] == {"photos": 1, "documents": 0}
+    assert c["assessments"][0]["emergencyReasons"] == ["unconscious or unresponsive"]
+    assert "Lips look blue" in c["reported"]
+    assert {"question": "Breathing?", "answer": "Yes"} in c["answers"]
+    pdf = api.get(f"/api/consultations/{chat}/doctor-report/pdf", headers=ALICE)
+    from pypdf import PdfReader
+    assert "Emergency warning signs detected" in "".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf.content)).pages)

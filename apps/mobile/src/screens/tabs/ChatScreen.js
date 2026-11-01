@@ -331,7 +331,7 @@ export default function ChatScreen({ navigation }) {
   useEffect(() => {
     if (guestImportStarted.current) return
     guestImportStarted.current = true
-    ;(async () => {
+    void (async () => {
       try {
         const raw = await AsyncStorage.getItem(GUEST_SAVE_KEY)
         if (!raw) return
