@@ -151,3 +151,7 @@ $RECYCLE.BIN/
 
 # ── Claude / tooling ──
 .claude/settings.local.json
+
+# npm workspaces use the root package-lock.json; other lockfiles are stray
+pnpm-lock.yaml
+yarn.lock
