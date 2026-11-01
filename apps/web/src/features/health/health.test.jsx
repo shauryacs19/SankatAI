@@ -105,7 +105,7 @@ describe('timeline canvas', () => {
     await screen.findByRole('button', { name: 'Fever' })
     const weeks = [...document.querySelectorAll('.fc-week-title')].map((n) => n.textContent)
     expect(weeks).toHaveLength(2)
-    expect(weeks[0]).toMatch(/19 Oct/) // oldest week on top
+    expect(weeks[0]).toMatch(/19 Oct|Oct 19/) // oldest week on top (any locale's date order)
     expect(px(cardOf('Fever').style.top)).toBeGreaterThan(px(cardOf('Cough').style.top))
     // Same weekday column in both weeks lines up; same-day events stack.
     expect(cardOf('Headache: 7/10').style.left).toBe(cardOf('Headache: 5/10').style.left)
