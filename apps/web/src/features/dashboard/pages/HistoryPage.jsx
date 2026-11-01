@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 // eslint-disable-next-line no-unused-vars -- `motion` is used via motion.* JSX
 import { AnimatePresence, motion } from 'framer-motion'
-import { Search, X, History as HistoryIcon, Pencil, Trash2, Plus, MessageSquare } from 'lucide-react'
+import { Search, X, History as HistoryIcon, Pencil, Trash2, Plus, MessageSquare, Stethoscope } from 'lucide-react'
 import { relTime, groupConsults } from '../../chat/utils/format.jsx'
 import {
   Button, ConfirmDialog, EmptyState, ErrorState, IconButton, IconInput, PageHeader, SeverityDot, Spinner,
@@ -109,6 +109,7 @@ export default function HistoryPage() {
                         </span>
                       </button>
                       <span className="hist-actions">
+                        <IconButton label={`Doctor report for “${c.title || 'New consultation'}”`} icon={Stethoscope} size={16} tooltip={false} onClick={() => d.openDoctorReport(c)} />
                         <IconButton label={`Rename “${c.title || 'New consultation'}”`} icon={Pencil} size={16} tooltip={false} onClick={() => d.openRename(c)} />
                         <IconButton label={`Delete “${c.title || 'New consultation'}”`} icon={Trash2} size={16} variant="danger" tooltip={false} onClick={() => setToDelete(c)} />
                       </span>

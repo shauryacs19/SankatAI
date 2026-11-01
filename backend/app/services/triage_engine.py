@@ -401,6 +401,18 @@ def assessment_reply(d: Decision, llm: dict, *, variant: str, lang_key: str, use
         "disclaimer": DISCLAIMER,
         "confidence": round(d.confidence, 3),
         "triage": _meta(d, "final", variant),
+        **({"emergency": emergency_block(d)} if sev == "EMERGENCY" else {}),
+    }
+
+
+def emergency_block(d: Decision) -> dict:
+    """What the clients show as the emergency warning. ``source`` "rules" = a
+    deterministic red flag fired (the LLM was never asked); "model" = the
+    severity model alone. Neither can rule an emergency out."""
+    return {
+        "detected": True, "source": d.source, "reasons": d.reasons, "numbers": ["112", "108"],
+        "message": "Possible emergency. Call 112 (or 108 for an ambulance) now, or go to the nearest emergency "
+                   "department. Do not wait for more questions.",
     }
 
 
@@ -420,6 +432,7 @@ def offline_reply(d: Decision, variant: str, user_text: str = "") -> dict:
 class EngineResult:
     reply: dict
     llm_used: bool
+    safety_stop: bool = False  # a red-flag rule answered; the LLM was deliberately skipped
 
     @property
     def content(self) -> str:
@@ -463,8 +476,15 @@ def run(
     variant = bandit_service.pick(PROMPT_VARIANTS, rng)
     lang_key = _lang_key(lang)
 
-    llm = _call_llm(provider, d, variant, profile, images, messages, lang, seed, deadline)
     user_text = " ".join(m.content for m in messages if m.role == "user")
+    if d.severity == "EMERGENCY" and d.source == "rules":
+        # Safety layer: a deterministic red flag answers at once, before (and
+        # instead of) any LLM call, so no follow-up questions and no waiting.
+        reply = assessment_reply(d, {}, variant=variant, lang_key=lang_key, user_text=user_text)
+        logger.info("triage turn mode=final severity=EMERGENCY source=rules why=safety_stop llm=False")
+        return EngineResult(reply, False, safety_stop=True)
+
+    llm = _call_llm(provider, d, variant, profile, images, messages, lang, seed, deadline)
     items = llm_questions(llm, lang_key) if d.may_ask and llm.get("type") != "assessment" else []
     if items:
         reply, used = ask_reply(d, items, _str(llm.get("intro"), 300), variant), True

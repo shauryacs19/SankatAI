@@ -64,7 +64,9 @@ export const toBubble = (m) => {
   // User messages loaded from history are persisted -> delivered ("received").
   if (m.role === 'user') return { id: m.id, sender: 'user', text: m.content, createdAt: m.createdAt, status: 'received', attachmentIds: m.attachmentIds || [] }
   const n = normalizeAssistant(m.content)
-  return { id: m.id, sender: 'bot', text: n.text, questions: n.questions || null, questionnaire: n.questionnaire || null, intro: n.intro || '', details: n.details || null, severity: n.severity, riskScore: n.riskScore, care: n.care || null, raw: m.content, lang: m.lang || null, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
+  let emergency = null // red-flag safety block (backend triage engine), EMERGENCY replies only
+  try { emergency = JSON.parse(m.content)?.emergency || null } catch { /* plain-text reply */ }
+  return { id: m.id, sender: 'bot', text: n.text, questions: n.questions || null, questionnaire: n.questionnaire || null, intro: n.intro || '', details: n.details || null, severity: n.severity, riskScore: n.riskScore, care: n.care || null, emergency, raw: m.content, lang: m.lang || null, createdAt: m.createdAt, feedback: m.feedback ?? null, offline: Boolean(m.isOfflineFallback) }
 }
 
 export const relTime = (iso) => {

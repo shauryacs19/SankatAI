@@ -231,6 +231,7 @@ export default function ChatScreen({ navigation }) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [emergency, setEmergency] = useState(false)
+  const [emergencyReasons, setEmergencyReasons] = useState([]) // red flags the backend rules found
   const [lastRiskScore, setLastRiskScore] = useState(null)
   const [isOffline, setIsOffline] = useState(false)
   const [analysisOpen, setAnalysisOpen] = useState(false)
@@ -548,7 +549,7 @@ export default function ChatScreen({ navigation }) {
         const bot = { ...toBubble(res.assistantMessage), offline: Boolean(res.isOfflineFallback) }
         setMessages((p) => [...p, bot])
         if (bot.riskScore != null) setLastRiskScore(bot.riskScore)
-        if (bot.severity === 'EMERGENCY') setEmergency(true)
+        if (bot.severity === 'EMERGENCY') { setEmergency(true); setEmergencyReasons(parseA(res.assistantMessage.content)?.emergency?.reasons || []) }
         // Opt-in: read replies to spoken messages aloud.
         if (meta.inputMode === 'voice' && ttsAvailable && await getAutoRead()) {
           tts.play(bot.id, () => loadTts(cid, bot.id)).catch(() => {})
@@ -643,7 +644,9 @@ export default function ChatScreen({ navigation }) {
             <Text style={styles.emergTitle}>⚠️ Possible emergency</Text>
             <Text style={styles.emergRisk}>Risk {lastRiskScore ?? 0}</Text>
           </View>
+          {emergencyReasons.length > 0 && <Text style={styles.emergFlags}>Warning signs found: {emergencyReasons.join(', ')}. Call 112 now, do not wait.</Text>}
           <View style={styles.emergRow}>
+            <TouchableOpacity style={styles.emergBtnDanger} onPress={() => Linking.openURL('tel:112')}><Phone size={14} color="#fff" /><Text style={styles.emergBtnDangerText}>112</Text></TouchableOpacity>
             <TouchableOpacity style={styles.emergBtnDanger} onPress={() => Linking.openURL('tel:108')}><Ambulance size={14} color="#fff" /><Text style={styles.emergBtnDangerText}>Ambulance</Text></TouchableOpacity>
             {primary?.phone && <TouchableOpacity style={styles.emergBtn} onPress={() => Linking.openURL(`tel:${primary.phone}`)}><Phone size={13} color={colors.text} /><Text style={styles.emergBtnText}>Contact</Text></TouchableOpacity>}
             {primary?.phone && <TouchableOpacity style={styles.emergBtn} onPress={shareLocation}><MapPin size={13} color={colors.text} /><Text style={styles.emergBtnText}>Location</Text></TouchableOpacity>}
@@ -1018,6 +1021,7 @@ const makeStyles = (colors) => StyleSheet.create({
   emergBtnDangerText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   emergBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: radius.sm, paddingVertical: 8, paddingHorizontal: 12 },
   emergBtnText: { color: colors.text, fontWeight: '600', fontSize: 13 },
+  emergFlags: { color: colors.sevEmergency, fontSize: 12.5, fontWeight: '600', marginBottom: 8 },
   emergDismiss: { color: colors.muted, fontSize: 12, textDecorationLine: 'underline', marginTop: 8 },
   chat: { padding: 16, gap: 12, flexGrow: 1 },
   welcome: { paddingTop: 8, paddingBottom: 12 },

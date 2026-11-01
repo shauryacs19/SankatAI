@@ -131,3 +131,30 @@ class DynamoAttachmentRepository(AttachmentRepository):
             UpdateExpression="SET vision_findings = :f, vision_model = :m",
             ExpressionAttributeValues={":f": findings_json, ":m": model},
         )
+
+    # Report analyzer (additive attributes, report_analysis_service).
+    def mark_report_processing(self, user_id: str, attachment_id: str, started_at: str) -> None:
+        self._table.update_item(
+            Key={"user_id": user_id, "attachment_id": attachment_id},
+            UpdateExpression="SET report_status = :s, report_started_at = :t REMOVE report_error",
+            ConditionExpression="attribute_exists(attachment_id)",
+            ExpressionAttributeValues={":s": "processing", ":t": started_at},
+        )
+
+    def set_report_analysis(self, user_id: str, attachment_id: str, status: str,
+                            analysis_json: Optional[str], error: Optional[str]) -> None:
+        from app.integrations.aws.dynamo_client import now_iso
+        values = {":s": status, ":t": now_iso()}
+        expr = "SET report_status = :s, report_analyzed_at = :t"
+        if analysis_json:
+            expr += ", report_analysis = :a"
+            values[":a"] = analysis_json
+        if error:
+            expr += ", report_error = :e"
+            values[":e"] = error
+        # Only while the row still exists (the file may have been deleted meanwhile).
+        self._table.update_item(
+            Key={"user_id": user_id, "attachment_id": attachment_id},
+            UpdateExpression=expr, ConditionExpression="attribute_exists(attachment_id)",
+            ExpressionAttributeValues=values,
+        )

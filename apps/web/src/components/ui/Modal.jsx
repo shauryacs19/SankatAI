@@ -64,7 +64,7 @@ function ModalInner({ onClose, title, description, Icon, iconTone, children, foo
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className={`ui-modal ${size === 'md' ? 'ui-modal--md' : ''} ${side ? 'ui-modal--side' : ''}`}
+        className={`ui-modal ${size === 'md' || size === 'lg' ? `ui-modal--${size}` : ''} ${side ? 'ui-modal--side' : ''}`}
         {...(side ? sidePanel : modalPanel)}
       >
         <Body {...bodyProps}>

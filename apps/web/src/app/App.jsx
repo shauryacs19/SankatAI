@@ -15,6 +15,7 @@ import ProfilePage from '../features/dashboard/pages/ProfilePage.jsx'
 import EmergencyPage from '../features/dashboard/pages/EmergencyPage.jsx'
 import SettingsPage from '../features/dashboard/pages/SettingsPage.jsx'
 import OfflinePage from '../features/dashboard/pages/OfflinePage.jsx'
+import { TimelinePage, SymptomsPage, ReportsPage } from '../features/health/pages.jsx'
 import DocumentUploadPage from '../features/medical-documents/pages/DocumentUploadPage.jsx'
 import { AUTH_STATUS, AuthProvider, useAuth } from '../context/AuthContext.jsx'
 import { ProfileProvider, useProfile, isProfileComplete } from '../features/profile/context/ProfileContext.jsx'
@@ -87,6 +88,12 @@ function AppRoutes() {
         <Route path="files" element={<FilesPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="emergency" element={<EmergencyPage />} />
+        <Route path="timeline" element={<TimelinePage />} />
+        <Route path="symptoms" element={<SymptomsPage />} />
+        <Route path="reports" element={<ReportsPage />} />
+        {/* The doctor report is per chat now (chat header / History row). */}
+        <Route path="doctor-report" element={<Navigate to="/dashboard/history" replace />} />
+        <Route path="health" element={<Navigate to="/dashboard/timeline" replace />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/dashboard/chat" replace />} />
       </Route>

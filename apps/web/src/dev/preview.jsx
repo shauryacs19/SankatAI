@@ -18,6 +18,8 @@
 //   geo=12.9756,77.6050      the browser's location (nearby care) without a prompt
 //   nearby=live              /api/care/nearby goes to the real backend (localhost:5174,
 //                            AUTH_ENABLED=false) for real places; otherwise sample places
+//   api=live                 every /api call goes to the local backend (localhost:5174, started
+//                            with AUTH_ENABLED=true) as user x-user-id "preview-user"
 //   admin=1                  signed-in user is in the ADMIN group; /api/admin/* mocked
 //                            (e.g. ?admin=1&route=/admin). QA fixtures only — the real
 //                            console reads the backend's aggregates.
@@ -30,6 +32,7 @@ import { App } from '../app/App.jsx'
 import { AuthContext, AUTH_STATUS } from '../context/AuthContext.jsx'
 import { installStyles } from '../styles/install'
 import { applyTheme, initTheme } from '../services/theme'
+import { initTextSize } from '../services/textSize'
 import { installQa, installContrast } from './qa'
 
 const q = new URLSearchParams(location.search)
@@ -41,6 +44,7 @@ const OFFLINE = q.get('offline') === '1'
 const ADMIN = q.get('admin') === '1'
 const SHOWCASE = q.get('showcase') === '1'
 const NEARBY_LIVE = q.get('nearby') === 'live'
+const API_LIVE = q.get('api') === 'live'
 const GEO = (q.get('geo') || '').split(',').map(Number)
 if (GEO.length === 2 && GEO.every(Number.isFinite)) {
   const [latitude, longitude] = GEO
@@ -323,6 +327,7 @@ window.fetch = async (input, init = {}) => {
   const path = url.replace(location.origin, '')
   if (!path.startsWith('/api') && path !== '/__mock_s3') return realFetch(input, init)
   if (NEARBY_LIVE && path === '/api/care/nearby') return realFetch(input, init)
+  if (API_LIVE && path.startsWith('/api')) return realFetch(input, { ...init, headers: { ...init.headers, 'x-user-id': 'preview-user' } })
   if (SLOW) await wait(SLOW)
   if (FAIL) throw new TypeError('Failed to fetch')
   if (path === '/__mock_s3') { await wait(800); return new Response(null, { status: 200 }) }
@@ -346,6 +351,7 @@ if (q.get('static') === '1') MotionGlobalConfig.skipAnimations = true
 
 installStyles()
 initTheme()
+initTextSize()
 if (q.get('theme')) applyTheme(q.get('theme'))
 if (q.get('click')) setTimeout(() => document.querySelector(q.get('click'))?.click(), 1500)
 installQa()

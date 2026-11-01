@@ -42,6 +42,7 @@ export function useDashboard() {
   const [isEmergency, setIsEmergency] = useState(false)
   const [emergencyFromAssessment, setEmergencyFromAssessment] = useState(false)
   const [lastRiskScore, setLastRiskScore] = useState(null)
+  const [emergencyReasons, setEmergencyReasons] = useState([]) // red flags the backend rules found
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [attachments, setAttachments] = useState([])
   const [chatAttachmentMap, setChatAttachmentMap] = useState({}) // id -> {kind, filename, downloadUrl}
@@ -185,7 +186,7 @@ export function useDashboard() {
         setMessages((prev) => [...prev, bot])
         setLastReply(bot)
         if (bot.riskScore != null) setLastRiskScore(bot.riskScore)
-        if (bot.severity === 'EMERGENCY') { setIsEmergency(true); setEmergencyFromAssessment(true) }
+        if (bot.severity === 'EMERGENCY') { setIsEmergency(true); setEmergencyFromAssessment(true); setEmergencyReasons(bot.emergency?.reasons || []) }
         if (bot.severity && bot.riskScore != null && bot.riskScore >= AUTO_NEARBY_RISK) void showNearbyCare({ cid, anchor: bot })
         // Opt-in: read replies to spoken messages aloud. A browser may refuse
         // autoplay; the speaker button still works, so fail quietly.
@@ -392,13 +393,13 @@ export function useDashboard() {
   const goChat = () => navigate('/dashboard/chat')
   const goEditProfile = () => navigate('/profile-setup')
   // SOS: the emergency panel appears instantly — no confirmation, no delay.
-  const triggerSos = () => { setEmergencyFromAssessment(false); setIsEmergency(true); goChat() }
+  const triggerSos = () => { setEmergencyFromAssessment(false); setEmergencyReasons([]); setIsEmergency(true); goChat() }
 
   const refs = { docInputRef, photoInputRef }
   return {
     refs, lastReply, loading, initialLoading, profileError, reloadProfile, reloadChats, profile, fullName, firstName, age, profileCompletion, contacts, primaryContact,
     consultations, consultationsError, loadConsultations, activeId, messages, input, setInput, isLoading,
-    isOffline, isEmergency, setIsEmergency, emergencyFromAssessment, lastRiskScore, analysisOpen, setAnalysisOpen,
+    isOffline, isEmergency, setIsEmergency, emergencyFromAssessment, emergencyReasons, lastRiskScore, analysisOpen, setAnalysisOpen,
     attachments, removeAttachment, voice, chatAttachmentMap, nearby, showNearbyCare, retryNearby,
     search, setSearch, searching, visibleConsultations, onFilesSelected,
     selectConsultation, startNewConsultation, startDraft, deleteChat, openRename, closeRename, renameTarget, renameChat,

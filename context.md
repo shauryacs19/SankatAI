@@ -3,7 +3,7 @@
 > **Purpose:** single source of truth so Claude can get up to speed without
 > re-reading the whole codebase. **Claude updates this file after every completed
 > task** (append to the Changelog + adjust the relevant sections).
-> Last updated: 2026-10-26 (usernames removed; single email/phone sign-in + code/passkey links; EMAIL_OTP; favicon; nav nearby → new chat — §9g, §10).
+> Last updated: 2026-11-01 (health records: red-flag safety stop, symptom tracker, report analyzer, timeline, doctor PDF — §9j, §10).
 
 ---
 
@@ -864,7 +864,71 @@ uses the AWS CLI profile locally and the instance role in AWS.
 **Not verified:** real Ollama returning `care` (no AI key locally; the fallback covers it), the endpoint in AWS,
 mobile (unchanged; can call the same endpoint later).
 
+## 9j. Health records + emergency safety stop (2026-11-01, local only, NOT committed)
+
+**No AWS changes.** Reuses the catch-all JWT route `ANY /{proxy+}`, existing tables/buckets and the backend role's
+existing permissions (chat-history + attachments CRUD, S3 GetObject).
+- **Red-flag safety stop** (`triage_engine.run`): when an EMERGENCY *rule* fires (`source == "rules"`), the LLM is never
+  called — template assessment at once (~0.1 s), no questions, `EngineResult.safety_stop` (not reported as AI offline).
+  Every EMERGENCY reply carries `emergency: {detected, source: rules|model, reasons, numbers: [112, 108], message}`.
+  Web `EmergencyPanel`: warning signs + Call 112 first, then 108, contact, location, hospitals + "cannot rule out" note.
+  Mobile chat banner: 112 button + reasons.
+- **Symptom tracker** (`services/symptom_service.py`): rows in `sankatai-chat-history`, sk `SYMPTOM#<recorded_at>#<id>`
+  (CONSULT#/MSG# queries never see them). Trend = mean(later half) − mean(earlier half): ≥ +1 increasing, ≤ −1 decreasing,
+  else stable; 1 entry = insufficient. AI summary describes the numbers only (fallback = computed sentence), 10/min/user.
+- **Report analyzer** (`services/report_analysis_service.py`): vault docs (PDF text / txt / image via vision). Background
+  thread + client poll; stored on the attachment row (`report_status|report_analysis|report_analyzed_at|report_error`,
+  stale `processing` > 3 min = failed), deleted with the file. Flags (high/low/normal/not_assessed) computed by CODE from
+  the PRINTED range; for text docs every value/range number must occur in the text or the range (or the value row) is
+  dropped — ranges are never invented. No AI → regex rows "name value unit low-high". PIN-protected files refused. 10/min/user.
+- **Timeline** (`services/health_record_service.timeline`): read-only merge of consultations, uploads, analyses,
+  medicines listed in analysed docs, symptoms; `?category=assessment,report,symptom,medication`.
+- **Doctor report = PER CHAT** (user decision 2026-11-01; the global report + its nav page were removed):
+  `GET /api/consultations/{id}/doctor-report` (JSON) + `/pdf` (fpdf2, core Latin-1 fonts, `no-store`; 404 if not the
+  caller's chat). Covers ONE consultation: what the user reported, questionnaire answers, duration band, photos/docs
+  shared, every AI assessment in it (severity, reasoning, causes, advice, warning signs, emergency reasons) + profile
+  basics, allergies, medicines from analysed documents; questions built from that chat (not LLM). AI sections labelled.
+  Web: "Doctor report" button in the chat app bar + stethoscope action on each History row → `DoctorReportModal`
+  (PDF iframe preview, Download, Open in new tab; Modal size `lg` added). Mobile: header icon on Chat + History row →
+  `DoctorReportSheet` (native preview + Android save).
+  **Report from a timeline selection:** tick a week band (all its records; mixed state when partly ticked) or single
+  cards → bottom bar "N records selected · Clear · Select all · Generate doctor report" → `POST /api/doctor-report/selection
+  {ids}` (timeline event ids, 1-300, pattern-checked) → PDF. Server resolves ids ONLY against the caller's own timeline
+  (unknown/foreign ids ignored; none left → 400), then builds: each picked chat's section, picked symptom entries (+trend
+  of just those), picked analysed reports (abnormal values, medicines), other picked uploads. Hidden categories are not
+  sent. One renderer (`render_pdf`) serves chat and selection reports; sections appear only when they have content.
+- Routes: `routes/health_records.py` (`/api/symptoms`, `/api/reports`, `/api/timeline`, `/api/doctor-report`).
+  New dep: backend `fpdf2>=2.8` (⚠ regenerate `requirements-retrain.lock` before merging).
+- **Web (revised 2026-11-01):** side nav grouped — **Care** (Chat, Chat history, Emergency) / **My health** (Timeline,
+  Symptoms, Lab reports, Documents) + Settings at the bottom; old "Quick actions" removed (Upload lives in
+  Documents/Lab reports, nearby hospitals on Emergency + chat). Panel hide/show button in the app bar (≥768 px; localStorage
+  `sankatai.sidebar.hidden`). Routes `/dashboard/{timeline,symptoms,reports,doctor-report}` (`features/health/pages.jsx`;
+  `/dashboard/health` redirects). <768 px tab bar: Chat, History, Timeline, SOS, More (More grouped My health / Account).
+  **Timeline = flow canvas** (`TimelineCanvas.jsx`, full-bleed like chat): one BAND PER WEEK (Mon-Sun columns aligned like a
+  calendar, weeks stacked top→bottom oldest first, cross-week arrow drops down through the gap into the next week's card), fixed-size cards
+  (kind overline, title, key rows, footer action) joined by arrows in time order + NOW pill; dotted grid; drag/scroll pan,
+  Ctrl+wheel/pinch/±/Fit zoom (20-200 %), cards draggable (positions in localStorage `sankatai.timeline.positions`, Reset
+  layout), click = details panel, category chips float top-left. List view removed. Base CSS `svg {max-width:100%}` must be
+  overridden on the wire layer.
+  **Text size** setting (Settings → Small 87.5 % / Medium 93.75 % default / Large 100 % root font; `services/textSize.js`,
+  localStorage `sankatai_text_size`, applied before first paint). Everything is rem, so spacing scales with text.
+- **Mobile app:** emergency banner (112 + reasons) and drawer page "Health records" (`src/screens/health/`:
+  HealthScreen tabs + Timeline/Symptoms/Reports/DoctorReport views, `src/lib/health.js`). Chart = react-native-svg;
+  severity = 1-10 chips; date = DateField + HH:MM. Doctor report = native preview of `GET /api/doctor-report` +
+  "Download PDF" saved via Android Storage Access Framework (expo-file-system/legacy; no new dep); iOS shows "use the
+  website". Verified: `npx expo export --platform android` OK; NOT run on a device (none attached).
+- **Local run without AWS:** dev preview `preview.html?api=live` sends every /api call to localhost:5174 as
+  `x-user-id: preview-user`; backend run in-process under moto `mock_aws` (Comprehend stubbed — moto lacks it).
+  `secrets/openai_api_key` is REJECTED by Ollama (401) → AI paths verified only via fallbacks + fakes in tests.
+- **Tests:** backend `test_health_records.py` (19) + 5 safety tests in `test_triage_engine.py` → 288; web
+  `features/health/health.test.jsx` (6) → 179; build OK.
+- **Not verified:** real Ollama extraction/summaries/vision, Hindi text in the PDF (renders "?"), mobile UI on a device, AWS deploy.
+
 ## 10. Changelog (most recent first)
+- **2026-11-01 — five health features + timeline canvas + per-chat/selection doctor report:** see §9j. No AWS/Terraform
+  change. Branch `feature/health-records` (based on `fix/ci-main`, so it also carries PR #8's CI fix + node-forge bump);
+  user asked to push, pass CI, merge to main and let CD deploy. `requirements-retrain.lock` regenerated (adds fpdf2,
+  fonttools, pypdf). Tests: backend 290 (cov 82 %), web 185, build OK, lint = the 7 pre-existing errors.
 - **2026-10-26 — verified + pushed (9454c04 on feature/nearby-care):** backend pytest 256 ✓, web vitest 173 ✓, vite build ✓, mobile parse ✓. 219 files had CRLF-only churn (Windows) → normalised to LF before commit. ESLint: 7 pre-existing errors (AuthContext/ProfileContext react-refresh, vite.config `process`) — not in CI. Not committed: `.claude/launch.json`, `SankatAI_Project_Report.docx`. Tip: `git config core.autocrlf input` to stop CRLF churn.
 - **Nearby care in the chat (2026-10-25, branch `feature/nearby-care`, PR):** see §9i. Specialty-aware
   hospitals/clinics (Amazon Location), in-chat card with top 3 + distances + map; auto at risk ≥ 65, button below;
