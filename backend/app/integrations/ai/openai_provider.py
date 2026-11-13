@@ -209,7 +209,7 @@ class OpenAIProvider(AIProvider):
         # medical replies; the per-session seed keeps one conversation
         # stable on retry. Severity is NOT decided here (see triage_engine).
         client = self._client().with_options(timeout=timeout) if timeout else self._client()
-        kwargs = {"seed": seed} if seed is not None else {}
+        kwargs = {"seed": seed} if seed is not None and config.AI_SEND_SEED else {}
         response = client.chat.completions.create(
             model=model or config.AI_MODEL,
             messages=messages,
