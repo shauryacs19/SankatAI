@@ -21,15 +21,20 @@ from app.schemas.triage import Message, PatientProfile
 from app.services.language_service import TRANSLATION_TARGETS, language_directive, language_reminder
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
+# Reasoning models (Gemma 4 on the Gemini API) put their thinking in the reply
+# itself, even in JSON mode, and it cannot be switched off there. It may quote
+# braces, so it must go before the {...} fallback below.
+_THOUGHT = re.compile(r"<(thought|think)>.*?</\1>", re.DOTALL | re.IGNORECASE)
 
 
 def _extract_json(content: Optional[str]) -> str:
     """Return the JSON object from a model reply.
 
     Open-weight models honour JSON mode less strictly than gpt-4o — replies can
-    arrive fenced in ```json or wrapped in a sentence. Strip the fence and fall
-    back to the outermost {...} span; the caller validates the payload."""
-    text = (content or "").strip()
+    arrive fenced in ```json, wrapped in a sentence, or after a <thought> block.
+    Drop thinking blocks, strip the fence and fall back to the outermost {...}
+    span; the caller validates the payload."""
+    text = _THOUGHT.sub("", content or "").strip()
     if not text:
         return "{}"
     fenced = _FENCE.search(text)
@@ -151,8 +156,10 @@ class AIProvider(ABC):
         """Translate the text values of a reply JSON into `target` (a key of
         TRANSLATION_TARGETS). Returns the model's JSON string; raises on failure."""
 
-    def generate(self, messages: list[dict], *, seed: Optional[int] = None, timeout: Optional[float] = None) -> str:
-        """Triage-engine turn (question or explanation). JSON string; raises on failure."""
+    def generate(self, messages: list[dict], *, seed: Optional[int] = None, timeout: Optional[float] = None,
+                 model: Optional[str] = None) -> str:
+        """JSON-mode completion (triage-engine turn, document/report/symptom tasks).
+        `model` overrides AI_MODEL (the chat passes AI_CHAT_MODEL). Raises on failure."""
         raise NotImplementedError
 
     def analyze_image(self, image_b64: str, mime: str, *, timeout: Optional[float] = None, prompt: Optional[str] = None) -> str:
@@ -177,7 +184,7 @@ class OpenAIProvider(AIProvider):
 
     def analyze(self, messages: list[Message], patient_profile: Optional[PatientProfile], lang: Optional[str] = None) -> str:
         response = self._client().chat.completions.create(
-            model=config.AI_MODEL,
+            model=config.AI_CHAT_MODEL,
             messages=build_messages(messages, patient_profile, lang),
             temperature=0.1,
             response_format={"type": "json_object"},
@@ -196,14 +203,15 @@ class OpenAIProvider(AIProvider):
         )
         return _extract_json(response.choices[0].message.content)
 
-    def generate(self, messages: list[dict], *, seed: Optional[int] = None, timeout: Optional[float] = None) -> str:
+    def generate(self, messages: list[dict], *, seed: Optional[int] = None, timeout: Optional[float] = None,
+                 model: Optional[str] = None) -> str:
         # Low temperature (AI_TEMPERATURE, default 0.2) for accurate, consistent
         # medical replies; the per-session seed keeps one conversation
         # stable on retry. Severity is NOT decided here (see triage_engine).
         client = self._client().with_options(timeout=timeout) if timeout else self._client()
         kwargs = {"seed": seed} if seed is not None else {}
         response = client.chat.completions.create(
-            model=config.AI_MODEL,
+            model=model or config.AI_MODEL,
             messages=messages,
             temperature=config.AI_TEMPERATURE,
             top_p=config.AI_TOP_P,

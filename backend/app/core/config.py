@@ -98,6 +98,9 @@ if OPENAI_API_KEY:
 
 AI_BASE_URL = os.getenv("AI_BASE_URL", "https://ollama.com/v1")
 AI_MODEL = os.getenv("AI_MODEL", "gpt-oss:120b")
+# Model for the symptom CHAT only (triage engine + legacy analyze). Documents, lab
+# reports, symptom summaries and translation keep AI_MODEL. Defaults to AI_MODEL.
+AI_CHAT_MODEL = os.getenv("AI_CHAT_MODEL") or AI_MODEL
 AI_TIMEOUT = float(os.getenv("AI_TIMEOUT", "30"))  # cloud models are slower than gpt-4o-mini
 
 

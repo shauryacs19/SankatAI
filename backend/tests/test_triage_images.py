@@ -114,7 +114,7 @@ class FakeAI:
         return json.dumps({"isMedical": True, "bodyRegion": "left forearm", "visibleSigns": ["deep cut", "active bleeding"],
                            "redFlags": ["heavy bleeding"], "severityCue": "severe", "summary": "A deep cut on a forearm."})
 
-    def generate(self, messages, *, seed=None, timeout=None):
+    def generate(self, messages, *, seed=None, timeout=None, **kw):
         return json.dumps({"reasoning": "r", "advice": "Press firmly on the wound.", "warningSigns": [], "seekCare": "now"})
 
 
