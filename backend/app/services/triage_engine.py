@@ -445,7 +445,8 @@ def _call_llm(provider, d, variant, profile, images, messages, lang, seed, deadl
         return {}
     try:
         system = build_prompt(d, variant, profile, images, lang)
-        raw = provider.generate(build_messages(system, messages, lang), seed=seed, timeout=min(config.AI_TIMEOUT, remaining))
+        raw = provider.generate(build_messages(system, messages, lang), seed=seed, timeout=min(config.AI_TIMEOUT, remaining),
+                                model=config.AI_CHAT_MODEL)
         parsed = json.loads(raw)
         return parsed if isinstance(parsed, dict) else {}
     except Exception as error:  # noqa: BLE001 - offline reply below

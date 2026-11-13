@@ -29,6 +29,10 @@ aws ecr get-login-password --region "$REGION" \
   | docker login --username AWS --password-stdin "$REGISTRY"
 docker pull "$IMAGE"
 
+# AI provider (2026-11-13): Google's Gemini API, OpenAI-compatible. Symptom chat
+# on Gemma 4 26B (AI_CHAT_MODEL); documents, lab reports, symptom summaries,
+# translation and photos on Gemini (AI_MODEL / AI_VISION_MODEL). The Google key
+# lives in the same secret as before. Each value can be overridden via env.
 # The AI key goes to a root-only file mounted read-only, so it never lands in
 # the container environment or in `docker inspect`. config.py::_secret() reads
 # OPENAI_API_KEY_FILE ahead of OPENAI_API_KEY (see context.md 9a).
@@ -68,6 +72,11 @@ docker run -d \
   -v /opt/sankatai/secrets/openai_api_key:/run/secrets/openai_api_key:ro \
   -v /opt/sankatai/secrets/analytics_salt:/run/secrets/analytics_salt:ro \
   -e OPENAI_API_KEY_FILE=/run/secrets/openai_api_key \
+  -e AI_BASE_URL="${AI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai/}" \
+  -e AI_MODEL="${AI_MODEL:-gemini-3.5-flash}" \
+  -e AI_CHAT_MODEL="${AI_CHAT_MODEL:-gemma-4-26b-a4b-it}" \
+  -e AI_VISION_MODEL="${AI_VISION_MODEL:-gemini-3.5-flash}" \
+  -e AI_VISION_TIMEOUT="${AI_VISION_TIMEOUT:-20}" \
   -e ANALYTICS_SALT_FILE=/run/secrets/analytics_salt \
   -e AWS_REGION="$REGION" \
   -e PROJECT_NAME=sankatai \

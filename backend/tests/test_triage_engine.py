@@ -41,7 +41,7 @@ class FakeProvider:
         self.reply = reply
         self.fail = fail
 
-    def generate(self, messages, *, seed=None, timeout=None):
+    def generate(self, messages, *, seed=None, timeout=None, **kw):
         self.calls.append({"messages": messages, "seed": seed, "timeout": timeout})
         if self.fail:
             raise RuntimeError("model down")
