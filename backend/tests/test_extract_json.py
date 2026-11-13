@@ -26,6 +26,7 @@ class _FakeCompletions:
 
     def create(self, **kw):
         self.models.append(kw["model"])
+        self.kwargs = kw
         msg = type("M", (), {"content": '<thought>{"no": 1}</thought>{"ok": true}'})
         return type("R", (), {"choices": [type("C", (), {"message": msg})]})
 
@@ -54,3 +55,15 @@ def test_chat_uses_chat_model_and_tasks_use_ai_model(monkeypatch):
     assert provider.generate([{"role": "user", "content": "x"}], seed=1) == '{"ok": true}'
     assert provider.translate('{"advice": "rest"}', next(iter(__import__("app.services.language_service", fromlist=["x"]).TRANSLATION_TARGETS))) == '{"ok": true}'
     assert completions.models == ["chat-model", "chat-model", "task-model", "task-model"]
+
+
+def test_seed_only_sent_when_enabled(monkeypatch):
+    from app.core import config
+
+    provider, completions = _fake_provider(monkeypatch)
+    monkeypatch.setattr(config, "AI_SEND_SEED", True)
+    provider.generate([{"role": "user", "content": "x"}], seed=7)
+    assert completions.kwargs["seed"] == 7
+    monkeypatch.setattr(config, "AI_SEND_SEED", False)  # Gemini API rejects `seed`
+    provider.generate([{"role": "user", "content": "x"}], seed=7)
+    assert "seed" not in completions.kwargs

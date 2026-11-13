@@ -242,6 +242,10 @@ TRIAGE_MAX_QUESTIONS = int(os.getenv("TRIAGE_MAX_QUESTIONS", "5"))
 # Generation sampling (assessment + questions). Translation keeps 0.1.
 AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", "0.2"))  # low = consistent, factual medical replies
 AI_TOP_P = float(os.getenv("AI_TOP_P", "0.85"))
+# Send the per-session `seed` with triage-engine calls. Google's Gemini
+# OpenAI-compatible endpoint rejects it (400 'Unknown name "seed"'), so the
+# rollout sets AI_SEND_SEED=false there; Ollama/OpenAI accept it.
+AI_SEND_SEED = os.getenv("AI_SEND_SEED", "true").strip().lower() not in ("0", "false", "no", "off")
 AI_HISTORY_MESSAGES = int(os.getenv("AI_HISTORY_MESSAGES", "20"))
 # Whole-turn budget: API Gateway cuts HTTP APIs off at 30 s.
 TRIAGE_TIME_BUDGET_SECONDS = float(os.getenv("TRIAGE_TIME_BUDGET_SECONDS", "26"))

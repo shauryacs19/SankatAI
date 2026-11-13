@@ -77,6 +77,7 @@ docker run -d \
   -e AI_CHAT_MODEL="${AI_CHAT_MODEL:-gemma-4-26b-a4b-it}" \
   -e AI_VISION_MODEL="${AI_VISION_MODEL:-gemini-3.5-flash}" \
   -e AI_VISION_TIMEOUT="${AI_VISION_TIMEOUT:-20}" \
+  -e AI_SEND_SEED="${AI_SEND_SEED:-false}" \
   -e ANALYTICS_SALT_FILE=/run/secrets/analytics_salt \
   -e AWS_REGION="$REGION" \
   -e PROJECT_NAME=sankatai \
